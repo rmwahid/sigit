@@ -1,0 +1,19 @@
+# Backend
+.env
+.env.local
+*.log
+dist
+node_modules
+
+# Frontend
+.svelte-kit
+build
+.env
+.env.local
+node_modules
+
+# Misc
+.DS_Store
+
+# SiGit runtime data
+data/

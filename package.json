@@ -1,0 +1,12 @@
+{
+  "name": "sigit",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "echo 'Run backend and frontend separately in their own directories'"
+  }
+}
