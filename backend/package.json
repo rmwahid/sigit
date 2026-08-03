@@ -7,21 +7,24 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "bun run src/db/migrations/migration-generator.ts",
+    "db:validate": "bun run src/db/migrations/migration-generator.ts --validate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "env:decrypt": "sops --decrypt --input-type dotenv --output-type dotenv .env.sops > .env",
+    "env:encrypt": "sops --encrypt --input-type dotenv --output-type dotenv .env > .env.sops"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
     "@hono/zod-validator": "^0.2.2",
-    "drizzle-orm": "^0.31.2",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.4.8",
     "postgres": "^3.4.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "drizzle-kit": "^0.22.7"
+    "drizzle-kit": "^0.31.10"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

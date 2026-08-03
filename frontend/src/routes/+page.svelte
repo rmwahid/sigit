@@ -37,6 +37,7 @@
   let projectForm = $state({
     name: "",
     description: "",
+    repoPath: "",
     storageConnectionId: "",
     lfsSizeThreshold: 10 * 1024 * 1024,
     lfsPatterns: "*.png,*.jpg,*.jpeg,*.gif,*.mp4,*.mov,*.zip,*.tar.gz,*.psd,*.ai,*.exe,*.bin,*.pdf",
@@ -74,7 +75,7 @@
     try {
       await createProject(projectForm);
       message = "Project created";
-      projectForm = { name: "", description: "", storageConnectionId: "", lfsSizeThreshold: 10 * 1024 * 1024, lfsPatterns: "*.png,*.jpg,*.jpeg,*.gif,*.mp4,*.mov,*.zip,*.tar.gz,*.psd,*.ai,*.exe,*.bin,*.pdf", useEncryption: false };
+      projectForm = { name: "", description: "", repoPath: "", storageConnectionId: "", lfsSizeThreshold: 10 * 1024 * 1024, lfsPatterns: "*.png,*.jpg,*.jpeg,*.gif,*.mp4,*.mov,*.zip,*.tar.gz,*.psd,*.ai,*.exe,*.bin,*.pdf", useEncryption: false };
       await load();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -154,6 +155,7 @@
     <form onsubmit={onCreateProject}>
       <input bind:value={projectForm.name} placeholder="Project name" required />
       <input bind:value={projectForm.description} placeholder="Description" />
+      <input bind:value={projectForm.repoPath} placeholder="Repo path (required)" required />
       <select bind:value={projectForm.storageConnectionId} required>
         <option value="">Select connection</option>
         {#each connections as conn}

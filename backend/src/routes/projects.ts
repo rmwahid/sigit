@@ -16,6 +16,7 @@ import { getDiff, getCommitFiles } from "../modules/projects/git";
 const projectSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
+  repoPath: z.string().min(1),
   storageConnectionId: z.string().uuid(),
   lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
   lfsPatterns: z.string().optional(),
@@ -85,7 +86,7 @@ export const projectRoutes = new Hono()
     const hash = c.req.param("hash");
     const project = await getProject(id);
     if (!project) return c.json({ error: "Not found" }, 404);
-    const repoPath = projectRepoPath(project.id);
+    const repoPath = projectRepoPath(project);
     const diff = await getDiff(repoPath, hash);
     const files = await getCommitFiles(repoPath, hash);
     return c.json({ data: { diff, files } });

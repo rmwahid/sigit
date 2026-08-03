@@ -15,10 +15,9 @@ import {
   shouldUseLfs,
 } from "./git";
 
-const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
-
-export function projectRepoPath(projectId: string): string {
-  return path.resolve(PROJECTS_ROOT, projectId);
+export function projectRepoPath(project: Pick<Project, "repoPath">): string {
+  if (!project.repoPath) throw new Error("Project repoPath is required");
+  return path.resolve(project.repoPath);
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -31,10 +30,12 @@ export async function getProject(id: string): Promise<Project | undefined> {
 }
 
 export async function createProject(data: NewProject): Promise<Project> {
-  const inserted = await db.insert(projects).values(data).returning();
+  if (!data.repoPath?.trim()) throw new Error("Project repoPath is required");
+  const insertData: NewProject = { ...data, repoPath: path.resolve(data.repoPath) };
+  const inserted = await db.insert(projects).values(insertData).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
-  await initRepo(projectRepoPath(project.id));
+  await initRepo(projectRepoPath(project));
   return project;
 }
 
@@ -68,7 +69,7 @@ export async function pushProject(
   const connection = await getConnection(project.storageConnectionId);
   if (!connection) throw new Error("Storage connection not found");
 
-  const repoPath = projectRepoPath(project.id);
+  const repoPath = projectRepoPath(project);
   await initRepo(repoPath);
 
   const committedFiles: { relativePath: string; content: Buffer }[] = [];
@@ -107,7 +108,9 @@ export async function pushProject(
 }
 
 export async function projectHistory(projectId: string, limit?: number) {
-  const repoPath = projectRepoPath(projectId);
+  const project = await getProject(projectId);
+  if (!project) return { head: null, commits: [] };
+  const repoPath = projectRepoPath(project);
   const head = await resolveHead(repoPath);
   if (!head) return { head: null, commits: [] };
   const commits = await getLog(repoPath, limit ?? 50);

@@ -10,10 +10,26 @@ Backend Hono untuk SiGit — fase 1: Git LFS-like + S3-compatible storage.
 
 ## Setup
 
-1. Copy `.env.example` ke `.env` dan isi credential.
+1. Decrypt env: `bun run env:decrypt` (butuh `SOPS_AGE_KEY_FILE` menunjuk ke file key age SiGit di mesin kamu).
 2. Jalankan `bun install`.
-3. Jalankan `bun run db:push` untuk sinkronisasi schema.
+3. Jalankan `bun run db:generate` lalu `bun run db:migrate` untuk setup schema.
 4. Jalankan `bun run dev`.
+
+### SOPS
+
+Env disimpan terenkripsi di `.env.sops` (di-commit). Plaintext `.env` dibuat via decrypt dan tidak di-commit. Private key age tidak boleh disimpan di repo dan tidak boleh ditulis hardcode di dokumentasi.
+
+```powershell
+$env:SOPS_AGE_KEY_FILE = "<path-to-agens-key>"   # misal C:\Users\<kamu>\.sops\age\sigit.age
+bun run env:decrypt   # .env.sops -> .env
+bun run env:encrypt   # .env -> .env.sops
+```
+
+### Migrations
+
+File migration sementara **di-ignore** (`.gitignore`) karena masih development dan schema belum stabil. Workflow: edit schema → `bun run db:generate <description>` → `bun run db:migrate`. Boleh drop db lalu generate ulang sampai schema dianggap final. Script generator (`src/db/migrations/migration-generator.ts`) tetap di-track.
+
+> Catatan: sebelum project live, hapus rule ignore migration dari `.gitignore` supaya migration history ikut ter-commit.
 
 ## Storage Endpoints
 

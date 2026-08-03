@@ -80,6 +80,7 @@ export type Project = {
   id: string;
   name: string;
   description?: string;
+  repoPath: string;
   storageConnectionId: string;
   lfsSizeThreshold: number;
   lfsPatterns?: string;

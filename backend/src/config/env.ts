@@ -8,7 +8,6 @@ const envSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_BUCKET: z.string().min(1),
   PORT: z.string().default("3000"),
-  SIGIT_PROJECTS_ROOT: z.string().default("./data/projects"),
 });
 
 export const env = envSchema.parse(process.env);

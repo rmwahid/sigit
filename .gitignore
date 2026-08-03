@@ -1,6 +1,7 @@
 # Backend
 .env
 .env.local
+!.env.sops
 *.log
 dist
 node_modules
@@ -17,3 +18,9 @@ node_modules
 
 # SiGit runtime data
 data/
+
+# Migrations (sementara di-ignore selama development)
+# Generated: YYYY_MM_DD_HH_MM_SS_<desc>.sql + meta/
+# Script generator tetap di-track (src/db/migrations/migration-generator.ts)
+backend/src/db/migrations/*.sql
+backend/src/db/migrations/meta/
