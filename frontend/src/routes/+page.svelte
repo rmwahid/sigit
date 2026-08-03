@@ -10,10 +10,23 @@
     pushProject,
     getProjectHistory,
     getProjectDiff,
+    getBootstrap,
+    getMe,
+    login,
+    logout,
     type Connection,
     type Project,
+    type CurrentUser,
   } from "$lib/api";
   import DiffViewer from "./DiffViewer.svelte";
+
+  let authStatus = $state<"loading" | "setup" | "login" | "authed">("loading");
+  let currentUser = $state<CurrentUser | null>(null);
+  let loginEmail = $state("");
+  let loginPassword = $state("");
+  let setupEmail = $state("");
+  let setupPassword = $state("");
+  let setupConfirm = $state("");
 
   let connections = $state<Connection[]>([]);
   let projects = $state<Project[]>([]);
@@ -57,6 +70,67 @@
       error = e instanceof Error ? e.message : String(e);
     }
   }
+
+  async function initAuth() {
+    authStatus = "loading";
+    try {
+      const boot = await getBootstrap();
+      if (boot.data.needsSetup) {
+        authStatus = "setup";
+        return;
+      }
+      const me = await getMe();
+      currentUser = me.data;
+      authStatus = "authed";
+      await load();
+    } catch {
+      authStatus = "login";
+    }
+  }
+
+  async function onSetup(e: Event) {
+    e.preventDefault();
+    if (setupPassword !== setupConfirm) {
+      error = "Passwords do not match";
+      return;
+    }
+    try {
+      // Create admin via API is not exposed; admin must be created via CLI (bun run db:create-admin).
+      // After CLI setup, refresh auth state.
+      error = "Admin setup must be done on the server via: bun run db:create-admin";
+      await initAuth();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onLogin(e: Event) {
+    e.preventDefault();
+    try {
+      const res = await login(loginEmail, loginPassword);
+      currentUser = res.data;
+      authStatus = "authed";
+      loginEmail = "";
+      loginPassword = "";
+      await load();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onLogout() {
+    try {
+      await logout();
+      currentUser = null;
+      authStatus = "login";
+      connections = [];
+      projects = [];
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  initAuth();
 
   async function onCreateConnection(e: Event) {
     e.preventDefault();
@@ -114,7 +188,6 @@
     }
   }
 
-  load();
 </script>
 
 <svelte:head>
@@ -125,6 +198,28 @@
   <h1>SiGit</h1>
   {#if error}<p class="error">{error}</p>{/if}
   {#if message}<p class="message">{message}</p>{/if}
+
+  {#if authStatus === "loading"}
+    <p>Loading...</p>
+  {:else if authStatus === "setup"}
+    <section>
+      <h2>Initial Setup</h2>
+      <p>No admin user exists. Create the admin account on the server via CLI, then refresh:</p>
+      <pre>cd repo/backend
+bun run db:create-admin</pre>
+      <button onclick={() => initAuth()}>I have created the admin</button>
+    </section>
+  {:else if authStatus === "login"}
+    <section>
+      <h2>Login</h2>
+      <form onsubmit={onLogin}>
+        <input type="email" bind:value={loginEmail} placeholder="Email" required />
+        <input type="password" bind:value={loginPassword} placeholder="Password" required />
+        <button type="submit">Login</button>
+      </form>
+    </section>
+  {:else if authStatus === "authed" && currentUser}
+    <p>Logged in as <strong>{currentUser.email}</strong> <button onclick={onLogout}>Logout</button></p>
 
   <section>
     <h2>Storage Connections</h2>
@@ -211,6 +306,7 @@
         <DiffViewer diff={diff.diff} />
       {/if}
     </section>
+  {/if}
   {/if}
 </main>
 

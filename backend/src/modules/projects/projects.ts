@@ -5,6 +5,7 @@ import { projects, type NewProject, type Project } from "../../db/schema/project
 import { getConnection, updateConnection } from "../storage/connections";
 import { putObject } from "../storage/objects";
 import { encrypt, generateSalt } from "../../lib/encryption";
+import { validateRepoPath } from "../../lib/upload-validation";
 import {
   commitFiles,
   createLfsPointer,
@@ -31,6 +32,8 @@ export async function getProject(id: string): Promise<Project | undefined> {
 
 export async function createProject(data: NewProject): Promise<Project> {
   if (!data.repoPath?.trim()) throw new Error("Project repoPath is required");
+  const pathError = validateRepoPath(data.repoPath);
+  if (pathError) throw new Error(pathError);
   const insertData: NewProject = { ...data, repoPath: path.resolve(data.repoPath) };
   const inserted = await db.insert(projects).values(insertData).returning();
   const project = inserted[0];

@@ -3,6 +3,7 @@ const API_BASE = "/api";
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...options.headers,
@@ -130,4 +131,39 @@ export async function getProjectHistory(id: string) {
 
 export async function getProjectDiff(id: string, hash: string) {
   return api<{ data: { diff: string; files: { path: string; status: string }[] } }>(`/projects/${id}/history/${hash}/diff`);
+}
+
+export type CurrentUser = { id: string; email: string };
+
+export async function getBootstrap() {
+  return api<{ data: { needsSetup: boolean } }>("/auth/bootstrap");
+}
+
+export async function getMe() {
+  return api<{ data: CurrentUser }>("/auth/me");
+}
+
+export async function login(email: string, password: string) {
+  return api<{ data: CurrentUser }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logout() {
+  return api<{ message: string }>("/auth/logout", { method: "POST" });
+}
+
+export async function revokeAllSessions(password: string) {
+  return api<{ message: string }>("/auth/revoke-all", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return api<{ message: string }>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
 }
