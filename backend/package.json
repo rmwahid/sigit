@@ -11,16 +11,21 @@
     "db:validate": "bun run src/db/migrations/migration-generator.ts --validate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
+    "db:create-admin": "bun run src/cli/create-admin.ts",
+    "db:reset-password": "bun run src/cli/reset-password.ts",
+    "db:reencrypt": "bun run src/cli/reencrypt-secrets.ts",
     "env:decrypt": "sops --decrypt --input-type dotenv --output-type dotenv .env.sops > .env",
     "env:encrypt": "sops --encrypt --input-type dotenv --output-type dotenv .env > .env.sops"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.600.0",
-    "@hono/zod-validator": "^0.2.2",
+    "@clack/prompts": "^1.7.0",
+    "@hono/zod-openapi": "^1.5.1",
+    "@scalar/hono-api-reference": "^0.11.12",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.4.8",
     "postgres": "^3.4.4",
-    "zod": "^3.23.8"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
