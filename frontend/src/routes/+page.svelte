@@ -10,23 +10,19 @@
     pushProject,
     getProjectHistory,
     getProjectDiff,
-    getBootstrap,
     getMe,
-    login,
     logout,
     type Connection,
     type Project,
     type CurrentUser,
   } from "$lib/api";
+  import { goto } from "$app/navigation";
+  import { onMount } from "svelte";
   import DiffViewer from "./DiffViewer.svelte";
+  import LogViewer from "$lib/LogViewer.svelte";
 
-  let authStatus = $state<"loading" | "setup" | "login" | "authed">("loading");
+  let loading = $state(true);
   let currentUser = $state<CurrentUser | null>(null);
-  let loginEmail = $state("");
-  let loginPassword = $state("");
-  let setupEmail = $state("");
-  let setupPassword = $state("");
-  let setupConfirm = $state("");
 
   let connections = $state<Connection[]>([]);
   let projects = $state<Project[]>([]);
@@ -71,66 +67,27 @@
     }
   }
 
-  async function initAuth() {
-    authStatus = "loading";
+  onMount(async () => {
     try {
-      const boot = await getBootstrap();
-      if (boot.data.needsSetup) {
-        authStatus = "setup";
-        return;
-      }
       const me = await getMe();
       currentUser = me.data;
-      authStatus = "authed";
       await load();
     } catch {
-      authStatus = "login";
-    }
-  }
-
-  async function onSetup(e: Event) {
-    e.preventDefault();
-    if (setupPassword !== setupConfirm) {
-      error = "Passwords do not match";
+      await goto("/login");
       return;
+    } finally {
+      loading = false;
     }
-    try {
-      // Create admin via API is not exposed; admin must be created via CLI (bun run db:create-admin).
-      // After CLI setup, refresh auth state.
-      error = "Admin setup must be done on the server via: bun run db:create-admin";
-      await initAuth();
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  async function onLogin(e: Event) {
-    e.preventDefault();
-    try {
-      const res = await login(loginEmail, loginPassword);
-      currentUser = res.data;
-      authStatus = "authed";
-      loginEmail = "";
-      loginPassword = "";
-      await load();
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
-  }
+  });
 
   async function onLogout() {
     try {
       await logout();
-      currentUser = null;
-      authStatus = "login";
-      connections = [];
-      projects = [];
+      await goto("/login");
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
   }
-
-  initAuth();
 
   async function onCreateConnection(e: Event) {
     e.preventDefault();
@@ -195,31 +152,18 @@
 </svelte:head>
 
 <main>
-  <h1>SiGit</h1>
-  {#if error}<p class="error">{error}</p>{/if}
-  {#if message}<p class="message">{message}</p>{/if}
-
-  {#if authStatus === "loading"}
+  {#if loading}
     <p>Loading...</p>
-  {:else if authStatus === "setup"}
-    <section>
-      <h2>Initial Setup</h2>
-      <p>No admin user exists. Create the admin account on the server via CLI, then refresh:</p>
-      <pre>cd repo/backend
-bun run db:create-admin</pre>
-      <button onclick={() => initAuth()}>I have created the admin</button>
-    </section>
-  {:else if authStatus === "login"}
-    <section>
-      <h2>Login</h2>
-      <form onsubmit={onLogin}>
-        <input type="email" bind:value={loginEmail} placeholder="Email" required />
-        <input type="password" bind:value={loginPassword} placeholder="Password" required />
-        <button type="submit">Login</button>
-      </form>
-    </section>
-  {:else if authStatus === "authed" && currentUser}
-    <p>Logged in as <strong>{currentUser.email}</strong> <button onclick={onLogout}>Logout</button></p>
+  {:else if currentUser}
+    <div class="topbar">
+      <h1>SiGit</h1>
+      <div class="topbar-right">
+        <span>Logged in as <strong>{currentUser.email}</strong></span>
+        <button onclick={onLogout}>Logout</button>
+      </div>
+    </div>
+    {#if error}<p class="error">{error}</p>{/if}
+    {#if message}<p class="message">{message}</p>{/if}
 
   <section>
     <h2>Storage Connections</h2>
@@ -307,11 +251,18 @@ bun run db:create-admin</pre>
       {/if}
     </section>
   {/if}
+
+  <section>
+    <h2>Logs</h2>
+    <LogViewer />
+  </section>
   {/if}
 </main>
 
 <style>
   main { max-width: 900px; margin: 0 auto; padding: 1rem; font-family: system-ui, sans-serif; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .topbar-right { display: flex; align-items: center; gap: 0.75rem; }
   section { margin-bottom: 2rem; padding: 1rem; border: 1px solid #ddd; border-radius: 0.5rem; }
   form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
   input, select, button { padding: 0.5rem; }
