@@ -167,3 +167,30 @@ export async function changePassword(currentPassword: string, newPassword: strin
     body: JSON.stringify({ currentPassword, newPassword }),
   });
 }
+
+export type LogEntry = {
+  ts: string;
+  scope: string;
+  message: string;
+  level?: string;
+  event?: string;
+};
+
+export async function getLogs(limit?: number, before?: string) {
+  const qs = new URLSearchParams();
+  if (limit) qs.set("limit", String(limit));
+  if (before) qs.set("before", before);
+  return api<{ data: LogEntry[] }>(`/admin/logs?${qs.toString()}`);
+}
+
+export function openLogStream(onEntry: (entry: LogEntry) => void): { close: () => void } {
+  const es = new EventSource("/api/admin/logs/stream");
+  es.onmessage = (ev) => {
+    try {
+      onEntry(JSON.parse(ev.data) as LogEntry);
+    } catch {
+      // ignore malformed
+    }
+  };
+  return { close: () => es.close() };
+}
