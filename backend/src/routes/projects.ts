@@ -11,6 +11,7 @@ import {
 } from "../modules/projects/projects";
 import { getDiff, getCommitFiles } from "../modules/projects/git";
 import { validateUploadFiles, validateRepoPath } from "../lib/upload-validation";
+import { audit } from "../lib/logger";
 
 const projectSchema = z
   .object({
@@ -124,14 +125,8 @@ projectRoutes.openapi(
   }),
   async (c) => {
     const body = c.req.valid("json");
-    try {
-      const project = await createProject(body);
-      return c.json({ data: project }, 201);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("repoPath")) return c.json({ error: msg }, 400);
-      throw err;
-    }
+    const project = await createProject(body);
+    return c.json({ data: project }, 201);
   }
 );
 
@@ -156,7 +151,7 @@ projectRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const project = await getProject(id);
-    if (!project) return c.json({ error: "Not found" }, 404);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: project });
   }
 );
@@ -187,10 +182,10 @@ projectRoutes.openapi(
     const body = c.req.valid("json");
     if (body.repoPath) {
       const pathError = validateRepoPath(body.repoPath);
-      if (pathError) return c.json({ error: pathError }, 400);
+      if (pathError) return c.json({ error: { code: "INVALID_REPO_PATH", message: pathError } }, 400);
     }
     const project = await updateProject(id, body);
-    if (!project) return c.json({ error: "Not found" }, 404);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: project });
   }
 );
@@ -216,7 +211,7 @@ projectRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const deleted = await deleteProject(id);
-    if (!deleted) return c.json({ error: "Not found" }, 404);
+    if (!deleted) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: { id } });
   }
 );
@@ -253,7 +248,7 @@ projectRoutes.openapi(
     const { id } = c.req.valid("param");
     const { passphrase, message } = c.req.valid("query");
     const project = await getProject(id);
-    if (!project) return c.json({ error: "Not found" }, 404);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
 
     const form = await c.req.formData();
     const files: { relativePath: string; content: Buffer; contentType?: string }[] = [];
@@ -267,9 +262,10 @@ projectRoutes.openapi(
     const validationError = validateUploadFiles(
       files.map((f) => ({ relativePath: f.relativePath, size: f.content.length }))
     );
-    if (validationError) return c.json({ error: validationError }, 400);
+    if (validationError) return c.json({ error: { code: "INVALID_UPLOAD", message: validationError } }, 400);
 
     const result = await pushProject(project, files, message || "SiGit push", passphrase || undefined);
+    audit("project.push", { projectId: id, commitHash: result.commitHash, files: result.files.length });
     return c.json({ data: result }, 201);
   }
 );
@@ -322,7 +318,7 @@ projectRoutes.openapi(
   async (c) => {
     const { id, hash } = c.req.valid("param");
     const project = await getProject(id);
-    if (!project) return c.json({ error: "Not found" }, 404);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const repoPath = projectRepoPath(project);
     const diff = await getDiff(repoPath, hash);
     const files = await getCommitFiles(repoPath, hash);

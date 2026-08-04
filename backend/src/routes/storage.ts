@@ -15,6 +15,7 @@ import {
 } from "../modules/storage/objects";
 import { decrypt, encrypt, generateSalt } from "../lib/encryption";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
+import { audit } from "../lib/logger";
 import type { StorageConnection } from "../db/schema/storage";
 
 function toConnectionResponse(conn: StorageConnection) {
@@ -150,6 +151,7 @@ storageRoutes.openapi(
       encryptionSalt: body.useEncryption ? generateSalt() : null,
     };
     const connection = await createConnection(data);
+    audit("storage.create_connection", { connectionId: connection.id, name: connection.name, bucket: connection.bucket });
     return c.json({ data: toConnectionResponse(connection) }, 201);
   }
 );
@@ -175,7 +177,7 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: toConnectionResponse(connection) });
   }
 );
@@ -212,7 +214,7 @@ storageRoutes.openapi(
       updateData.encryptionKeyId = encrypted.keyId;
     }
     const connection = await updateConnection(id, updateData);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: toConnectionResponse(connection) });
   }
 );
@@ -238,7 +240,8 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const deleted = await deleteConnection(id);
-    if (!deleted) return c.json({ error: "Not found" }, 404);
+    if (!deleted) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    audit("storage.delete_connection", { connectionId: id });
     return c.json({ data: { id } });
   }
 );
@@ -264,7 +267,7 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const result = await testConnection(connection);
     return c.json(result);
   }
@@ -295,7 +298,7 @@ storageRoutes.openapi(
     const { id } = c.req.valid("param");
     const { prefix } = c.req.valid("query");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const objects = await listObjects(connection, prefix);
     return c.json({ data: objects });
   }
@@ -330,12 +333,12 @@ storageRoutes.openapi(
     const { id, key } = c.req.valid("param");
     const { passphrase } = c.req.valid("query");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const body = await getObject(connection, key);
     let output = body;
     if (connection.useEncryption) {
-      if (!passphrase) return c.json({ error: "Passphrase required for encrypted object" }, 400);
-      if (!connection.encryptionSalt) return c.json({ error: "Encryption salt missing" }, 500);
+      if (!passphrase) return c.json({ error: { code: "PASSPHRASE_REQUIRED", message: "Passphrase required for encrypted object" } }, 400);
+      if (!connection.encryptionSalt) return c.json({ error: { code: "ENCRYPTION_SALT_MISSING", message: "Encryption salt missing" } }, 500);
       // Layout: IV (16 bytes) + authTag (16 bytes) + ciphertext
       const iv = body.subarray(0, 16);
       const tag = body.subarray(16, 32);
@@ -375,11 +378,11 @@ storageRoutes.openapi(
     const { id, key } = c.req.valid("param");
     const { passphrase } = c.req.valid("query");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const arrayBuffer = await c.req.arrayBuffer();
     let body = Buffer.from(arrayBuffer);
     if (connection.useEncryption) {
-      if (!passphrase) return c.json({ error: "Passphrase required for encrypted upload" }, 400);
+      if (!passphrase) return c.json({ error: { code: "PASSPHRASE_REQUIRED", message: "Passphrase required for encrypted upload" } }, 400);
       const salt = connection.encryptionSalt ?? generateSalt();
       const result = encrypt(body, passphrase, Buffer.from(salt, "base64"));
       const iv = Buffer.from(result.iv, "base64");
@@ -390,6 +393,7 @@ storageRoutes.openapi(
       }
     }
     await putObject(connection, key, body, c.req.header("Content-Type") ?? undefined);
+    audit("storage.upload_object", { connectionId: id, key });
     return c.json({ data: { key } }, 201);
   }
 );
@@ -415,8 +419,9 @@ storageRoutes.openapi(
   async (c) => {
     const { id, key } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: "Not found" }, 404);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     await deleteObject(connection, key);
+    audit("storage.delete_object", { connectionId: id, key });
     return c.json({ data: { key } });
   }
 );

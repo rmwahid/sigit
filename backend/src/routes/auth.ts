@@ -1,9 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import type { Context } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../config/db";
 import { users } from "../db/schema/auth";
-import { type AuthEnv } from "../middleware/auth";
+import { AuthEnv, authed } from "../middleware/auth";
 import {
   createSession,
   deleteAllSessions,
@@ -12,9 +11,9 @@ import {
   getUserByEmail,
   sessionCookie,
   updateUserPassword,
-  validateSessionToken,
   verifyPassword,
 } from "../modules/auth/auth";
+import { audit } from "../lib/logger";
 
 const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? "7");
 const SESSION_MAX_AGE = SESSION_TTL_DAYS * 24 * 60 * 60;
@@ -43,20 +42,6 @@ const meResponse = z.object({
 
 const messageResponse = z.object({ message: z.string() }).openapi("Message");
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
-
-type AuthedHandler = (c: Context<AuthEnv>) => Promise<Response>;
-
-// Wrap a handler with authentication. Reads session cookie, validates, sets user.
-function authed(handler: AuthedHandler) {
-  return async (c: Context<AuthEnv>): Promise<Response> => {
-    const token = getSessionTokenFromCookie(c.req.header("Cookie"));
-    if (!token) return c.json({ error: "Unauthorized" }, 401);
-    const user = await validateSessionToken(token);
-    if (!user) return c.json({ error: "Unauthorized" }, 401);
-    c.set("user", user);
-    return handler(c);
-  };
-}
 
 export const authRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -106,12 +91,13 @@ authRoutes.openapi(
   async (c) => {
     const { email, password } = c.req.valid("json");
     const user = await getUserByEmail(email);
-    if (!user) return c.json({ error: "Invalid credentials" }, 401);
+    if (!user) return c.json({ error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials" } }, 401);
     const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) return c.json({ error: "Invalid credentials" }, 401);
+    if (!ok) return c.json({ error: { code: "INVALID_CREDENTIALS", message: "Invalid credentials" } }, 401);
 
     const { token } = await createSession(user.id);
     c.header("Set-Cookie", sessionCookie(token, SESSION_MAX_AGE, SECURE_COOKIE));
+    audit("auth.login", { userId: user.id, email: user.email });
     return c.json({ data: { id: user.id, email: user.email } });
   }
 );
@@ -133,6 +119,7 @@ authRoutes.openapi(
     const token = getSessionTokenFromCookie(c.req.header("Cookie"));
     if (token) await deleteSession(token);
     c.header("Set-Cookie", sessionCookie("", 0, SECURE_COOKIE));
+    audit("auth.logout", {});
     return c.json({ message: "Logged out" });
   }
 );
@@ -161,10 +148,11 @@ authRoutes.openapi(
     const { password } = c.req.valid("json");
     const user = c.get("user");
     const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) return c.json({ error: "Invalid password" }, 401);
+    if (!ok) return c.json({ error: { code: "INVALID_PASSWORD", message: "Invalid password" } }, 401);
 
     const token = getSessionTokenFromCookie(c.req.header("Cookie")) ?? undefined;
     await deleteAllSessions(user.id, token);
+    audit("auth.revoke_all", { userId: user.id });
     return c.json({ message: "All other sessions revoked" });
   })
 );
@@ -193,11 +181,12 @@ authRoutes.openapi(
     const { currentPassword, newPassword } = c.req.valid("json");
     const user = c.get("user");
     const ok = await verifyPassword(currentPassword, user.passwordHash);
-    if (!ok) return c.json({ error: "Invalid current password" }, 401);
+    if (!ok) return c.json({ error: { code: "INVALID_CURRENT_PASSWORD", message: "Invalid current password" } }, 401);
 
     await updateUserPassword(user.id, newPassword);
     const token = getSessionTokenFromCookie(c.req.header("Cookie")) ?? undefined;
     await deleteAllSessions(user.id, token);
+    audit("auth.change_password", { userId: user.id });
     return c.json({ message: "Password changed" });
   })
 );

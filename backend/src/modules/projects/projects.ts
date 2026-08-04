@@ -6,6 +6,7 @@ import { getConnection, updateConnection } from "../storage/connections";
 import { putObject } from "../storage/objects";
 import { encrypt, generateSalt } from "../../lib/encryption";
 import { validateRepoPath } from "../../lib/upload-validation";
+import { badRequest } from "../../lib/http-error";
 import {
   commitFiles,
   createLfsPointer,
@@ -31,9 +32,9 @@ export async function getProject(id: string): Promise<Project | undefined> {
 }
 
 export async function createProject(data: NewProject): Promise<Project> {
-  if (!data.repoPath?.trim()) throw new Error("Project repoPath is required");
+  if (!data.repoPath?.trim()) throw badRequest("Project repoPath is required", "REPO_PATH_REQUIRED");
   const pathError = validateRepoPath(data.repoPath);
-  if (pathError) throw new Error(pathError);
+  if (pathError) throw badRequest(pathError, "INVALID_REPO_PATH");
   const insertData: NewProject = { ...data, repoPath: path.resolve(data.repoPath) };
   const inserted = await db.insert(projects).values(insertData).returning();
   const project = inserted[0];
