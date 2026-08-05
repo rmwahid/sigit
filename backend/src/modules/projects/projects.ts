@@ -5,8 +5,6 @@ import { projects, type NewProject, type Project } from "../../db/schema/project
 import { getConnection, updateConnection } from "../storage/connections";
 import { putObject } from "../storage/objects";
 import { encrypt, generateSalt } from "../../lib/encryption";
-import { validateRepoPath } from "../../lib/upload-validation";
-import { badRequest } from "../../lib/http-error";
 import {
   commitFiles,
   createLfsPointer,
@@ -17,9 +15,10 @@ import {
   shouldUseLfs,
 } from "./git";
 
-export function projectRepoPath(project: Pick<Project, "repoPath">): string {
-  if (!project.repoPath) throw new Error("Project repoPath is required");
-  return path.resolve(project.repoPath);
+const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
+
+export function projectRepoPath(projectId: string): string {
+  return path.resolve(PROJECTS_ROOT, projectId);
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -32,14 +31,10 @@ export async function getProject(id: string): Promise<Project | undefined> {
 }
 
 export async function createProject(data: NewProject): Promise<Project> {
-  if (!data.repoPath?.trim()) throw badRequest("Project repoPath is required", "REPO_PATH_REQUIRED");
-  const pathError = validateRepoPath(data.repoPath);
-  if (pathError) throw badRequest(pathError, "INVALID_REPO_PATH");
-  const insertData: NewProject = { ...data, repoPath: path.resolve(data.repoPath) };
-  const inserted = await db.insert(projects).values(insertData).returning();
+  const inserted = await db.insert(projects).values(data).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
-  await initRepo(projectRepoPath(project));
+  await initRepo(projectRepoPath(project.id));
   return project;
 }
 
@@ -73,7 +68,7 @@ export async function pushProject(
   const connection = await getConnection(project.storageConnectionId);
   if (!connection) throw new Error("Storage connection not found");
 
-  const repoPath = projectRepoPath(project);
+  const repoPath = projectRepoPath(project.id);
   await initRepo(repoPath);
 
   const committedFiles: { relativePath: string; content: Buffer }[] = [];
@@ -112,9 +107,7 @@ export async function pushProject(
 }
 
 export async function projectHistory(projectId: string, limit?: number) {
-  const project = await getProject(projectId);
-  if (!project) return { head: null, commits: [] };
-  const repoPath = projectRepoPath(project);
+  const repoPath = projectRepoPath(projectId);
   const head = await resolveHead(repoPath);
   if (!head) return { head: null, commits: [] };
   const commits = await getLog(repoPath, limit ?? 50);

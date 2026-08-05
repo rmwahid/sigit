@@ -1,4 +1,3 @@
-import path from "node:path";
 import { env } from "../config/env";
 
 export const MAX_UPLOAD_SIZE_BYTES = Number(env.MAX_UPLOAD_SIZE_BYTES);
@@ -13,19 +12,6 @@ export function validateFilePath(relativePath: string): string | null {
   for (const part of parts) {
     if (part === ".." || part === "." || part === "") return "File path contains invalid segments";
     if (/^[a-zA-Z]:/.test(part)) return "File path contains drive letter";
-  }
-  return null;
-}
-
-export function validateRepoPath(repoPath: string): string | null {
-  if (!repoPath || repoPath.length === 0) return "repoPath is required";
-  if (repoPath.includes("\0")) return "repoPath contains null byte";
-  if (repoPath.length > 4096) return "repoPath is too long";
-  if (!path.isAbsolute(repoPath)) return "repoPath must be an absolute path";
-  const normalized = repoPath.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter((p) => p.length > 0);
-  for (const part of parts) {
-    if (part === ".." || part === ".") return "repoPath contains invalid segments";
   }
   return null;
 }

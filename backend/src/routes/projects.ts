@@ -10,7 +10,9 @@ import {
   projectRepoPath,
 } from "../modules/projects/projects";
 import { getDiff, getCommitFiles } from "../modules/projects/git";
-import { validateUploadFiles, validateRepoPath } from "../lib/upload-validation";
+import { backupProject, restoreProject } from "../modules/projects/backup";
+import { getConnection } from "../modules/storage/connections";
+import { validateUploadFiles } from "../lib/upload-validation";
 import { audit } from "../lib/logger";
 
 const projectSchema = z
@@ -18,8 +20,7 @@ const projectSchema = z
     id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
     name: z.string().min(1).openapi({ example: "My Project" }),
     description: z.string().optional(),
-    repoPath: z.string().min(1).openapi({ example: "C:/sigit/projects/my-project" }),
-    storageConnectionId: z.string().uuid(),
+    storageConnectionId: z.string().uuid().nullable().optional(),
     lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
     lfsPatterns: z.string().nullable().optional(),
     useEncryption: z.boolean().default(false),
@@ -31,8 +32,7 @@ const projectSchema = z
 const projectInputSchema = z.object({
   name: z.string().min(1).openapi({ example: "My Project" }),
   description: z.string().optional(),
-  repoPath: z.string().min(1).openapi({ example: "C:/sigit/projects/my-project" }),
-  storageConnectionId: z.string().uuid(),
+  storageConnectionId: z.string().uuid().nullable().optional(),
   lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
   lfsPatterns: z.string().optional(),
   useEncryption: z.boolean().default(false),
@@ -41,6 +41,7 @@ const projectInputSchema = z.object({
 const projectUpdateSchema = projectInputSchema.partial();
 const idParamSchema = z.object({ id: z.string().uuid() });
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
+const messageSchema = z.object({ message: z.string() }).openapi("Message");
 
 const projectListResponse = z.object({ data: z.array(projectSchema) });
 const projectResponse = z.object({ data: projectSchema });
@@ -180,10 +181,6 @@ projectRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
-    if (body.repoPath) {
-      const pathError = validateRepoPath(body.repoPath);
-      if (pathError) return c.json({ error: { code: "INVALID_REPO_PATH", message: pathError } }, 400);
-    }
     const project = await updateProject(id, body);
     if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     return c.json({ data: project });
@@ -319,9 +316,74 @@ projectRoutes.openapi(
     const { id, hash } = c.req.valid("param");
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    const repoPath = projectRepoPath(project);
+    const repoPath = projectRepoPath(project.id);
     const diff = await getDiff(repoPath, hash);
     const files = await getCommitFiles(repoPath, hash);
     return c.json({ data: { diff, files } });
+  }
+);
+
+const backupResponse = z
+  .object({ data: z.object({ key: z.string(), size: z.number() }) })
+  .openapi("BackupResult");
+
+projectRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/{id}/backup",
+    tags: ["Projects"],
+    summary: "Create and upload a git bundle backup to storage",
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        description: "Backup created",
+        content: { "application/json": { schema: backupResponse } },
+      },
+      404: {
+        description: "Not found",
+        content: { "application/json": { schema: errorSchema } },
+      },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const project = await getProject(id);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    const result = await backupProject(project);
+    audit("project.backup", { projectId: id, key: result.key });
+    return c.json({ data: result });
+  }
+);
+
+projectRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/{id}/restore",
+    tags: ["Projects"],
+    summary: "Restore project from git bundle backup in storage",
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        description: "Restored",
+        content: { "application/json": { schema: messageSchema } },
+      },
+      404: {
+        description: "Not found",
+        content: { "application/json": { schema: errorSchema } },
+      },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const project = await getProject(id);
+    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!project.storageConnectionId) {
+      return c.json({ error: { code: "BAD_REQUEST", message: "Project has no storage connection" } }, 400);
+    }
+    const connection = await getConnection(project.storageConnectionId);
+    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Storage connection not found" } }, 404);
+    await restoreProject(project, connection);
+    audit("project.restore", { projectId: id });
+    return c.json({ message: "Restored" });
   }
 );

@@ -13,6 +13,7 @@ const envSchema = z.object({
   NODE_ENV: z.string().default("development"),
   MAX_UPLOAD_SIZE_BYTES: z.string().default((5 * 1024 * 1024 * 1024).toString()), // 5 GB
   MAX_UPLOAD_FILES: z.string().default("1000"),
+  SIGIT_PROJECTS_ROOT: z.string().default("./data/projects"),
   ENCRYPTION_KEYS: z
     .string()
     .transform((s) => {
