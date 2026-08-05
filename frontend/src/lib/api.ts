@@ -81,8 +81,7 @@ export type Project = {
   id: string;
   name: string;
   description?: string;
-  repoPath: string;
-  storageConnectionId: string;
+  storageConnectionId: string | null;
   lfsSizeThreshold: number;
   lfsPatterns?: string;
   useEncryption: boolean;
@@ -94,6 +93,10 @@ export async function listProjects() {
   return api<{ data: Project[] }>("/projects");
 }
 
+export async function getProject(id: string) {
+  return api<{ data: Project }>(`/projects/${id}`);
+}
+
 export async function createProject(data: NewProject) {
   return api<{ data: Project }>("/projects", {
     method: "POST",
@@ -103,6 +106,21 @@ export async function createProject(data: NewProject) {
 
 export async function deleteProject(id: string) {
   return api<{ data: { id: string } }>(`/projects/${id}`, { method: "DELETE" });
+}
+
+export async function updateProject(id: string, data: Partial<NewProject>) {
+  return api<{ data: Project }>(`/projects/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function backupProject(id: string) {
+  return api<{ data: { key: string; size: number } }>(`/projects/${id}/backup`, { method: "POST" });
+}
+
+export async function restoreProject(id: string) {
+  return api<{ message: string }>(`/projects/${id}/restore`, { method: "POST" });
 }
 
 export async function pushProject(id: string, files: FileList, message: string, passphrase?: string) {
