@@ -1,13 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import {
   createProject,
-  deleteProject,
+  createProjectWithConnection,
   getProject,
   listProjects,
   projectHistory,
   pushProject,
   updateProject,
   projectRepoPath,
+  hardDeleteProject,
 } from "../modules/projects/projects";
 import { getDiff, getCommitFiles } from "../modules/projects/git";
 import { backupProject, restoreProject } from "../modules/projects/backup";
@@ -20,7 +21,7 @@ const projectSchema = z
     id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
     name: z.string().min(1).openapi({ example: "My Project" }),
     description: z.string().optional(),
-    storageConnectionId: z.string().uuid().nullable().optional(),
+    storageConnectionId: z.string().uuid().nullable(),
     lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
     lfsPatterns: z.string().nullable().optional(),
     useEncryption: z.boolean().default(false),
@@ -32,13 +33,35 @@ const projectSchema = z
 const projectInputSchema = z.object({
   name: z.string().min(1).openapi({ example: "My Project" }),
   description: z.string().optional(),
-  storageConnectionId: z.string().uuid().nullable().optional(),
+  storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
   lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
   lfsPatterns: z.string().optional(),
   useEncryption: z.boolean().default(false),
 });
 
-const projectUpdateSchema = projectInputSchema.partial();
+const projectUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  storageConnectionId: z.string().uuid().nullable().optional(),
+  lfsSizeThreshold: z.number().int().min(1).optional(),
+  lfsPatterns: z.string().optional(),
+  useEncryption: z.boolean().optional(),
+});
+
+const projectWithConnectionSchema = z.object({
+  name: z.string().min(1).openapi({ example: "My Project" }),
+  description: z.string().optional(),
+  connection: z.object({
+    name: z.string().min(1).openapi({ example: "Hetzner" }),
+    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
+    region: z.string().min(1).openapi({ example: "eu-central" }),
+    accessKeyId: z.string().min(1),
+    secretAccessKey: z.string().min(1),
+    bucket: z.string().min(1).openapi({ example: "sigit" }),
+    forcePathStyle: z.boolean().optional(),
+    useEncryption: z.boolean().optional(),
+  }),
+});
 const idParamSchema = z.object({ id: z.string().uuid() });
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
 const messageSchema = z.object({ message: z.string() }).openapi("Message");
@@ -133,6 +156,30 @@ projectRoutes.openapi(
 
 projectRoutes.openapi(
   createRoute({
+    method: "post",
+    path: "/with-connection",
+    tags: ["Projects"],
+    summary: "Create a project together with a new storage connection",
+    request: {
+      body: { content: { "application/json": { schema: projectWithConnectionSchema } } },
+    },
+    responses: {
+      201: {
+        description: "Created project + connection",
+        content: { "application/json": { schema: projectResponse } },
+      },
+    },
+  }),
+  async (c) => {
+    const body = c.req.valid("json");
+    const { project } = await createProjectWithConnection(body);
+    audit("project.create_with_connection", { projectId: project.id, name: project.name });
+    return c.json({ data: project }, 201);
+  }
+);
+
+projectRoutes.openapi(
+  createRoute({
     method: "get",
     path: "/{id}",
     tags: ["Projects"],
@@ -207,9 +254,10 @@ projectRoutes.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
-    const deleted = await deleteProject(id);
-    if (!deleted) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    return c.json({ data: { id } });
+    const result = await hardDeleteProject(id);
+    if (!result.deletedDb) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    audit("project.delete", { projectId: id, ...result });
+    return c.json({ data: result });
   }
 );
 

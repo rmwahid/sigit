@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import type { StorageConnection } from "../../db/schema/storage";
@@ -60,4 +61,35 @@ export async function putObject(connection: StorageConnection, key: string, body
 export async function deleteObject(connection: StorageConnection, key: string): Promise<void> {
   const client = createS3Client(connection);
   await client.send(new DeleteObjectCommand({ Bucket: connection.bucket, Key: key }));
+}
+
+export async function listAllObjects(connection: StorageConnection, prefix?: string): Promise<string[]> {
+  const client = createS3Client(connection);
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const command = new ListObjectsV2Command({
+      Bucket: connection.bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    });
+    const response = await client.send(command);
+    for (const obj of response.Contents ?? []) {
+      if (obj.Key) keys.push(obj.Key);
+    }
+    continuationToken = response.NextContinuationToken;
+  } while (continuationToken);
+  return keys;
+}
+
+export async function deleteObjectsByPrefix(connection: StorageConnection, prefix: string): Promise<number> {
+  const keys = await listAllObjects(connection, prefix);
+  if (keys.length === 0) return 0;
+  const client = createS3Client(connection);
+  // Delete in batches of 1000 (S3 limit)
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000).map((k) => ({ Key: k }));
+    await client.send(new DeleteObjectsCommand({ Bucket: connection.bucket, Delete: { Objects: batch } }));
+  }
+  return keys.length;
 }

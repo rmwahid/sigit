@@ -1,10 +1,13 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db } from "../../config/db";
 import { projects, type NewProject, type Project } from "../../db/schema/projects";
+import { storageConnections } from "../../db/schema/storage";
 import { getConnection, updateConnection } from "../storage/connections";
-import { putObject } from "../storage/objects";
+import { putObject, deleteObjectsByPrefix } from "../storage/objects";
 import { encrypt, generateSalt } from "../../lib/encryption";
+import { encryptSecret } from "../../lib/secret-encryption";
 import {
   commitFiles,
   createLfsPointer,
@@ -31,11 +34,68 @@ export async function getProject(id: string): Promise<Project | undefined> {
 }
 
 export async function createProject(data: NewProject): Promise<Project> {
+  if (!data.storageConnectionId) {
+    throw new Error("Project storage connection is required");
+  }
   const inserted = await db.insert(projects).values(data).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
   await initRepo(projectRepoPath(project.id));
   return project;
+}
+
+export type CreateProjectWithConnectionInput = {
+  name: string;
+  description?: string;
+  connection: {
+    name: string;
+    endpoint: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    bucket: string;
+    forcePathStyle?: boolean;
+    useEncryption?: boolean;
+  };
+};
+
+export async function createProjectWithConnection(
+  data: CreateProjectWithConnectionInput
+): Promise<{ project: Project; connectionId: string }> {
+  return db.transaction(async (tx) => {
+    const conn = data.connection;
+    const encrypted = encryptSecret(conn.secretAccessKey);
+    const connRows = await tx
+      .insert(storageConnections)
+      .values({
+        name: conn.name,
+        endpoint: conn.endpoint,
+        region: conn.region,
+        accessKeyId: conn.accessKeyId,
+        secretEncrypted: encrypted.ciphertext,
+        encryptionKeyId: encrypted.keyId,
+        bucket: conn.bucket,
+        forcePathStyle: conn.forcePathStyle ?? true,
+        useEncryption: conn.useEncryption ?? false,
+        encryptionSalt: conn.useEncryption ? generateSalt() : null,
+      })
+      .returning();
+    const connection = connRows[0];
+
+    const projRows = await tx
+      .insert(projects)
+      .values({
+        name: data.name,
+        description: data.description,
+        storageConnectionId: connection.id,
+      })
+      .returning();
+    const project = projRows[0];
+    if (!project) throw new Error("Failed to create project");
+
+    await initRepo(projectRepoPath(project.id));
+    return { project, connectionId: connection.id };
+  });
 }
 
 export async function updateProject(id: string, data: Partial<NewProject>): Promise<Project | undefined> {
@@ -50,6 +110,49 @@ export async function updateProject(id: string, data: Partial<NewProject>): Prom
 export async function deleteProject(id: string): Promise<boolean> {
   const rows = await db.delete(projects).where(eq(projects.id, id)).returning();
   return rows.length > 0;
+}
+
+export type DeleteProjectResult = {
+  deletedDb: boolean;
+  deletedRepo: boolean;
+  deletedS3Objects: number;
+  hadStorage: boolean;
+};
+
+export async function hardDeleteProject(id: string): Promise<DeleteProjectResult> {
+  // 1. Get project before deleting row (need storageConnectionId)
+  const project = await getProject(id);
+  const result: DeleteProjectResult = {
+    deletedDb: false,
+    deletedRepo: false,
+    deletedS3Objects: 0,
+    hadStorage: !!project?.storageConnectionId,
+  };
+
+  // 2. Delete local repo folder
+  const repoPath = projectRepoPath(id);
+  try {
+    await fs.rm(repoPath, { recursive: true, force: true });
+    result.deletedRepo = true;
+  } catch {
+    result.deletedRepo = false;
+  }
+
+  // 3. Delete S3 objects (LFS files + backup bundle) under projects/{id}/
+  if (project?.storageConnectionId) {
+    try {
+      const connection = await getConnection(project.storageConnectionId);
+      if (connection) {
+        result.deletedS3Objects = await deleteObjectsByPrefix(connection, `projects/${id}/`);
+      }
+    } catch {
+      // S3 cleanup failure is non-fatal
+    }
+  }
+
+  // 4. Delete DB row last (so project data is gone only after cleanup attempted)
+  result.deletedDb = await deleteProject(id);
+  return result;
 }
 
 export type PushFile = {
