@@ -87,7 +87,9 @@ export type Project = {
   useEncryption: boolean;
 };
 
-export type NewProject = Omit<Project, "id">;
+export type NewProject = Omit<Project, "id" | "storageConnectionId"> & {
+  storageConnectionId: string;
+};
 
 export async function listProjects() {
   return api<{ data: Project[] }>("/projects");
@@ -104,8 +106,39 @@ export async function createProject(data: NewProject) {
   });
 }
 
+export type NewConnectionInput = {
+  name: string;
+  endpoint: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  forcePathStyle?: boolean;
+  useEncryption?: boolean;
+};
+
+export type CreateProjectWithConnectionInput = {
+  name: string;
+  description?: string;
+  connection: NewConnectionInput;
+};
+
+export async function createProjectWithConnection(data: CreateProjectWithConnectionInput) {
+  return api<{ data: Project }>("/projects/with-connection", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export type DeleteProjectResult = {
+  deletedDb: boolean;
+  deletedRepo: boolean;
+  deletedS3Objects: number;
+  hadStorage: boolean;
+};
+
 export async function deleteProject(id: string) {
-  return api<{ data: { id: string } }>(`/projects/${id}`, { method: "DELETE" });
+  return api<{ data: DeleteProjectResult }>(`/projects/${id}`, { method: "DELETE" });
 }
 
 export async function updateProject(id: string, data: Partial<NewProject>) {
