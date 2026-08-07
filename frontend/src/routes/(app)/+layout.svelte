@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { listConnections, listProjects, createProject, getMe, logout, type Connection, type Project, type CurrentUser } from "$lib/api";
+  import { createProjectWithConnection, getMe, logout, type CurrentUser } from "$lib/api";
+  import { projectsStore } from "$lib/stores/projects.svelte";
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import ThemeToggle from "$lib/ThemeToggle.svelte";
@@ -8,12 +9,21 @@
 
   let loading = $state(true);
   let currentUser = $state<CurrentUser | null>(null);
-  let connections = $state<Connection[]>([]);
-  let projects = $state<Project[]>([]);
   let error = $state("");
   let showCreate = $state(false);
+  let creating = $state(false);
+  let connTab = $state<"s3" | "gdrive">("s3");
   let newName = $state("");
-  let newConnId = $state("");
+
+  // S3 connection form (create inside project modal)
+  let s3Name = $state("");
+  let s3Endpoint = $state("https://fsn1.your-objectstorage.com");
+  let s3Region = $state("eu-central");
+  let s3AccessKeyId = $state("");
+  let s3SecretAccessKey = $state("");
+  let s3Bucket = $state("");
+
+  let projects = $derived(projectsStore.list);
 
   const activeId = $derived(
     typeof window !== "undefined"
@@ -23,9 +33,7 @@
 
   async function load() {
     try {
-      const [c, p] = await Promise.all([listConnections(), listProjects()]);
-      connections = c.data;
-      projects = p.data;
+      await projectsStore.refresh();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -53,18 +61,46 @@
     }
   }
 
+  function resetForm() {
+    showCreate = false;
+    creating = false;
+    newName = "";
+    s3Name = "";
+    s3Endpoint = "https://fsn1.your-objectstorage.com";
+    s3Region = "eu-central";
+    s3AccessKeyId = "";
+    s3SecretAccessKey = "";
+    s3Bucket = "";
+    error = "";
+  }
+
   async function onCreateProject() {
-    if (!newName.trim()) return;
+    if (!newName.trim() || connTab !== "s3") return;
+    if (!s3Name.trim() || !s3AccessKeyId.trim() || !s3SecretAccessKey.trim() || !s3Bucket.trim()) {
+      error = "Fill all storage connection fields";
+      return;
+    }
+    creating = true;
     error = "";
     try {
-      const res = await createProject({ name: newName.trim(), storageConnectionId: newConnId || null });
-      showCreate = false;
-      newName = "";
-      newConnId = "";
+      const res = await createProjectWithConnection({
+        name: newName.trim(),
+        connection: {
+          name: s3Name.trim(),
+          endpoint: s3Endpoint.trim(),
+          region: s3Region.trim(),
+          accessKeyId: s3AccessKeyId.trim(),
+          secretAccessKey: s3SecretAccessKey.trim(),
+          bucket: s3Bucket.trim(),
+        },
+      });
+      resetForm();
       await load();
       await goto(`/projects/${res.data.id}`);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+    } finally {
+      creating = false;
     }
   }
 </script>
@@ -129,22 +165,39 @@
   </div>
 
   {#if showCreate}
-    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => (showCreate = false)}>
-      <div class="w-full max-w-sm bg-card p-5 pixel-border" onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => { if (!creating) showCreate = false; }}>
+      <div class="w-full max-w-md bg-card p-5 pixel-border" onclick={(e) => e.stopPropagation()}>
         <h2 class="text-lg font-bold mb-4">New Project</h2>
         <div class="flex flex-col gap-3">
-          <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name" />
-          <div>
-            <div class="text-xs text-muted-foreground mb-1">Storage connection (optional)</div>
-            <select class="pixel-border-sm w-full bg-background px-3 py-2 text-sm" bind:value={newConnId}>
-              <option value="">-- none --</option>
-              {#each connections as conn}
-                <option value={conn.id}>{conn.name} ({conn.bucket})</option>
-              {/each}
-            </select>
+          <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name" disabled={creating} />
+
+          <!-- Provider tabs -->
+          <div class="flex gap-1 border-b border-border">
+            <button class:bg-muted={connTab === "s3"} class="px-4 py-2 text-sm pixel-border-sm" disabled={creating} onclick={() => (connTab = "s3")}>S3</button>
+            <button class:bg-muted={connTab === "gdrive"} class="px-4 py-2 text-sm pixel-border-sm" disabled={creating} onclick={() => (connTab = "gdrive")}>GDrive</button>
           </div>
-          {#if error}<p class="text-sm text-destructive">{error}</p>{/if}
-          <button class="pixel-border px-4 py-2 text-sm" disabled={!newName.trim()} onclick={onCreateProject}>Create</button>
+
+          {#if connTab === "s3"}
+            <div class="flex flex-col gap-2">
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={s3Name} placeholder="Connection name" disabled={creating} />
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={s3Endpoint} placeholder="Endpoint" disabled={creating} />
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={s3Region} placeholder="Region" disabled={creating} />
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={s3AccessKeyId} placeholder="Access Key ID" disabled={creating} />
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" type="password" bind:value={s3SecretAccessKey} placeholder="Secret Access Key" disabled={creating} />
+              <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={s3Bucket} placeholder="Bucket" disabled={creating} />
+            </div>
+          {:else}
+            <div class="text-sm text-muted-foreground py-2">GDrive integration is next development.</div>
+          {/if}
+
+          {#if error}<p class="text-sm text-destructive mt-2">{error}</p>{/if}
+          <button
+            class="pixel-border px-4 py-2 text-sm mt-4"
+            disabled={creating || !newName.trim() || connTab !== "s3" || !s3Name.trim() || !s3AccessKeyId.trim() || !s3SecretAccessKey.trim() || !s3Bucket.trim()}
+            onclick={onCreateProject}
+          >
+            {creating ? "Creating..." : "Create Project"}
+          </button>
         </div>
       </div>
     </div>
