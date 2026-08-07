@@ -12,6 +12,7 @@
     type Connection,
     type Project,
   } from "$lib/api";
+  import { projectsStore } from "$lib/stores/projects.svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
   import DiffViewer from "$lib/DiffViewer.svelte";
@@ -33,6 +34,14 @@
   let selectedFiles = $state<FileList | null>(null);
 
   let backingUp = $state(false);
+
+  // delete confirm
+  let showDeleteConfirm = $state(false);
+  let deleteConfirmName = $state("");
+  let deleting = $state(false);
+  let deleteStep = $state("");
+
+  const canConfirmDelete = $derived(project !== null && deleteConfirmName.trim() === project.name);
 
   async function loadProject() {
     const id = $page.params.id;
@@ -86,14 +95,32 @@
     }
   }
 
-  async function onDelete() {
+  function openDeleteConfirm() {
     if (!project) return;
-    if (!confirm(`Delete project "${project.name}"?`)) return;
+    showDeleteConfirm = true;
+    deleteConfirmName = "";
+    error = "";
+  }
+
+  async function onDelete() {
+    if (!project || !canConfirmDelete) return;
+    deleting = true;
+    deleteStep = "Deleting database record...";
     try {
-      await deleteProject(project.id);
+      const res = await deleteProject(project.id);
+      const d = res.data;
+      // progress summary from backend
+      deleteStep = "Removing local repository...";
+      if (d.hadStorage) deleteStep = "Removing storage objects (LFS + backup)...";
+      projectsStore.remove(project.id);
+      showDeleteConfirm = false;
       await goto("/");
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
+      showDeleteConfirm = false;
+    } finally {
+      deleting = false;
+      deleteStep = "";
     }
   }
 
@@ -154,7 +181,7 @@
 {:else}
   <div class="mb-4 flex items-center justify-between">
     <h2 class="text-xl font-bold">{project.name}</h2>
-    <button class="pixel-border-sm px-3 py-1 text-sm" onclick={onDelete}>Delete</button>
+    <button class="pixel-border-sm px-3 py-1 text-sm" onclick={openDeleteConfirm}>Delete</button>
   </div>
 
   {#if error}<div class="mb-3 p-2 border border-destructive text-destructive text-sm">{error}</div>{/if}
@@ -244,4 +271,38 @@
       </div>
     {/if}
   </section>
+{/if}
+
+{#if showDeleteConfirm && project}
+  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => { if (!deleting) showDeleteConfirm = false; }}>
+    <div class="w-full max-w-sm bg-card p-5 pixel-border" onclick={(e) => e.stopPropagation()}>
+      {#if deleting}
+        <h2 class="text-lg font-bold mb-4">Deleting project...</h2>
+        <p class="text-sm text-muted-foreground mb-2">{deleteStep}</p>
+        <div class="h-2 bg-muted overflow-hidden">
+          <div class="h-full bg-primary animate-pulse w-full"></div>
+        </div>
+      {:else}
+        <h2 class="text-lg font-bold mb-2 text-destructive">Delete project</h2>
+        <p class="text-sm text-muted-foreground mb-4">
+          This permanently deletes <strong class="text-foreground">{project.name}</strong> and all of its data:
+          database record, local Git repository, and storage objects (LFS + backup). This cannot be undone.
+        </p>
+        <p class="text-sm mb-2">Type <strong class="text-foreground">{project.name}</strong> to confirm:</p>
+        <input
+          class="pixel-border-sm bg-background px-3 py-2 text-sm w-full mb-4"
+          bind:value={deleteConfirmName}
+          placeholder={project.name}
+          disabled={deleting}
+        />
+        {#if error}<p class="text-sm text-destructive mb-2">{error}</p>{/if}
+        <div class="flex gap-2 justify-end">
+          <button class="pixel-border-sm px-4 py-2 text-sm" onclick={() => (showDeleteConfirm = false)}>Cancel</button>
+          <button class="pixel-border-sm px-4 py-2 text-sm bg-destructive text-destructive-foreground" disabled={!canConfirmDelete} onclick={onDelete}>
+            Delete
+          </button>
+        </div>
+      {/if}
+    </div>
+  </div>
 {/if}
