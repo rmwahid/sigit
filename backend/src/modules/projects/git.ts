@@ -67,10 +67,6 @@ function matchPattern(filePath: string, pattern: string): boolean {
   return regex.test(filePath);
 }
 
-export async function readFileFromRepo(repoPath: string, filePath: string): Promise<Buffer> {
-  return fs.readFile(path.join(repoPath, filePath));
-}
-
 export async function commitFiles(
   repoPath: string,
   files: { relativePath: string; content: Buffer }[],
@@ -132,9 +128,4 @@ export async function resolveHead(repoPath: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-export async function status(repoPath: string): Promise<string> {
-  const { stdout } = await execAsync("git status --short", repoCwd(repoPath));
-  return stdout;
 }

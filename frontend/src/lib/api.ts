@@ -68,15 +68,6 @@ export async function deleteObject(id: string, key: string) {
   });
 }
 
-export async function uploadObject(id: string, key: string, file: File, passphrase?: string) {
-  const qs = passphrase ? `?passphrase=${encodeURIComponent(passphrase)}` : "";
-  return api<{ data: { key: string } }>(`/storage/connections/${id}/objects/${encodeURIComponent(key)}${qs}`, {
-    method: "POST",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-    body: await file.arrayBuffer(),
-  });
-}
-
 export type Project = {
   id: string;
   name: string;

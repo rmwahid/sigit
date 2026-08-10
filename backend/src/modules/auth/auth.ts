@@ -41,11 +41,6 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
   return rows[0];
 }
 
-export async function getUserById(id: string): Promise<User | undefined> {
-  const rows = await db.select().from(users).where(eq(users.id, id));
-  return rows[0];
-}
-
 export async function countUsers(): Promise<number> {
   const rows = await db.select({ id: users.id }).from(users);
   return rows.length;

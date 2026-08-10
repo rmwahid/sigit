@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, existsSync, statSync, renameSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, existsSync, statSync, renameSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
 const LOG_DIR = process.env.LOG_DIR ?? "./data/logs";
@@ -137,26 +137,4 @@ export function getRingBuffer(limit = 200): LogEntry[] {
 export function subscribe(fn: (entry: LogEntry) => void): () => void {
   subscribers.add(fn);
   return () => subscribers.delete(fn);
-}
-
-// Expose dir for tests
-export function auditFilePath(): string {
-  return AUDIT_FILE;
-}
-
-export function cleanUpAuditFiles(): void {
-  // For tests: remove all audit files
-  try {
-    readdirSync(LOG_DIR).forEach((f) => {
-      if (f.startsWith("audit.log")) {
-        try {
-          unlinkSync(join(LOG_DIR, f));
-        } catch {
-          // ignore
-        }
-      }
-    });
-  } catch {
-    // ignore
-  }
 }
