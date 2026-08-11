@@ -1,27 +1,24 @@
 import { describe, expect, it, afterAll } from "bun:test";
-import crypto from "node:crypto";
-import fs from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { createConnection, deleteConnection, getConnection } from "../src/modules/storage/connections";
-import { getObject, listAllObjects } from "../src/modules/storage/objects";
-import { encryptSecret } from "../src/lib/secret-encryption";
-import { parseLfsPointer, sha256 } from "../src/modules/lfs";
+import fs from "node:fs/promises";
+import { execSync } from "node:child_process";
+import { createConnectionFromInput, deleteConnection, getConnection } from "../src/modules/storage/connections";
+import { listAllObjects } from "../src/modules/storage/objects";
 import {
   createProject,
   createProjectWithConnection,
   getProject,
   hardDeleteProject,
+  projectHistory,
   projectRepoPath,
-  pushProject,
-  type PushFile,
 } from "../src/modules/projects/projects";
 
 // Integration test: runs against dev DB `sigit` + local MinIO (bucket sigit-test).
-// Semua data dibuat dengan prefix test- dan dibersihkan otomatis di afterAll.
+// Alur push memakai git CLI asli ke repo bare server (menggantikan web push).
 // Koneksi storage adalah input user (arsitektur SiGit): kredensial dikirim
 // inline seperti user mengetik di form, bukan dari env.
-// MinIO uploads + git operations can exceed bun's default 5s per-test timeout.
-const TEST_TIMEOUT = 30000;
+const TEST_TIMEOUT = 60000;
 
 const STORAGE = {
   endpoint: "http://127.0.0.1:9000",
@@ -44,8 +41,31 @@ function storageConnection(name: string) {
     secretAccessKey: STORAGE.secretAccessKey,
     bucket: STORAGE.bucket,
     forcePathStyle: true,
-    useEncryption: false,
   };
+}
+
+function sh(cmd: string, cwd: string): string {
+  return execSync(cmd, { cwd, encoding: "utf8" });
+}
+
+async function gitPushToBare(repoPath: string, files: Record<string, string | Buffer>): Promise<void> {
+  const workPath = path.join(tmpdir(), `sigit-push-work-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await fs.mkdir(workPath, { recursive: true });
+  try {
+    sh("git init -b main", workPath);
+    sh('git config user.email "test@local"', workPath);
+    sh('git config user.name "Test"', workPath);
+    for (const [name, content] of Object.entries(files)) {
+      const full = path.join(workPath, name);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content);
+    }
+    sh("git add -A && git commit -m \"test: push via git\" -q", workPath);
+    sh(`git remote add sigit ${repoPath}`, workPath);
+    sh("git push sigit main -q", workPath);
+  } finally {
+    await fs.rm(workPath, { recursive: true, force: true });
+  }
 }
 
 async function cleanup() {
@@ -69,8 +89,8 @@ afterAll(async () => {
   await cleanup();
 }, TEST_TIMEOUT);
 
-describe("projects integration (DB sigit + MinIO)", () => {
-  it("creates a project together with an encrypted storage connection", async () => {
+describe("projects integration (DB sigit + MinIO + git push)", () => {
+  it("creates a project with an encrypted storage connection", async () => {
     const { project, connectionId } = await createProjectWithConnection({
       name: `test-create-${suffix}`,
       connection: storageConnection(`test-conn-${suffix}`),
@@ -84,60 +104,27 @@ describe("projects integration (DB sigit + MinIO)", () => {
     expect(conn).toBeDefined();
     expect(conn?.secretEncrypted).toBeTruthy();
     expect(conn?.secretEncrypted).not.toContain(STORAGE.secretAccessKey);
-
-    const repoPath = projectRepoPath(project.id);
-    await expect(fs.stat(repoPath)).resolves.toBeDefined();
   }, TEST_TIMEOUT);
 
-  it("pushes a small file into git (not LFS)", async () => {
+  it("receives a git push and exposes history", async () => {
     const { project } = await createProjectWithConnection({
-      name: `test-small-${suffix}`,
-      connection: storageConnection(`test-conn-small-${suffix}`),
+      name: `test-push-${suffix}`,
+      connection: storageConnection(`test-conn-push-${suffix}`),
     });
     createdProjectIds.push(project.id);
     createdConnectionIds.push(project.storageConnectionId!);
 
-    const content = Buffer.from("# Test\n");
-    const res = await pushProject(project, [{ relativePath: "readme.md", content }], "test: push small file");
-    expect(res.files[0].lfs).toBe(false);
-
-    const fileContent = await fs.readFile(path.join(projectRepoPath(project.id), "readme.md"), "utf8");
-    expect(fileContent).toBe("# Test\n");
-
-    const objects = await listAllObjects(
-      (await getConnection(project.storageConnectionId!))!,
-      `projects/${project.id}/`
-    );
-    expect(objects).toHaveLength(0);
-  }, TEST_TIMEOUT);
-
-  it("pushes a large file to MinIO as an LFS pointer", async () => {
-    const { project } = await createProjectWithConnection({
-      name: `test-large-${suffix}`,
-      connection: storageConnection(`test-conn-large-${suffix}`),
+    await gitPushToBare(projectRepoPath(project.id), {
+      "README.md": "# Push Test\n",
+      "src/index.ts": "export const x = 1;\n",
     });
-    createdProjectIds.push(project.id);
-    createdConnectionIds.push(project.storageConnectionId!);
 
-    const large = crypto.randomBytes(11 * 1024 * 1024); // > 10 MB threshold
-    const oid = sha256(large);
-    const res = await pushProject(project, [{ relativePath: "big.bin", content: large }], "test: push large file");
-    expect(res.files[0].lfs).toBe(true);
-    expect(res.files[0].oid).toBe(oid);
-
-    // Pointer file in git repo
-    const pointerContent = await fs.readFile(path.join(projectRepoPath(project.id), "big.bin"), "utf8");
-    const parsed = parseLfsPointer(pointerContent);
-    expect(parsed?.oid).toBe(oid);
-    expect(parsed?.size).toBe(large.length);
-
-    // Object in MinIO, content matches
-    const conn = (await getConnection(project.storageConnectionId!))!;
-    const obj = await getObject(conn, `projects/${project.id}/lfs/${oid}`);
-    expect(obj.equals(large)).toBe(true);
+    const history = await projectHistory(project.id, 10);
+    expect(history.commits.length).toBe(1);
+    expect(history.commits[0].message).toBe("test: push via git");
   }, TEST_TIMEOUT);
 
-  it("hard deletes a project (db row, repo folder, S3 objects)", async () => {
+  it("hard deletes a project (db row, repo folder)", async () => {
     const { project } = await createProjectWithConnection({
       name: `test-delete-${suffix}`,
       connection: storageConnection(`test-conn-delete-${suffix}`),
@@ -145,19 +132,13 @@ describe("projects integration (DB sigit + MinIO)", () => {
     createdProjectIds.push(project.id);
     createdConnectionIds.push(project.storageConnectionId!);
 
-    const large = crypto.randomBytes(11 * 1024 * 1024);
-    await pushProject(project, [{ relativePath: "big.bin", content: large }], "test: push before delete");
-
+    await gitPushToBare(projectRepoPath(project.id), { "file.txt": "content" });
     const repoPath = projectRepoPath(project.id);
-    const conn = (await getConnection(project.storageConnectionId!))!;
 
     const res = await hardDeleteProject(project.id);
     expect(res.deletedDb).toBe(true);
     expect(res.deletedRepo).toBe(true);
-    expect(res.deletedS3Objects).toBeGreaterThan(0);
 
-    // NOTE: Jangan pakai expect(promise).resolves/.rejects untuk promise
-    // drizzle/postgres — hang di bun test 1.3.13. Pakai plain await + expect.
     expect(await getProject(project.id)).toBeUndefined();
     let repoGone = false;
     try {
@@ -166,36 +147,37 @@ describe("projects integration (DB sigit + MinIO)", () => {
       repoGone = true;
     }
     expect(repoGone).toBe(true);
-
-    const remaining = await listAllObjects(conn, `projects/${project.id}/`);
-    expect(remaining).toHaveLength(0);
   }, TEST_TIMEOUT);
 
-  it("creates a project with an existing connection and custom threshold", async () => {
-    const enc = encryptSecret(STORAGE.secretAccessKey);
-    const conn = await createConnection({
+  it("creates a project with an existing connection and unique name enforcement", async () => {
+    const conn = await createConnectionFromInput({
       name: `test-conn-direct-${suffix}`,
       endpoint: STORAGE.endpoint,
       region: STORAGE.region,
       accessKeyId: STORAGE.accessKeyId,
-      secretEncrypted: enc.ciphertext,
-      encryptionKeyId: enc.keyId,
+      secretAccessKey: STORAGE.secretAccessKey,
       bucket: STORAGE.bucket,
       forcePathStyle: true,
-      useEncryption: false,
-      encryptionSalt: null,
     });
     createdConnectionIds.push(conn.id);
 
     const project = await createProject({
       name: `test-direct-${suffix}`,
       storageConnectionId: conn.id,
-      lfsSizeThreshold: 1024, // small threshold so a 2 KB file goes to LFS
     });
     createdProjectIds.push(project.id);
 
-    const files: PushFile[] = [{ relativePath: "asset.dat", content: crypto.randomBytes(2048) }];
-    const res = await pushProject(project, files, "test: push with custom threshold");
-    expect(res.files[0].lfs).toBe(true);
+    // Nama unik: create kedua dengan nama sama harus ditolak DB
+    let duplicateRejected = false;
+    try {
+      await createProject({ name: project.name, storageConnectionId: conn.id });
+    } catch {
+      duplicateRejected = true;
+    }
+    expect(duplicateRejected).toBe(true);
+
+    // Objek di storage: tidak ada LFS objects untuk repo tanpa push besar
+    const objects = await listAllObjects(conn, `projects/${project.id}/`);
+    expect(objects).toHaveLength(0);
   }, TEST_TIMEOUT);
 });
