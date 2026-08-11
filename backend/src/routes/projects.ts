@@ -1,4 +1,4 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import {
   createProject,
   createProjectWithConnection,
@@ -15,100 +15,22 @@ import { backupProject, restoreProject } from "../modules/projects/backup";
 import { getConnection } from "../modules/storage/connections";
 import { validateUploadFiles } from "../lib/upload-validation";
 import { audit } from "../lib/logger";
-
-const projectSchema = z
-  .object({
-    id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
-    name: z.string().min(1).openapi({ example: "My Project" }),
-    description: z.string().optional(),
-    storageConnectionId: z.string().uuid().nullable(),
-    lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
-    lfsPatterns: z.string().nullable().optional(),
-    useEncryption: z.boolean().default(false),
-    createdAt: z.string().datetime().optional(),
-    updatedAt: z.string().datetime().optional(),
-  })
-  .openapi("Project");
-
-const projectInputSchema = z.object({
-  name: z.string().min(1).openapi({ example: "My Project" }),
-  description: z.string().optional(),
-  storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
-  lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
-  lfsPatterns: z.string().optional(),
-  useEncryption: z.boolean().default(false),
-});
-
-const projectUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  storageConnectionId: z.string().uuid().nullable().optional(),
-  lfsSizeThreshold: z.number().int().min(1).optional(),
-  lfsPatterns: z.string().optional(),
-  useEncryption: z.boolean().optional(),
-});
-
-const projectWithConnectionSchema = z.object({
-  name: z.string().min(1).openapi({ example: "My Project" }),
-  description: z.string().optional(),
-  connection: z.object({
-    name: z.string().min(1).openapi({ example: "Hetzner" }),
-    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
-    region: z.string().min(1).openapi({ example: "eu-central" }),
-    accessKeyId: z.string().min(1),
-    secretAccessKey: z.string().min(1),
-    bucket: z.string().min(1).openapi({ example: "sigit" }),
-    forcePathStyle: z.boolean().optional(),
-    useEncryption: z.boolean().optional(),
-  }),
-});
-const idParamSchema = z.object({ id: z.string().uuid() });
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
-const messageSchema = z.object({ message: z.string() }).openapi("Message");
-
-const projectListResponse = z.object({ data: z.array(projectSchema) });
-const projectResponse = z.object({ data: projectSchema });
-const idResponse = z.object({ data: z.object({ id: z.string() }) });
-
-const pushResponse = z
-  .object({
-    data: z.object({
-      commitHash: z.string(),
-      files: z.array(
-        z.object({
-          path: z.string(),
-          lfs: z.boolean(),
-          oid: z.string().optional(),
-        })
-      ),
-    }),
-  })
-  .openapi("PushResult");
-
-const historyResponse = z
-  .object({
-    data: z.object({
-      head: z.string().nullable(),
-      commits: z.array(
-        z.object({
-          hash: z.string(),
-          date: z.string(),
-          message: z.string(),
-          author: z.string(),
-        })
-      ),
-    }),
-  })
-  .openapi("History");
-
-const diffResponse = z
-  .object({
-    data: z.object({
-      diff: z.string(),
-      files: z.array(z.object({ path: z.string(), status: z.string() })),
-    }),
-  })
-  .openapi("Diff");
+import {
+  projectSchema,
+  projectInputSchema,
+  projectUpdateSchema,
+  projectWithConnectionSchema,
+  projectListResponse,
+  projectResponse,
+  pushResponse,
+  historyResponse,
+  diffResponse,
+  backupResponse,
+  pushQuerySchema,
+  historyQuerySchema,
+  diffParamSchema,
+} from "./schemas/projects";
+import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 
 export const projectRoutes = new OpenAPIHono();
 
@@ -269,10 +191,7 @@ projectRoutes.openapi(
     summary: "Push files to a project (Git + S3 LFS)",
     request: {
       params: idParamSchema,
-      query: z.object({
-        message: z.string().optional(),
-        passphrase: z.string().optional(),
-      }),
+      query: pushQuerySchema,
     },
     responses: {
       201: {
@@ -323,7 +242,7 @@ projectRoutes.openapi(
     summary: "Get project commit history",
     request: {
       params: idParamSchema,
-      query: z.object({ limit: z.string().optional() }),
+      query: historyQuerySchema,
     },
     responses: {
       200: {
@@ -347,7 +266,7 @@ projectRoutes.openapi(
     tags: ["Projects"],
     summary: "Get diff of a commit",
     request: {
-      params: z.object({ id: z.string().uuid(), hash: z.string() }),
+      params: diffParamSchema,
     },
     responses: {
       200: {
@@ -370,10 +289,6 @@ projectRoutes.openapi(
     return c.json({ data: { diff, files } });
   }
 );
-
-const backupResponse = z
-  .object({ data: z.object({ key: z.string(), size: z.number() }) })
-  .openapi("BackupResult");
 
 projectRoutes.openapi(
   createRoute({

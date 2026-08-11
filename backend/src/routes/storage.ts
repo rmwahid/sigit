@@ -1,6 +1,7 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import {
   createConnection,
+  createConnectionFromInput,
   deleteConnection,
   getConnection,
   listConnections,
@@ -17,6 +18,22 @@ import { decrypt, encrypt, generateSalt } from "../lib/encryption";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
 import { audit } from "../lib/logger";
 import type { StorageConnection } from "../db/schema/storage";
+import {
+  connectionSchema,
+  connectionInputSchema,
+  connectionUpdateSchema,
+  keyParamSchema,
+  objectSummarySchema,
+  connectionListResponse,
+  connectionResponse,
+  testResponse,
+  objectListResponse,
+  keyResponse,
+  prefixQuerySchema,
+  passphraseQuerySchema,
+  binaryResponseSchema,
+} from "./schemas/storage";
+import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
 
 function toConnectionResponse(conn: StorageConnection) {
   const secret = decryptSecret({ keyId: conn.encryptionKeyId, ciphertext: conn.secretEncrypted });
@@ -37,66 +54,6 @@ function toConnectionResponse(conn: StorageConnection) {
     updatedAt: conn.updatedAt,
   };
 }
-
-const connectionSchema = z
-  .object({
-    id: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
-    name: z.string().min(1).openapi({ example: "Hetzner" }),
-    provider: z.string().default("s3"),
-    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
-    region: z.string().min(1).openapi({ example: "eu-central" }),
-    accessKeyId: z.string().min(1),
-    secretMasked: z.string().openapi({ example: "abcd***wxyz" }),
-    hasSecret: z.boolean(),
-    bucket: z.string().min(1).openapi({ example: "sigit" }),
-    forcePathStyle: z.boolean().default(true),
-    useEncryption: z.boolean().default(false),
-    metadata: z.any().optional(),
-    createdAt: z.string().datetime().optional(),
-    updatedAt: z.string().datetime().optional(),
-  })
-  .openapi("StorageConnection");
-
-const connectionInputSchema = z.object({
-  name: z.string().min(1).openapi({ example: "Hetzner" }),
-  endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
-  region: z.string().min(1).openapi({ example: "eu-central" }),
-  accessKeyId: z.string().min(1),
-  secretAccessKey: z.string().min(1),
-  bucket: z.string().min(1).openapi({ example: "sigit" }),
-  forcePathStyle: z.boolean().default(true),
-  useEncryption: z.boolean().default(false),
-});
-
-const connectionUpdateSchema = connectionInputSchema.partial();
-const idParamSchema = z.object({
-  id: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
-});
-const keyParamSchema = z.object({
-  id: z.string().uuid(),
-  key: z.string().openapi({ example: "path/to/object" }),
-});
-
-const errorSchema = z
-  .object({ error: z.string() })
-  .openapi("Error");
-
-const objectSummarySchema = z
-  .object({
-    key: z.string().optional(),
-    size: z.number().int().optional(),
-    lastModified: z.string().datetime().nullable().optional(),
-  })
-  .openapi("ObjectSummary");
-
-const idResponseSchema = z.object({ id: z.string() }).openapi("IdResponse");
-
-const connectionListResponse = z.object({ data: z.array(connectionSchema) });
-const connectionResponse = z.object({ data: connectionSchema });
-const idResponse = z.object({ data: idResponseSchema });
-const testResponse = z.object({ ok: z.boolean(), error: z.string().optional() });
-const objectListResponse = z.object({ data: z.array(objectSummarySchema) });
-const keyResponse = z.object({ data: z.object({ key: z.string() }) });
 
 export const storageRoutes = new OpenAPIHono();
 
@@ -137,20 +94,7 @@ storageRoutes.openapi(
   }),
   async (c) => {
     const body = c.req.valid("json");
-    const encrypted = encryptSecret(body.secretAccessKey);
-    const data = {
-      name: body.name,
-      endpoint: body.endpoint,
-      region: body.region,
-      accessKeyId: body.accessKeyId,
-      secretEncrypted: encrypted.ciphertext,
-      encryptionKeyId: encrypted.keyId,
-      bucket: body.bucket,
-      forcePathStyle: body.forcePathStyle,
-      useEncryption: body.useEncryption,
-      encryptionSalt: body.useEncryption ? generateSalt() : null,
-    };
-    const connection = await createConnection(data);
+    const connection = await createConnectionFromInput(body);
     audit("storage.create_connection", { connectionId: connection.id, name: connection.name, bucket: connection.bucket });
     return c.json({ data: toConnectionResponse(connection) }, 201);
   }
@@ -280,8 +224,8 @@ storageRoutes.openapi(
     tags: ["Storage Objects"],
     summary: "List objects in a bucket",
     request: {
-      params: z.object({ id: z.string().uuid() }),
-      query: z.object({ prefix: z.string().optional() }),
+      params: idParamSchema,
+      query: prefixQuerySchema,
     },
     responses: {
       200: {
@@ -312,12 +256,12 @@ storageRoutes.openapi(
     summary: "Download an object",
     request: {
       params: keyParamSchema,
-      query: z.object({ passphrase: z.string().optional() }),
+      query: passphraseQuerySchema,
     },
     responses: {
       200: {
         description: "Object content",
-        content: { "application/octet-stream": { schema: z.any() } },
+        content: { "application/octet-stream": { schema: binaryResponseSchema } },
       },
       400: {
         description: "Bad request",
@@ -357,7 +301,7 @@ storageRoutes.openapi(
     summary: "Upload an object",
     request: {
       params: keyParamSchema,
-      query: z.object({ passphrase: z.string().optional() }),
+      query: passphraseQuerySchema,
     },
     responses: {
       201: {
