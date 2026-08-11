@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { createAdminUser, countUsers, getUserByEmail } from "../modules/auth/auth";
+import { promptEmail, promptPassword, promptConfirmPassword, runWithSpinner } from "./helpers";
 
 async function main() {
   console.clear();
@@ -11,17 +12,7 @@ async function main() {
     process.exit(1);
   }
 
-  const email = (await p.text({
-    message: "Admin email",
-    validate: (v) => {
-      if (!v || !v.includes("@")) return "Enter a valid email address";
-    },
-  })) as string;
-
-  if (p.isCancel(email)) {
-    p.cancel("Cancelled");
-    process.exit(0);
-  }
+  const email = await promptEmail("Admin email");
 
   const duplicate = await getUserByEmail(email);
   if (duplicate) {
@@ -29,41 +20,15 @@ async function main() {
     process.exit(1);
   }
 
-  const password = (await p.password({
-    message: "Password",
-    validate: (v) => {
-      if (!v || v.length < 8) return "Password must be at least 8 characters";
-    },
-  })) as string;
+  const password = await promptPassword("Password");
+  await promptConfirmPassword(password);
 
-  if (p.isCancel(password)) {
-    p.cancel("Cancelled");
-    process.exit(0);
-  }
-
-  const confirm = (await p.password({
-    message: "Confirm password",
-    validate: (v) => {
-      if (v !== password) return "Passwords do not match";
-    },
-  })) as string;
-
-  if (p.isCancel(confirm)) {
-    p.cancel("Cancelled");
-    process.exit(0);
-  }
-
-  const spinner = p.spinner();
-  spinner.start("Creating admin user...");
-  try {
-    await createAdminUser(email, password);
-    spinner.stop("Admin user created");
-    p.outro("Setup complete. You can now log in.");
-  } catch (error) {
-    spinner.stop("Failed");
-    p.cancel(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-  }
+  await runWithSpinner(
+    "Creating admin user...",
+    () => createAdminUser(email, password),
+    "Admin user created",
+    "Setup complete. You can now log in."
+  );
 }
 
 main();
