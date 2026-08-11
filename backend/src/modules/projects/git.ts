@@ -9,51 +9,54 @@ function repoCwd(repoPath: string) {
   return { cwd: repoPath };
 }
 
-export async function initRepo(repoPath: string): Promise<void> {
+export async function initRepo(repoPath: string, lfsThreshold = 10 * 1024 * 1024): Promise<void> {
   await fs.mkdir(repoPath, { recursive: true });
   try {
-    await execAsync("git init -b main", repoCwd(repoPath));
+    await execAsync("git init --bare -b main", repoCwd(repoPath));
     await execAsync("git config user.email \"sigit@local\"", repoCwd(repoPath));
     await execAsync("git config user.name \"SiGit\"", repoCwd(repoPath));
   } catch {
     // may already be initialized
   }
+  await installPreReceiveHook(repoPath, lfsThreshold);
 }
 
-export async function ensureGitignore(repoPath: string): Promise<void> {
-  const gitignorePath = path.join(repoPath, ".gitignore");
-  let content = "";
-  try {
-    content = await fs.readFile(gitignorePath, "utf-8");
-  } catch {
-    // no existing .gitignore
-  }
-  if (!content.includes(".sigit/")) {
-    await fs.appendFile(gitignorePath, "\n.sigit/\n");
-  }
-}
-
-export async function commitFiles(
-  repoPath: string,
-  files: { relativePath: string; content: Buffer }[],
-  message: string
-): Promise<{ commitHash: string }> {
-  await initRepo(repoPath);
-  await ensureGitignore(repoPath);
-
-  for (const file of files) {
-    const fullPath = path.join(repoPath, file.relativePath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, file.content);
-  }
-
-  for (const file of files) {
-    await execAsync(`git add "${file.relativePath}"`, repoCwd(repoPath));
-  }
-
-  await execAsync(`git commit -m "${message.replace(/"/g, "\\'")}"`, repoCwd(repoPath));
-  const { stdout } = await execAsync("git rev-parse HEAD", repoCwd(repoPath));
-  return { commitHash: stdout.trim() };
+// Hook pre-receive: tolak blob > threshold (file besar wajib lewat LFS).
+// Threshold di-bake ke script saat install; regenerasi saat project di-update.
+export async function installPreReceiveHook(repoPath: string, threshold: number): Promise<void> {
+  const script = `#!/bin/sh
+# SiGit pre-receive hook: menolak blob besar yang tidak lewat git-lfs.
+# File besar tidak pernah masuk history server (server tetap kecil).
+THRESHOLD=${threshold}
+fail=0
+tmp=$(mktemp) || exit 1
+while read oldrev newrev ref; do
+  [ "$newrev" = "0000000000000000000000000000000000000000" ] && continue
+  if [ "$oldrev" = "0000000000000000000000000000000000000000" ]; then
+    git rev-list --objects "$newrev" > "$tmp" 2>/dev/null || continue
+  else
+    git rev-list --objects "$newrev" --not "$oldrev" > "$tmp" 2>/dev/null || continue
+  fi
+  while IFS= read -r line; do
+    sha=\${line%% *}
+    path=\${line#* }
+    type=$(git cat-file -t "$sha" 2>/dev/null)
+    [ "$type" != "blob" ] && continue
+    size=$(git cat-file -s "$sha" 2>/dev/null)
+    if [ "$size" -gt "$THRESHOLD" ]; then
+      echo "SiGit: file '$path' ($size bytes) melebihi batas $THRESHOLD bytes." >&2
+      echo "SiGit: gunakan 'git lfs track' untuk file besar, atau naikkan lfsSizeThreshold project." >&2
+      fail=1
+    fi
+  done < "$tmp"
+done
+rm -f "$tmp"
+[ "$fail" -ne 0 ] && exit 1
+exit 0
+`;
+  const hookPath = path.join(repoPath, "hooks", "pre-receive");
+  await fs.mkdir(path.dirname(hookPath), { recursive: true });
+  await fs.writeFile(hookPath, script, { mode: 0o755 });
 }
 
 export async function getLog(repoPath: string, limit = 50): Promise<{ hash: string; date: string; message: string; author: string }[]> {
@@ -76,7 +79,9 @@ export async function getDiff(repoPath: string, a?: string, b?: string): Promise
 }
 
 export async function getCommitFiles(repoPath: string, hash: string): Promise<{ path: string; status: string }[]> {
-  const { stdout } = await execAsync(`git diff-tree --no-commit-id --name-status -r ${hash}`, repoCwd(repoPath));
+  // git show (bukan diff-tree): diff-tree mengembalikan kosong di repo bare
+  // pada beberapa versi git Windows; format outputnya sama (status\tpath).
+  const { stdout } = await execAsync(`git show --format= --name-status ${hash}`, repoCwd(repoPath));
   if (!stdout.trim()) return [];
   return stdout
     .split("\n")
@@ -89,7 +94,9 @@ export async function getCommitFiles(repoPath: string, hash: string): Promise<{ 
 
 export async function resolveHead(repoPath: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync("git rev-parse HEAD", repoCwd(repoPath));
+    // --verify: gagal (exit != 0) pada repo tanpa commit (unborn HEAD),
+    // sedangkan `git rev-parse HEAD` di git baru mengembalikan string "HEAD".
+    const { stdout } = await execAsync("git rev-parse --verify HEAD", repoCwd(repoPath));
     return stdout.trim();
   } catch {
     return null;

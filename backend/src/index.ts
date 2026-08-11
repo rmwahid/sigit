@@ -7,6 +7,8 @@ import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { storageRoutes } from "./routes/storage";
 import { projectRoutes } from "./routes/projects";
+import { gitRoutes } from "./routes/git";
+import { tokenRoutes } from "./routes/tokens";
 import { requireAuth, type AuthEnv } from "./middleware/auth";
 import { errorResponse, HttpError } from "./lib/http-error";
 import { log } from "./lib/logger";
@@ -82,13 +84,19 @@ app.get("/", (c) => c.json({ message: "SiGit API" }));
 
 app.route("/auth", authRoutes);
 
+// Git smart HTTP — WAJIB sebelum app.use("/projects/*", requireAuth):
+// client git tidak mengirim session cookie, hanya Basic auth token.
+app.route("/projects", gitRoutes);
+
 // Protected routes
 app.use("/storage/*", requireAuth);
 app.use("/projects/*", requireAuth);
 app.use("/admin/*", requireAuth);
+app.use("/tokens/*", requireAuth);
 app.route("/storage", storageRoutes);
 app.route("/projects", projectRoutes);
 app.route("/admin", adminRoutes);
+app.route("/tokens", tokenRoutes);
 
 export default {
   port: Number(env.PORT),

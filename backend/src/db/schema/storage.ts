@@ -11,8 +11,6 @@ export const storageConnections = pgTable("storage_connections", {
   encryptionKeyId: varchar("encryption_key_id", { length: 50 }).notNull().default("v1"),
   bucket: varchar("bucket", { length: 255 }).notNull(),
   forcePathStyle: boolean("force_path_style").notNull().default(true),
-  useEncryption: boolean("use_encryption").notNull().default(false),
-  encryptionSalt: text("encryption_salt"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

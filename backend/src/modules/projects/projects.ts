@@ -5,8 +5,7 @@ import { db } from "../../config/db";
 import { projects, type NewProject, type Project } from "../../db/schema/projects";
 import { createConnectionFromInput, getConnection } from "../storage/connections";
 import { deleteObjectsByPrefix } from "../storage/objects";
-import { getLog, initRepo, resolveHead } from "./git";
-export { pushProject, type PushFile } from "./push";
+import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
 
 const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
 
@@ -23,6 +22,12 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return rows[0];
 }
 
+// Nama project unik (URL git /projects/<name>.git)
+export async function getProjectByName(name: string): Promise<Project | undefined> {
+  const rows = await db.select().from(projects).where(eq(projects.name, name));
+  return rows[0];
+}
+
 export async function createProject(data: NewProject): Promise<Project> {
   if (!data.storageConnectionId) {
     throw new Error("Project storage connection is required");
@@ -30,7 +35,7 @@ export async function createProject(data: NewProject): Promise<Project> {
   const inserted = await db.insert(projects).values(data).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
-  await initRepo(projectRepoPath(project.id));
+  await initRepo(projectRepoPath(project.id), project.lfsSizeThreshold);
   return project;
 }
 
@@ -45,7 +50,6 @@ export type CreateProjectWithConnectionInput = {
     secretAccessKey: string;
     bucket: string;
     forcePathStyle?: boolean;
-    useEncryption?: boolean;
   };
 };
 
@@ -65,7 +69,7 @@ export async function createProjectWithConnection(
     const project = projRows[0];
     if (!project) throw new Error("Failed to create project");
 
-    await initRepo(projectRepoPath(project.id));
+    await initRepo(projectRepoPath(project.id), project.lfsSizeThreshold);
     return { project, connectionId: connection.id };
   });
 }
@@ -76,7 +80,12 @@ export async function updateProject(id: string, data: Partial<NewProject>): Prom
     .set({ ...data, updatedAt: new Date() })
     .where(eq(projects.id, id))
     .returning();
-  return rows[0];
+  const project = rows[0];
+  // Threshold berubah → regenerate pre-receive hook
+  if (project && data.lfsSizeThreshold) {
+    await installPreReceiveHook(projectRepoPath(project.id), project.lfsSizeThreshold);
+  }
+  return project;
 }
 
 export async function deleteProject(id: string): Promise<boolean> {
