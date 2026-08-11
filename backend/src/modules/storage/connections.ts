@@ -1,6 +1,47 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../config/db";
 import { storageConnections, type NewStorageConnection, type StorageConnection } from "../../db/schema/storage";
+import { generateSalt } from "../../lib/encryption";
+import { encryptSecret } from "../../lib/secret-encryption";
+
+export type StorageConnectionInput = {
+  name: string;
+  endpoint: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  forcePathStyle?: boolean;
+  useEncryption?: boolean;
+};
+
+// Create a connection from raw user input: encrypt the secret, generate salt
+// when encryption is enabled. Accepts db or tx so it can run inside a
+// transaction (e.g. createProjectWithConnection).
+export async function createConnectionFromInput(
+  data: StorageConnectionInput,
+  client: Pick<typeof db, "insert"> = db
+): Promise<StorageConnection> {
+  const encrypted = encryptSecret(data.secretAccessKey);
+  const rows = await client
+    .insert(storageConnections)
+    .values({
+      name: data.name,
+      endpoint: data.endpoint,
+      region: data.region,
+      accessKeyId: data.accessKeyId,
+      secretEncrypted: encrypted.ciphertext,
+      encryptionKeyId: encrypted.keyId,
+      bucket: data.bucket,
+      forcePathStyle: data.forcePathStyle ?? true,
+      useEncryption: data.useEncryption ?? false,
+      encryptionSalt: data.useEncryption ? generateSalt() : null,
+    })
+    .returning();
+  const connection = rows[0];
+  if (!connection) throw new Error("Failed to create connection");
+  return connection;
+}
 
 export async function listConnections(): Promise<StorageConnection[]> {
   return db.select().from(storageConnections);

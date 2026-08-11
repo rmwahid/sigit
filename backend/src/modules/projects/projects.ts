@@ -3,20 +3,10 @@ import fs from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db } from "../../config/db";
 import { projects, type NewProject, type Project } from "../../db/schema/projects";
-import { storageConnections } from "../../db/schema/storage";
-import { getConnection, updateConnection } from "../storage/connections";
-import { putObject, deleteObjectsByPrefix } from "../storage/objects";
-import { encrypt, generateSalt } from "../../lib/encryption";
-import { encryptSecret } from "../../lib/secret-encryption";
-import {
-  commitFiles,
-  createLfsPointer,
-  getLog,
-  initRepo,
-  resolveHead,
-  sha256,
-  shouldUseLfs,
-} from "./git";
+import { createConnectionFromInput, getConnection } from "../storage/connections";
+import { deleteObjectsByPrefix } from "../storage/objects";
+import { getLog, initRepo, resolveHead } from "./git";
+export { pushProject, type PushFile } from "./push";
 
 const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
 
@@ -63,25 +53,7 @@ export async function createProjectWithConnection(
   data: CreateProjectWithConnectionInput
 ): Promise<{ project: Project; connectionId: string }> {
   return db.transaction(async (tx) => {
-    const conn = data.connection;
-    const encrypted = encryptSecret(conn.secretAccessKey);
-    const connRows = await tx
-      .insert(storageConnections)
-      .values({
-        name: conn.name,
-        endpoint: conn.endpoint,
-        region: conn.region,
-        accessKeyId: conn.accessKeyId,
-        secretEncrypted: encrypted.ciphertext,
-        encryptionKeyId: encrypted.keyId,
-        bucket: conn.bucket,
-        forcePathStyle: conn.forcePathStyle ?? true,
-        useEncryption: conn.useEncryption ?? false,
-        encryptionSalt: conn.useEncryption ? generateSalt() : null,
-      })
-      .returning();
-    const connection = connRows[0];
-
+    const connection = await createConnectionFromInput(data.connection, tx);
     const projRows = await tx
       .insert(projects)
       .values({
@@ -153,60 +125,6 @@ export async function hardDeleteProject(id: string): Promise<DeleteProjectResult
   // 4. Delete DB row last (so project data is gone only after cleanup attempted)
   result.deletedDb = await deleteProject(id);
   return result;
-}
-
-export type PushFile = {
-  relativePath: string;
-  content: Buffer;
-  contentType?: string;
-};
-
-export async function pushProject(
-  project: Project,
-  files: PushFile[],
-  message: string,
-  passphrase?: string
-): Promise<{ commitHash: string; files: { path: string; lfs: boolean; oid?: string }[] }> {
-  if (!project.storageConnectionId) throw new Error("Project has no storage connection");
-  const connection = await getConnection(project.storageConnectionId);
-  if (!connection) throw new Error("Storage connection not found");
-
-  const repoPath = projectRepoPath(project.id);
-  await initRepo(repoPath);
-
-  const committedFiles: { relativePath: string; content: Buffer }[] = [];
-  const result: { path: string; lfs: boolean; oid?: string }[] = [];
-
-  for (const file of files) {
-    const useLfs = shouldUseLfs(project, file.content, file.relativePath);
-    if (useLfs) {
-      const oid = sha256(file.content);
-      let objectBody = file.content;
-      if (project.useEncryption) {
-        if (!passphrase) throw new Error("Passphrase required for encrypted project");
-        const salt = connection.encryptionSalt ?? generateSalt();
-        const enc = encrypt(objectBody, passphrase, Buffer.from(salt, "base64"));
-        const iv = Buffer.from(enc.iv, "base64");
-        const tag = Buffer.from(enc.tag, "base64");
-        objectBody = Buffer.concat([iv, tag, enc.ciphertext]);
-        if (!connection.encryptionSalt) {
-          connection.encryptionSalt = salt;
-          await updateConnection(connection.id, { encryptionSalt: salt });
-        }
-      }
-      const s3Key = `projects/${project.id}/lfs/${oid}`;
-      await putObject(connection, s3Key, objectBody, file.contentType ?? "application/octet-stream");
-      const pointer = createLfsPointer(oid, file.content.length);
-      committedFiles.push({ relativePath: file.relativePath, content: Buffer.from(pointer, "utf-8") });
-      result.push({ path: file.relativePath, lfs: true, oid });
-    } else {
-      committedFiles.push({ relativePath: file.relativePath, content: file.content });
-      result.push({ path: file.relativePath, lfs: false });
-    }
-  }
-
-  const { commitHash } = await commitFiles(repoPath, committedFiles, message);
-  return { commitHash, files: result };
 }
 
 export async function projectHistory(projectId: string, limit?: number) {
