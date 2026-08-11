@@ -198,7 +198,7 @@
       {#if project.storageConnectionId}
         <div class="text-sm">
           <span class="text-muted-foreground">Connected:</span>
-          <span class="font-medium"> {connections.find((c) => c.id === project.storageConnectionId)?.name ?? "unknown"}</span>
+          <span class="font-medium"> {connections.find((c) => c.id === project?.storageConnectionId)?.name ?? "unknown"}</span>
           <button class="pixel-border-sm px-2 py-1 text-xs ml-3" onclick={onDisconnect}>Disconnect</button>
         </div>
       {:else}
@@ -274,8 +274,13 @@
 {/if}
 
 {#if showDeleteConfirm && project}
-  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => { if (!deleting) showDeleteConfirm = false; }}>
-    <div class="w-full max-w-sm bg-card p-5 pixel-border" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+    role="presentation"
+    onclick={(e) => { if (!deleting && e.target === e.currentTarget) showDeleteConfirm = false; }}
+    onkeydown={(e) => { if (e.key === "Escape" && !deleting) showDeleteConfirm = false; }}
+  >
+    <div class="w-full max-w-sm bg-card p-5 pixel-border">
       {#if deleting}
         <h2 class="text-lg font-bold mb-4">Deleting project...</h2>
         <p class="text-sm text-muted-foreground mb-2">{deleteStep}</p>

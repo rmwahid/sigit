@@ -165,8 +165,13 @@
   </div>
 
   {#if showCreate}
-    <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onclick={() => { if (!creating) showCreate = false; }}>
-      <div class="w-full max-w-md bg-card p-5 pixel-border" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      role="presentation"
+      onclick={(e) => { if (!creating && e.target === e.currentTarget) showCreate = false; }}
+      onkeydown={(e) => { if (e.key === "Escape" && !creating) showCreate = false; }}
+    >
+      <div class="w-full max-w-md bg-card p-5 pixel-border">
         <h2 class="text-lg font-bold mb-4">New Project</h2>
         <div class="flex flex-col gap-3">
           <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name" disabled={creating} />

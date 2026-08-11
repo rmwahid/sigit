@@ -4,6 +4,7 @@ import type {
   DeleteProjectResult,
   NewProject,
   Project,
+  ProjectUpdate,
 } from "./types";
 
 export async function listProjects() {
@@ -32,7 +33,7 @@ export async function deleteProject(id: string) {
   return api<{ data: DeleteProjectResult }>(`/projects/${id}`, { method: "DELETE" });
 }
 
-export async function updateProject(id: string, data: Partial<NewProject>) {
+export async function updateProject(id: string, data: ProjectUpdate) {
   return api<{ data: Project }>(`/projects/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),

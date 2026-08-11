@@ -57,7 +57,7 @@
     </button>
     <span class="count">{entries.length} entries</span>
   </div>
-  <pre class="loglist" tabindex="0">
+  <pre class="loglist" tabindex="-1" role="log" aria-label="Live log entries">
 {#each entries as entry (entry.ts + entry.scope + entry.message)}
 <span class:err={levelClass(entry) === "err"} class:warn={levelClass(entry) === "warn"}>{renderLine(entry)}</span>
 {/each}
