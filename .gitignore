@@ -16,6 +16,12 @@ node_modules
 # Misc
 .DS_Store
 
+# Editor / AI tooling (machine-specific, generated)
+.claude/
+.mcp.json
+.vscode/
+.repowise/
+
 # SiGit runtime data
 data/
 
