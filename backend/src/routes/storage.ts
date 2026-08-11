@@ -9,12 +9,9 @@ import {
 } from "../modules/storage/connections";
 import {
   deleteObject,
-  getObject,
   listObjects,
-  putObject,
   testConnection,
 } from "../modules/storage/objects";
-import { decrypt, encrypt, generateSalt } from "../lib/encryption";
 import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
 import { audit } from "../lib/logger";
 import type { StorageConnection } from "../db/schema/storage";
@@ -30,8 +27,6 @@ import {
   objectListResponse,
   keyResponse,
   prefixQuerySchema,
-  passphraseQuerySchema,
-  binaryResponseSchema,
 } from "./schemas/storage";
 import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
 
@@ -48,7 +43,6 @@ function toConnectionResponse(conn: StorageConnection) {
     hasSecret: true,
     bucket: conn.bucket,
     forcePathStyle: conn.forcePathStyle,
-    useEncryption: conn.useEncryption,
     metadata: conn.metadata,
     createdAt: conn.createdAt,
     updatedAt: conn.updatedAt,
@@ -245,100 +239,6 @@ storageRoutes.openapi(
     if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     const objects = await listObjects(connection, prefix);
     return c.json({ data: objects });
-  }
-);
-
-storageRoutes.openapi(
-  createRoute({
-    method: "get",
-    path: "/connections/{id}/objects/{key}",
-    tags: ["Storage Objects"],
-    summary: "Download an object",
-    request: {
-      params: keyParamSchema,
-      query: passphraseQuerySchema,
-    },
-    responses: {
-      200: {
-        description: "Object content",
-        content: { "application/octet-stream": { schema: binaryResponseSchema } },
-      },
-      400: {
-        description: "Bad request",
-        content: { "application/json": { schema: errorSchema } },
-      },
-      404: {
-        description: "Not found",
-        content: { "application/json": { schema: errorSchema } },
-      },
-    },
-  }),
-  async (c) => {
-    const { id, key } = c.req.valid("param");
-    const { passphrase } = c.req.valid("query");
-    const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    const body = await getObject(connection, key);
-    let output = body;
-    if (connection.useEncryption) {
-      if (!passphrase) return c.json({ error: { code: "PASSPHRASE_REQUIRED", message: "Passphrase required for encrypted object" } }, 400);
-      if (!connection.encryptionSalt) return c.json({ error: { code: "ENCRYPTION_SALT_MISSING", message: "Encryption salt missing" } }, 500);
-      // Layout: IV (16 bytes) + authTag (16 bytes) + ciphertext
-      const iv = body.subarray(0, 16);
-      const tag = body.subarray(16, 32);
-      const ciphertext = body.subarray(32);
-      output = decrypt(ciphertext, passphrase, connection.encryptionSalt, iv.toString("base64"), tag.toString("base64"));
-    }
-    return c.body(output);
-  }
-);
-
-storageRoutes.openapi(
-  createRoute({
-    method: "post",
-    path: "/connections/{id}/objects/{key}",
-    tags: ["Storage Objects"],
-    summary: "Upload an object",
-    request: {
-      params: keyParamSchema,
-      query: passphraseQuerySchema,
-    },
-    responses: {
-      201: {
-        description: "Uploaded object",
-        content: { "application/json": { schema: keyResponse } },
-      },
-      400: {
-        description: "Bad request",
-        content: { "application/json": { schema: errorSchema } },
-      },
-      404: {
-        description: "Not found",
-        content: { "application/json": { schema: errorSchema } },
-      },
-    },
-  }),
-  async (c) => {
-    const { id, key } = c.req.valid("param");
-    const { passphrase } = c.req.valid("query");
-    const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    const arrayBuffer = await c.req.arrayBuffer();
-    let body = Buffer.from(arrayBuffer);
-    if (connection.useEncryption) {
-      if (!passphrase) return c.json({ error: { code: "PASSPHRASE_REQUIRED", message: "Passphrase required for encrypted upload" } }, 400);
-      const salt = connection.encryptionSalt ?? generateSalt();
-      const result = encrypt(body, passphrase, Buffer.from(salt, "base64"));
-      const iv = Buffer.from(result.iv, "base64");
-      const tag = Buffer.from(result.tag, "base64");
-      body = Buffer.concat([iv, tag, result.ciphertext]);
-      if (!connection.encryptionSalt) {
-        await updateConnection(id, { encryptionSalt: salt });
-      }
-    }
-    await putObject(connection, key, body, c.req.header("Content-Type") ?? undefined);
-    audit("storage.upload_object", { connectionId: id, key });
-    return c.json({ data: { key } }, 201);
   }
 );
 

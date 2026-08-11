@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../config/db";
 import { storageConnections, type NewStorageConnection, type StorageConnection } from "../../db/schema/storage";
-import { generateSalt } from "../../lib/encryption";
 import { encryptSecret } from "../../lib/secret-encryption";
 
 export type StorageConnectionInput = {
@@ -12,12 +11,11 @@ export type StorageConnectionInput = {
   secretAccessKey: string;
   bucket: string;
   forcePathStyle?: boolean;
-  useEncryption?: boolean;
 };
 
-// Create a connection from raw user input: encrypt the secret, generate salt
-// when encryption is enabled. Accepts db or tx so it can run inside a
-// transaction (e.g. createProjectWithConnection).
+// Create a connection from raw user input: encrypt the secret.
+// Accepts db or tx so it can run inside a transaction
+// (e.g. createProjectWithConnection).
 export async function createConnectionFromInput(
   data: StorageConnectionInput,
   client: Pick<typeof db, "insert"> = db
@@ -34,8 +32,6 @@ export async function createConnectionFromInput(
       encryptionKeyId: encrypted.keyId,
       bucket: data.bucket,
       forcePathStyle: data.forcePathStyle ?? true,
-      useEncryption: data.useEncryption ?? false,
-      encryptionSalt: data.useEncryption ? generateSalt() : null,
     })
     .returning();
   const connection = rows[0];

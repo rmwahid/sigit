@@ -13,7 +13,6 @@ export const connectionSchema = z
     hasSecret: z.boolean(),
     bucket: z.string().min(1).openapi({ example: "sigit" }),
     forcePathStyle: z.boolean().default(true),
-    useEncryption: z.boolean().default(false),
     metadata: z.any().optional(),
     createdAt: z.string().datetime().optional(),
     updatedAt: z.string().datetime().optional(),
@@ -28,7 +27,6 @@ export const connectionInputSchema = z.object({
   secretAccessKey: z.string().min(1),
   bucket: z.string().min(1).openapi({ example: "sigit" }),
   forcePathStyle: z.boolean().default(true),
-  useEncryption: z.boolean().default(false),
 });
 
 export const connectionUpdateSchema = connectionInputSchema.partial();
@@ -53,6 +51,3 @@ export const objectListResponse = z.object({ data: z.array(objectSummarySchema) 
 export const keyResponse = z.object({ data: z.object({ key: z.string() }) });
 
 export const prefixQuerySchema = z.object({ prefix: z.string().optional() });
-export const passphraseQuerySchema = z.object({ passphrase: z.string().optional() });
-
-export const binaryResponseSchema = z.any();

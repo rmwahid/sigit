@@ -5,7 +5,6 @@ import {
   getProject,
   listProjects,
   projectHistory,
-  pushProject,
   updateProject,
   projectRepoPath,
   hardDeleteProject,
@@ -13,7 +12,6 @@ import {
 import { getDiff, getCommitFiles } from "../modules/projects/git";
 import { backupProject, restoreProject } from "../modules/projects/backup";
 import { getConnection } from "../modules/storage/connections";
-import { validateUploadFiles } from "../lib/upload-validation";
 import { audit } from "../lib/logger";
 import {
   projectSchema,
@@ -22,11 +20,9 @@ import {
   projectWithConnectionSchema,
   projectListResponse,
   projectResponse,
-  pushResponse,
   historyResponse,
   diffResponse,
   backupResponse,
-  pushQuerySchema,
   historyQuerySchema,
   diffParamSchema,
 } from "./schemas/projects";
@@ -180,57 +176,6 @@ projectRoutes.openapi(
     if (!result.deletedDb) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
     audit("project.delete", { projectId: id, ...result });
     return c.json({ data: result });
-  }
-);
-
-projectRoutes.openapi(
-  createRoute({
-    method: "post",
-    path: "/{id}/push",
-    tags: ["Projects"],
-    summary: "Push files to a project (Git + S3 LFS)",
-    request: {
-      params: idParamSchema,
-      query: pushQuerySchema,
-    },
-    responses: {
-      201: {
-        description: "Pushed files",
-        content: { "application/json": { schema: pushResponse } },
-      },
-      400: {
-        description: "No files or bad request",
-        content: { "application/json": { schema: errorSchema } },
-      },
-      404: {
-        description: "Not found",
-        content: { "application/json": { schema: errorSchema } },
-      },
-    },
-  }),
-  async (c) => {
-    const { id } = c.req.valid("param");
-    const { passphrase, message } = c.req.valid("query");
-    const project = await getProject(id);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-
-    const form = await c.req.formData();
-    const files: { relativePath: string; content: Buffer; contentType?: string }[] = [];
-    for (const [key, value] of form.entries()) {
-      if (value instanceof File) {
-        const arrayBuffer = await value.arrayBuffer();
-        files.push({ relativePath: key, content: Buffer.from(arrayBuffer), contentType: value.type });
-      }
-    }
-
-    const validationError = validateUploadFiles(
-      files.map((f) => ({ relativePath: f.relativePath, size: f.content.length }))
-    );
-    if (validationError) return c.json({ error: { code: "INVALID_UPLOAD", message: validationError } }, 400);
-
-    const result = await pushProject(project, files, message || "SiGit push", passphrase || undefined);
-    audit("project.push", { projectId: id, commitHash: result.commitHash, files: result.files.length });
-    return c.json({ data: result }, 201);
   }
 );
 

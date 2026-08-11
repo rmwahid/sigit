@@ -9,7 +9,6 @@ export const projectSchema = z
     storageConnectionId: z.string().uuid().nullable(),
     lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
     lfsPatterns: z.string().nullable().optional(),
-    useEncryption: z.boolean().default(false),
     createdAt: z.string().datetime().optional(),
     updatedAt: z.string().datetime().optional(),
   })
@@ -21,7 +20,6 @@ export const projectInputSchema = z.object({
   storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
   lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
   lfsPatterns: z.string().optional(),
-  useEncryption: z.boolean().default(false),
 });
 
 export const projectUpdateSchema = z.object({
@@ -30,7 +28,6 @@ export const projectUpdateSchema = z.object({
   storageConnectionId: z.string().uuid().nullable().optional(),
   lfsSizeThreshold: z.number().int().min(1).optional(),
   lfsPatterns: z.string().optional(),
-  useEncryption: z.boolean().optional(),
 });
 
 export const projectWithConnectionSchema = z.object({
@@ -44,27 +41,11 @@ export const projectWithConnectionSchema = z.object({
     secretAccessKey: z.string().min(1),
     bucket: z.string().min(1).openapi({ example: "sigit" }),
     forcePathStyle: z.boolean().optional(),
-    useEncryption: z.boolean().optional(),
   }),
 });
 
 export const projectListResponse = z.object({ data: z.array(projectSchema) });
 export const projectResponse = z.object({ data: projectSchema });
-
-export const pushResponse = z
-  .object({
-    data: z.object({
-      commitHash: z.string(),
-      files: z.array(
-        z.object({
-          path: z.string(),
-          lfs: z.boolean(),
-          oid: z.string().optional(),
-        })
-      ),
-    }),
-  })
-  .openapi("PushResult");
 
 export const historyResponse = z
   .object({
@@ -94,11 +75,6 @@ export const diffResponse = z
 export const backupResponse = z
   .object({ data: z.object({ key: z.string(), size: z.number() }) })
   .openapi("BackupResult");
-
-export const pushQuerySchema = z.object({
-  message: z.string().optional(),
-  passphrase: z.string().optional(),
-});
 
 export const historyQuerySchema = z.object({ limit: z.string().optional() });
 
