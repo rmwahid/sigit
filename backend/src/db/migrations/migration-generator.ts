@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readdirSync, existsSync, renameSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -53,6 +53,60 @@ function showValidationReport() {
   }
 }
 
+function listSqlFiles(): string[] {
+  return existsSync(MIGRATIONS_DIR)
+    ? readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"))
+    : [];
+}
+
+function runDrizzleGenerate(): Promise<void> {
+  console.log("\nRunning drizzle-kit generate...");
+  return new Promise<void>((resolve, reject) => {
+    try {
+      const child = spawn("bunx", ["drizzle-kit", "generate"], {
+        shell: false,
+        stdio: "inherit",
+      });
+      child.on("error", (err) => reject(err));
+      child.on("close", (code) => {
+        if (code === 0) return resolve();
+        return reject(new Error(`drizzle-kit generate exited with code ${code}`));
+      });
+    } catch (err) {
+      return reject(err);
+    }
+  });
+}
+
+function renameMigration(newFile: string, migrationName: string): void {
+  const oldPath = join(MIGRATIONS_DIR, newFile);
+  const newPath = join(MIGRATIONS_DIR, `${migrationName}.sql`);
+  renameSync(oldPath, newPath);
+  console.log(`\nRenamed: ${newFile} -> ${migrationName}.sql`);
+
+  const journalPath = join(MIGRATIONS_DIR, "meta", "_journal.json");
+  const oldTag = newFile.replace(".sql", "");
+  if (existsSync(journalPath)) {
+    const journalContent = readFileSync(journalPath, "utf8");
+    const updatedContent = journalContent.replace(new RegExp(oldTag, "g"), migrationName);
+    writeFileSync(journalPath, updatedContent);
+    console.log(`Updated journal: ${oldTag} -> ${migrationName}`);
+  }
+}
+
+function printGenerateError(error: unknown): void {
+  console.error("\nMigration generation failed!");
+  if (error instanceof Error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      console.error("Troubleshooting:");
+      console.error("  - Make sure drizzle-kit is installed: bun add -d drizzle-kit");
+      console.error("  - Check your drizzle.config.ts configuration");
+    } else {
+      console.error(`Error: ${error.message}`);
+    }
+  }
+}
+
 async function generateMigration(description: string) {
   try {
     console.log("\nSiGit Migration Generator");
@@ -77,49 +131,13 @@ async function generateMigration(description: string) {
     const migrationName = generateMigrationName(description);
     console.log(`\nGenerating migration: ${migrationName}.sql`);
 
-    const existingFiles = new Set(
-      existsSync(MIGRATIONS_DIR)
-        ? readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"))
-        : []
-    );
+    const existingFiles = new Set(listSqlFiles());
+    await runDrizzleGenerate();
 
-    console.log("\nRunning drizzle-kit generate...");
-    await new Promise<void>((resolve, reject) => {
-      try {
-        const child = spawn("bunx", ["drizzle-kit", "generate"], {
-          shell: false,
-          stdio: "inherit",
-        });
-        child.on("error", (err) => reject(err));
-        child.on("close", (code) => {
-          if (code === 0) return resolve();
-          return reject(new Error(`drizzle-kit generate exited with code ${code}`));
-        });
-      } catch (err) {
-        return reject(err);
-      }
-    });
-
-    const currentFiles = existsSync(MIGRATIONS_DIR)
-      ? readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"))
-      : [];
-    const newFile = currentFiles.find((f) => !existingFiles.has(f));
+    const newFile = listSqlFiles().find((f) => !existingFiles.has(f));
 
     if (newFile) {
-      const oldPath = join(MIGRATIONS_DIR, newFile);
-      const newPath = join(MIGRATIONS_DIR, `${migrationName}.sql`);
-      renameSync(oldPath, newPath);
-      console.log(`\nRenamed: ${newFile} -> ${migrationName}.sql`);
-
-      const journalPath = join(MIGRATIONS_DIR, "meta", "_journal.json");
-      const oldTag = newFile.replace(".sql", "");
-      const newTag = migrationName;
-      if (existsSync(journalPath)) {
-        const journalContent = readFileSync(journalPath, "utf8");
-        const updatedContent = journalContent.replace(new RegExp(oldTag, "g"), newTag);
-        writeFileSync(journalPath, updatedContent);
-        console.log(`Updated journal: ${oldTag} -> ${newTag}`);
-      }
+      renameMigration(newFile, migrationName);
     } else {
       console.log("No drizzle-generated migration file found to rename");
       console.log("This may mean no schema changes were detected.");
@@ -131,16 +149,7 @@ async function generateMigration(description: string) {
     console.log("  1. Review the generated SQL file");
     console.log("  2. Run: bun run db:migrate");
   } catch (error) {
-    console.error("\nMigration generation failed!");
-    if (error instanceof Error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        console.error("Troubleshooting:");
-        console.error("  - Make sure drizzle-kit is installed: bun add -d drizzle-kit");
-        console.error("  - Check your drizzle.config.ts configuration");
-      } else {
-        console.error(`Error: ${error.message}`);
-      }
-    }
+    printGenerateError(error);
     process.exit(1);
   }
 }
