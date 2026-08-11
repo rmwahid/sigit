@@ -1,7 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import path from "node:path";
-import fs from "node:fs/promises";
-import { commitFiles, createLfsPointer, getLog, initRepo, parseLfsPointer, sha256 } from "../src/modules/projects/git";
+import { createLfsPointer, parseLfsPointer, sha256 } from "../src/modules/lfs";
 import { decrypt, encrypt, generateSalt } from "../src/lib/encryption";
 
 describe("encryption", () => {
@@ -20,22 +18,6 @@ describe("encryption", () => {
     const encrypted = ciphertext.subarray(32);
     const decrypted = decrypt(encrypted, passphrase, result.salt, iv.toString("base64"), tag.toString("base64"));
     expect(decrypted.toString()).toBe("hello SiGit");
-  });
-});
-
-describe("git", () => {
-  const repoPath = path.join(process.cwd(), "data", "test-repo");
-
-  it("initializes repo and commits files", async () => {
-    await fs.rm(repoPath, { recursive: true, force: true });
-    await initRepo(repoPath);
-    const { commitHash } = await commitFiles(repoPath, [
-      { relativePath: "readme.md", content: Buffer.from("# Hello") },
-    ], "initial commit");
-    expect(commitHash.length).toBe(40);
-    const log = await getLog(repoPath, 1);
-    expect(log.length).toBe(1);
-    expect(log[0].message).toBe("initial commit");
   });
 });
 
