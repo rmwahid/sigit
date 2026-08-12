@@ -48,24 +48,6 @@ export async function restoreProject(id: string) {
   return api<{ message: string }>(`/projects/${id}/restore`, { method: "POST" });
 }
 
-export async function pushProject(id: string, files: FileList, message: string, passphrase?: string) {
-  const qs = new URLSearchParams();
-  qs.set("message", message);
-  if (passphrase) qs.set("passphrase", passphrase);
-  const form = new FormData();
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    form.append(file.webkitRelativePath || file.name, file);
-  }
-  return api<{ data: { commitHash: string; files: { path: string; lfs: boolean; oid?: string }[] } }>(
-    `/projects/${id}/push?${qs.toString()}`,
-    {
-      method: "POST",
-      body: form,
-    }
-  );
-}
-
 export async function getProjectHistory(id: string) {
   return api<{ data: { head: string | null; commits: { hash: string; date: string; message: string; author: string }[] } }>(
     `/projects/${id}/history`

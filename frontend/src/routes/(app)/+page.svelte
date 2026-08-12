@@ -1,12 +1,7 @@
 <script lang="ts">
   import { projectsStore } from "$lib/stores/projects.svelte";
-  import { onMount } from "svelte";
 
   let projectCount = $derived(projectsStore.list.length);
-
-  onMount(() => {
-    if (!projectsStore.isLoaded) projectsStore.refresh();
-  });
 </script>
 
 <div class="max-w-3xl mx-auto py-10 flex flex-col gap-8">

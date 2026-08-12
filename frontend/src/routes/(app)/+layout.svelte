@@ -14,6 +14,8 @@
   let creating = $state(false);
   let connTab = $state<"s3" | "gdrive">("s3");
   let newName = $state("");
+  const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$/;
+  const nameValid = $derived(newName.length >= 2 && newName.length <= 64 && PROJECT_NAME_RE.test(newName));
 
   // S3 connection form (create inside project modal)
   let s3Name = $state("");
@@ -174,7 +176,8 @@
       <div class="w-full max-w-md bg-card p-5 pixel-border">
         <h2 class="text-lg font-bold mb-4">New Project</h2>
         <div class="flex flex-col gap-3">
-          <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name" disabled={creating} />
+          <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name (e.g. my-project)" disabled={creating} />
+          {#if newName && !nameValid}<p class="text-xs text-destructive">Letters, numbers, dashes, or underscores (no spaces, e.g. my-project or NotesApp)</p>{/if}
 
           <!-- Provider tabs -->
           <div class="flex gap-1 border-b border-border">
@@ -198,7 +201,7 @@
           {#if error}<p class="text-sm text-destructive mt-2">{error}</p>{/if}
           <button
             class="pixel-border px-4 py-2 text-sm mt-4"
-            disabled={creating || !newName.trim() || connTab !== "s3" || !s3Name.trim() || !s3AccessKeyId.trim() || !s3SecretAccessKey.trim() || !s3Bucket.trim()}
+            disabled={creating || !nameValid || connTab !== "s3" || !s3Name.trim() || !s3AccessKeyId.trim() || !s3SecretAccessKey.trim() || !s3Bucket.trim()}
             onclick={onCreateProject}
           >
             {creating ? "Creating..." : "Create Project"}

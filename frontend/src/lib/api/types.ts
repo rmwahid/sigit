@@ -5,7 +5,6 @@ export type Connection = {
   region: string;
   bucket: string;
   forcePathStyle: boolean;
-  useEncryption: boolean;
 };
 
 export type NewConnection = Omit<Connection, "id"> & {
@@ -22,7 +21,6 @@ export type NewConnectionInput = {
   secretAccessKey: string;
   bucket: string;
   forcePathStyle?: boolean;
-  useEncryption?: boolean;
 };
 
 export type CreateProjectWithConnectionInput = {
@@ -38,7 +36,6 @@ export type Project = {
   storageConnectionId: string | null;
   lfsSizeThreshold: number;
   lfsPatterns?: string;
-  useEncryption: boolean;
 };
 
 export type NewProject = Omit<Project, "id" | "storageConnectionId"> & {

@@ -4,7 +4,6 @@
     getProject,
     deleteProject,
     updateProject,
-    pushProject,
     getProjectHistory,
     getProjectDiff,
     backupProject,
@@ -28,10 +27,6 @@
   let connTab = $state<"s3" | "gdrive">("s3");
   let selectedConnId = $state("");
   let connecting = $state(false);
-
-  let pushMessage = $state("");
-  let pushPassphrase = $state("");
-  let selectedFiles = $state<FileList | null>(null);
 
   let backingUp = $state(false);
 
@@ -121,22 +116,6 @@
     } finally {
       deleting = false;
       deleteStep = "";
-    }
-  }
-
-  async function onPush(e: SubmitEvent) {
-    e.preventDefault();
-    if (!project || !selectedFiles || selectedFiles.length === 0) return;
-    if (!project.storageConnectionId) {
-      error = "Connect storage first before pushing";
-      return;
-    }
-    try {
-      const result = await pushProject(project.id, selectedFiles, pushMessage, pushPassphrase || undefined);
-      message = `Pushed ${result.data.files.length} files, commit ${result.data.commitHash.slice(0, 7)}`;
-      await loadHistory();
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -233,17 +212,14 @@
     <button class="pixel-border-sm px-3 py-1 text-sm" disabled={!project.storageConnectionId} onclick={onRestore}>Restore</button>
   </section>
 
-  <!-- Push -->
+  <!-- Git remote -->
   <section class="mb-6">
-    <h3 class="text-base font-semibold mb-2">Push Files</h3>
-    <form onsubmit={onPush} class="flex flex-col gap-2">
-      <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={pushMessage} placeholder="Commit message" required />
-      <input class="text-sm" type="file" multiple bind:files={selectedFiles} required />
-      {#if project.useEncryption}
-        <input class="pixel-border-sm bg-background px-3 py-2 text-sm" type="password" bind:value={pushPassphrase} placeholder="Passphrase" required />
-      {/if}
-      <button type="submit" class="pixel-border-sm px-4 py-2 text-sm self-start" disabled={!project.storageConnectionId}>Push</button>
-    </form>
+    <h3 class="text-base font-semibold mb-2">Git Remote</h3>
+    <p class="text-sm text-muted-foreground mb-2">
+      Push/pull dari project lokal dengan git biasa (token git dari Settings → Tokens sebagai password):
+    </p>
+    <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">git remote add sigit http://localhost:3000/projects/{project.name}.git
+git push sigit main</pre>
   </section>
 
   <!-- History + Diff -->
