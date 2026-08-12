@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./common";
+import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
 
 // Nama project = slug aman untuk URL git (/projects/<name>.git):
 // huruf kecil, angka, -, _; mulai & diakhiri alfanumerik; panjang 2-64.
@@ -15,7 +16,7 @@ export const projectSchema = z
     name: projectNameSchema.openapi({ example: "notes-app" }),
     description: z.string().optional(),
     storageConnectionId: z.string().uuid().nullable(),
-    lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
+    lfsSizeThreshold: z.number().int().min(1).default(DEFAULT_LFS_SIZE_THRESHOLD),
     lfsPatterns: z.string().nullable().optional(),
     createdAt: z.string().datetime().optional(),
     updatedAt: z.string().datetime().optional(),
@@ -26,7 +27,7 @@ export const projectInputSchema = z.object({
   name: projectNameSchema.openapi({ example: "notes-app" }),
   description: z.string().optional(),
   storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
-  lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
+  lfsSizeThreshold: z.number().int().min(1).default(DEFAULT_LFS_SIZE_THRESHOLD),
   lfsPatterns: z.string().optional(),
 });
 

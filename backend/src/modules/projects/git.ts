@@ -2,6 +2,7 @@ import { exec } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
 
 const execAsync = promisify(exec);
 
@@ -9,7 +10,7 @@ function repoCwd(repoPath: string) {
   return { cwd: repoPath };
 }
 
-export async function initRepo(repoPath: string, lfsThreshold = 10 * 1024 * 1024): Promise<void> {
+export async function initRepo(repoPath: string, lfsThreshold = DEFAULT_LFS_SIZE_THRESHOLD): Promise<void> {
   await fs.mkdir(repoPath, { recursive: true });
   try {
     await execAsync("git init --bare -b main", repoCwd(repoPath));

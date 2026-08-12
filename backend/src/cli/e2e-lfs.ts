@@ -18,10 +18,11 @@ import { createToken, revokeToken, setTokenProjectScopes } from "../modules/auth
 import { deleteConnection, getConnection } from "../modules/storage/connections";
 import { listAllObjects } from "../modules/storage/objects";
 import { sha256 } from "../modules/lfs";
+import { DEFAULT_LFS_SIZE_THRESHOLD } from "../db/schema/projects";
 
 const PORT = 3999;
 const BASE = `http://127.0.0.1:${PORT}`;
-const THRESHOLD = 10 * 1024 * 1024; // default lfsSizeThreshold project
+const THRESHOLD = DEFAULT_LFS_SIZE_THRESHOLD; // default lfsSizeThreshold project
 const STORAGE = {
   name: "e2e-minio",
   endpoint: "http://127.0.0.1:9000",
