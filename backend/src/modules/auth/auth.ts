@@ -75,13 +75,9 @@ export async function deleteSession(token: string): Promise<void> {
 }
 
 export async function deleteAllSessions(userId: string, exceptToken?: string): Promise<void> {
-  const exceptHash = exceptToken ? sha256(exceptToken) : null;
-  const base = db.delete(sessions).where(eq(sessions.userId, userId));
-  if (exceptHash) {
-    await base.where(ne(sessions.tokenHash, exceptHash));
-  } else {
-    await base;
-  }
+  const conditions = [eq(sessions.userId, userId)];
+  if (exceptToken) conditions.push(ne(sessions.tokenHash, sha256(exceptToken)));
+  await db.delete(sessions).where(and(...conditions));
 }
 
 export function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {
