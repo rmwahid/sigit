@@ -1,10 +1,13 @@
 import { createMiddleware } from "hono/factory";
-import type { User } from "../db/schema/auth";
+import type { Token, User } from "../db/schema/auth";
 import { tokenHasScope, validateToken, type TokenScope } from "../modules/auth/tokens";
 
 export type GitAuthEnv = {
   Variables: {
     user: User;
+    // Token yang terautentikasi — dipakai route LFS untuk cek scope per-operasi
+    // (misal batch operation "upload" butuh scope write, bukan hanya di PUT).
+    token: Token;
   };
 };
 
@@ -37,5 +40,6 @@ export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   if (!tokenHasScope(token, required)) {
     return c.json({ error: { code: "FORBIDDEN", message: `Token requires "${required}" scope` } }, 403);
   }
+  c.set("token", token);
   await next();
 });

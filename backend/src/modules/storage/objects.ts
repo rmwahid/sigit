@@ -6,6 +6,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import type { StorageConnection } from "../../db/schema/storage";
 import { createS3Client } from "../../config/s3";
@@ -61,6 +62,19 @@ export async function putObject(connection: StorageConnection, key: string, body
 export async function deleteObject(connection: StorageConnection, key: string): Promise<void> {
   const client = createS3Client(connection);
   await client.send(new DeleteObjectCommand({ Bucket: connection.bucket, Key: key }));
+}
+
+// Ukuran objek dalam byte, atau null kalau tidak ada (HeadObject 404).
+export async function objectSize(connection: StorageConnection, key: string): Promise<number | null> {
+  const client = createS3Client(connection);
+  try {
+    const response = await client.send(new HeadObjectCommand({ Bucket: connection.bucket, Key: key }));
+    return response.ContentLength ?? null;
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404) return null;
+    throw err;
+  }
 }
 
 export async function listAllObjects(connection: StorageConnection, prefix?: string): Promise<string[]> {

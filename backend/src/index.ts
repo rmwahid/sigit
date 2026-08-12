@@ -8,6 +8,7 @@ import { adminRoutes } from "./routes/admin";
 import { storageRoutes } from "./routes/storage";
 import { projectRoutes } from "./routes/projects";
 import { gitRoutes } from "./routes/git";
+import { lfsRoutes } from "./routes/lfs";
 import { tokenRoutes } from "./routes/tokens";
 import { requireAuth, type AuthEnv } from "./middleware/auth";
 import { errorResponse, HttpError } from "./lib/http-error";
@@ -84,8 +85,10 @@ app.get("/", (c) => c.json({ message: "SiGit API" }));
 
 app.route("/auth", authRoutes);
 
-// Git smart HTTP — WAJIB sebelum app.use("/projects/*", requireAuth):
-// client git tidak mengirim session cookie, hanya Basic auth token.
+// Git smart HTTP + LFS — WAJIB sebelum app.use("/projects/*", requireAuth):
+// client git/git-lfs tidak mengirim session cookie, hanya Basic auth token.
+// LFS dulu baru git: catch-all .git di gitRoutes membajak /info/lfs/*.
+app.route("/projects", lfsRoutes);
 app.route("/projects", gitRoutes);
 
 // Protected routes
