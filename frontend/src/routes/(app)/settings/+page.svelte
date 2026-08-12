@@ -1,6 +1,14 @@
 <script lang="ts">
   import { changePassword, revokeAllSessions } from "$lib/api";
-  import { listTokens, createToken, revokeToken, type GitToken, type TokenScope } from "$lib/api/tokens";
+  import {
+    listTokens,
+    createToken,
+    revokeToken,
+    type GitToken,
+    type TokenScope,
+    type TokenProjectScope,
+  } from "$lib/api/tokens";
+  import { projectsStore } from "$lib/stores/projects.svelte";
   import Button from "$lib/components/ui/button/button.svelte";
   import Input from "$lib/components/ui/input/input.svelte";
   import Label from "$lib/components/ui/label/label.svelte";
@@ -19,19 +27,36 @@
 
   let tokens = $state<GitToken[]>([]);
   let tokenName = $state("");
-  let tokenScopes = $state<TokenScope[]>(["read"]);
+  // projectId -> scope terpilih untuk token yang sedang dibuat
+  let tokenProjects = $state<Record<string, TokenScope>>({});
   let tokenExpiry = $state(30);
   let newToken = $state("");
   let creatingToken = $state(false);
   let copied = $state(false);
 
-  function toggleScope(scope: TokenScope) {
-    if (tokenScopes.includes(scope)) {
-      // jangan sampai kosong semua
-      if (tokenScopes.length > 1) tokenScopes = tokenScopes.filter((s) => s !== scope);
+  const projects = $derived(projectsStore.list);
+  const canCreate = $derived(tokenName.trim().length > 0 && Object.keys(tokenProjects).length > 0);
+
+  function scopeLabel(scope: TokenScope): string {
+    return scope === "write" ? "read+write" : "read";
+  }
+
+  function projectName(projectId: string): string {
+    return projects.find((p) => p.id === projectId)?.name ?? projectId.slice(0, 8);
+  }
+
+  function toggleProject(projectId: string, checked: boolean) {
+    if (checked) {
+      tokenProjects = { ...tokenProjects, [projectId]: "read" };
     } else {
-      tokenScopes = [...tokenScopes, scope];
+      const next = { ...tokenProjects };
+      delete next[projectId];
+      tokenProjects = next;
     }
+  }
+
+  function setProjectScope(projectId: string, scope: TokenScope) {
+    tokenProjects = { ...tokenProjects, [projectId]: scope };
   }
 
   async function copyToken() {
@@ -41,12 +66,13 @@
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {
-      // clipboard tidak tersedia — user bisa salin manual
+      // clipboard tidak tersedia, user bisa salin manual
     }
   }
 
   async function loadTokens() {
     try {
+      if (!projectsStore.isLoaded) await projectsStore.refresh();
       const res = await listTokens();
       tokens = res.data;
     } catch (err) {
@@ -55,14 +81,17 @@
   }
 
   async function onCreateToken() {
-    if (!tokenName.trim()) return;
+    if (!canCreate) return;
     creatingToken = true;
     error = "";
     try {
-      const res = await createToken(tokenName.trim(), tokenScopes, tokenExpiry);
+      const tokenProjectsList: TokenProjectScope[] = Object.entries(tokenProjects).map(
+        ([projectId, scope]) => ({ projectId, scope })
+      );
+      const res = await createToken(tokenName.trim(), tokenProjectsList, tokenExpiry);
       newToken = res.data.token;
       tokenName = "";
-      tokenScopes = ["read"];
+      tokenProjects = {};
       tokenExpiry = 30;
       copied = false;
       await loadTokens();
@@ -135,14 +164,15 @@
       <h2 class="text-lg font-bold">Git Tokens</h2>
       <p class="text-sm text-muted-foreground mt-1">
         Token dipakai sebagai password saat <code class="text-xs">git push</code>/<code class="text-xs">pull</code>
-        (username bebas). Scope <code class="text-xs">read</code> hanya clone/pull — <code class="text-xs">write</code> juga push.
+        (username bebas). Akses diatur PER PROJECT: scope <code class="text-xs">read</code> (clone/pull) atau
+        <code class="text-xs">read+write</code> (push + LFS upload).
       </p>
     </div>
 
     {#if newToken}
       <div class="pixel-border border-primary bg-card p-4 flex flex-col gap-2">
         <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold">Salin token ini sekarang — hanya tampil sekali.</span>
+          <span class="text-sm font-semibold">Salin token ini sekarang - hanya tampil sekali.</span>
           <button class="pixel-border-sm px-3 py-1 text-xs" onclick={copyToken}>{copied ? "Copied!" : "Copy"}</button>
         </div>
         <code class="text-xs break-all bg-background px-3 py-2 pixel-border-sm">{newToken}</code>
@@ -153,31 +183,42 @@
     <div class="pixel-border bg-card p-5 flex flex-col gap-4">
       <div class="flex gap-3">
         <Input class="pixel-border-sm flex-1" bind:value={tokenName} placeholder="Token name (e.g. laptop-kerja)" disabled={creatingToken} />
-        <Button class="pixel-border-sm shrink-0" onclick={onCreateToken} disabled={creatingToken || !tokenName.trim()}>
+        <Button class="pixel-border-sm shrink-0" onclick={onCreateToken} disabled={creatingToken || !canCreate}>
           {creatingToken ? "Creating..." : "Create Token"}
         </Button>
       </div>
-      <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div class="flex items-center gap-2">
-          <span class="text-xs uppercase tracking-wider text-muted-foreground">Scopes</span>
-          <button
-            type="button"
-            class="pixel-border-sm px-3 py-1 text-xs"
-            class:bg-primary={tokenScopes.includes("read")}
-            class:text-primary-foreground={tokenScopes.includes("read")}
-            onclick={() => toggleScope("read")}
-          >
-            read
-          </button>
-          <button
-            type="button"
-            class="pixel-border-sm px-3 py-1 text-xs"
-            class:bg-primary={tokenScopes.includes("write")}
-            class:text-primary-foreground={tokenScopes.includes("write")}
-            onclick={() => toggleScope("write")}
-          >
-            write
-          </button>
+      <div class="flex flex-wrap items-start gap-x-8 gap-y-3">
+        <div class="flex-1 min-w-72">
+          <span class="text-xs uppercase tracking-wider text-muted-foreground">Project access</span>
+          <div class="mt-2 flex flex-col gap-2">
+            {#if projects.length === 0}
+              <p class="text-xs text-muted-foreground italic">No projects yet.</p>
+            {:else}
+              {#each projects as p}
+                <div class="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    class="accent-primary"
+                    checked={p.id in tokenProjects}
+                    onchange={(e) => toggleProject(p.id, e.currentTarget.checked)}
+                    disabled={creatingToken}
+                  />
+                  <span class="text-sm flex-1 truncate">{p.name}</span>
+                  {#if p.id in tokenProjects}
+                    <select
+                      class="pixel-border-sm bg-background px-2 py-1 text-xs"
+                      value={tokenProjects[p.id]}
+                      onchange={(e) => setProjectScope(p.id, e.currentTarget.value as TokenScope)}
+                      disabled={creatingToken}
+                    >
+                      <option value="read">read</option>
+                      <option value="write">read+write</option>
+                    </select>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-xs uppercase tracking-wider text-muted-foreground">Expires</span>
@@ -195,12 +236,17 @@
         {#each tokens as t}
           <li class="pixel-border-sm bg-card px-4 py-3 flex items-center gap-3">
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-medium truncate">{t.name}</span>
-                {#each t.scopes as s}
-                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">{s}</span>
-                {/each}
-              </div>
+            <div class="flex items-center gap-2">
+              <span class="font-medium truncate">{t.name}</span>
+              {#if t.projects.length === 0}
+                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-destructive text-destructive rounded-sm">no access</span>
+              {/if}
+              {#each t.projects as pr}
+                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">
+                  {projectName(pr.projectId)}: {scopeLabel(pr.scope)}
+                </span>
+              {/each}
+            </div>
               <p class="text-xs text-muted-foreground mt-1">
                 expires {new Date(t.expiresAt).toLocaleDateString()}
                 <span class="mx-1">·</span>
@@ -212,7 +258,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="text-sm text-muted-foreground italic">No tokens yet — create one to push with git.</p>
+      <p class="text-sm text-muted-foreground italic">No tokens yet - create one to push with git.</p>
     {/if}
   </section>
 
