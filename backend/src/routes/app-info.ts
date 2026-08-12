@@ -9,7 +9,7 @@ const appInfoResponse = z.object({
   }),
 });
 
-// Public endpoint: dipakai frontend untuk membangun snippet setup git per project.
+// Public endpoint: used by the frontend to build per-project git setup snippets.
 appInfoRoutes.openapi(
   createRoute({
     method: "get",

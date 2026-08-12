@@ -1,12 +1,12 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 
-// Ambang batas file LFS default (10 MB). Satu sumber kebenaran - dipakai juga
-// oleh routes/schemas/projects.ts, modules/projects/git.ts, dan cli/e2e-lfs.ts.
+// Default LFS file threshold (10 MB). Single source of truth - also used by
+// routes/schemas/projects.ts, modules/projects/git.ts, and cli/e2e-lfs.ts.
 export const DEFAULT_LFS_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull().unique(), // unique: dipakai di URL git /projects/<name>.git
+  name: varchar("name", { length: 255 }).notNull().unique(), // unique: used in the git URL /projects/<name>.git
   description: text("description"),
   storageConnectionId: uuid("storage_connection_id"),
   lfsSizeThreshold: integer("lfs_size_threshold").notNull().default(DEFAULT_LFS_SIZE_THRESHOLD), // 10 MB

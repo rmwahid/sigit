@@ -83,14 +83,14 @@ app.get(
 
 app.get("/", (c) => c.json({ message: "SiGit API" }));
 
-// Public app info (git base url untuk snippet setup), sebelum blok requireAuth
+// Public app info (git base url for setup snippets), before the requireAuth block
 app.route("/app-info", appInfoRoutes);
 
 app.route("/auth", authRoutes);
 
-// Git smart HTTP + LFS — WAJIB sebelum app.use("/projects/*", requireAuth):
-// client git/git-lfs tidak mengirim session cookie, hanya Basic auth token.
-// LFS dulu baru git: catch-all .git di gitRoutes membajak /info/lfs/*.
+// Git smart HTTP + LFS - MUST be mounted before app.use("/projects/*", requireAuth):
+// git/git-lfs clients do not send a session cookie, only a Basic auth token.
+// LFS first, then git: the .git catch-all in gitRoutes would hijack /info/lfs/*.
 app.route("/projects", lfsRoutes);
 app.route("/projects", gitRoutes);
 

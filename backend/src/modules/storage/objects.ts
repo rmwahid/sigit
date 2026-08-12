@@ -64,7 +64,7 @@ export async function deleteObject(connection: StorageConnection, key: string): 
   await client.send(new DeleteObjectCommand({ Bucket: connection.bucket, Key: key }));
 }
 
-// Ukuran objek dalam byte, atau null kalau tidak ada (HeadObject 404).
+// Object size in bytes, or null when it does not exist (HeadObject 404).
 export async function objectSize(connection: StorageConnection, key: string): Promise<number | null> {
   const client = createS3Client(connection);
   try {

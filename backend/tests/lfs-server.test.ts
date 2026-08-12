@@ -14,7 +14,7 @@ describe("lfs server (batch, oid verification, storage keys)", () => {
 
   it("validates oid format (64 hex)", () => {
     expect(isValidOid("a".repeat(64))).toBe(true);
-    expect(isValidOid("A".repeat(64))).toBe(false); // uppercase tidak valid
+    expect(isValidOid("A".repeat(64))).toBe(false); // uppercase is not valid
     expect(isValidOid("a".repeat(63))).toBe(false);
     expect(isValidOid("z".repeat(64))).toBe(false);
   });
@@ -52,7 +52,7 @@ describe("lfs server (batch, oid verification, storage keys)", () => {
       exists,
     });
     expect(payload.objects[0].actions?.download?.href).toContain(oid);
-    // objek kedua tidak ada di storage -> tanpa action (spec: client tidak usah request ulang)
+    // second object missing in storage -> no action (spec: client must not retry)
     expect(payload.objects[1].actions).toBeUndefined();
   });
 });

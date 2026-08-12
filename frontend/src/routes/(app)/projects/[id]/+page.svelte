@@ -68,7 +68,7 @@
     error = "";
     try {
       const [p, c] = await Promise.all([getProject(id), listConnections()]);
-      if ($page.params.id !== id) return; // sudah pindah ke project lain
+      if ($page.params.id !== id) return; // already switched to another project
       project = p.data;
       connections = c.data;
       await loadHistory();
@@ -82,7 +82,7 @@
       const res = await getAppInfo();
       appInfo = res.data;
     } catch {
-      // fallback ke base url default; snippet tetap bisa disalin
+      // fall back to the default base url; the snippet can still be copied
     }
   }
 
@@ -91,7 +91,7 @@
       const res = await listTokens();
       tokens = res.data;
     } catch {
-      // section token access hanya tampil kalau berhasil dimuat
+      // the token access section only shows when loaded successfully
     }
   }
 
@@ -100,14 +100,14 @@
     const projectId = project.id;
     try {
       const res = await getProjectHistory(projectId);
-      if (project?.id !== projectId) return; // project sudah berganti
+      if (project?.id !== projectId) return; // project has changed
       history = res.data.commits;
     } catch (e) {
       if (project?.id === projectId) error = e instanceof Error ? e.message : String(e);
     }
   }
 
-  // SvelteKit memakai ulang komponen ini antar /projects/[id]; reload data saat params berubah
+  // SvelteKit reuses this component across /projects/[id]; reload data when params change
   $effect(() => {
     const id = $page.params.id;
     if (!id) return;
@@ -221,7 +221,7 @@
       copied[key] = true;
       setTimeout(() => (copied[key] = false), 1500);
     } catch {
-      // clipboard tidak tersedia, user bisa salin manual
+      // clipboard unavailable, user can copy manually
     }
   }
 </script>

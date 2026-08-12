@@ -35,7 +35,7 @@
 
   let tokens = $state<GitToken[]>([]);
   let tokenName = $state("");
-  // projectId -> scope terpilih untuk token yang sedang dibuat
+  // projectId -> selected scope for the token being created
   let tokenProjects = $state<Record<string, TokenScope>>({});
   let tokenExpiry = $state(DEFAULT_TOKEN_EXPIRY_DAYS);
   let newToken = $state("");
@@ -70,7 +70,7 @@
       copied = true;
       setTimeout(() => (copied = false), 1500);
     } catch {
-      // clipboard tidak tersedia, user bisa salin manual
+      // clipboard unavailable, user can copy manually
     }
   }
 

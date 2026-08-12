@@ -19,19 +19,19 @@ import type { Project } from "../db/schema/projects";
 import type { StorageConnection } from "../db/schema/storage";
 
 // Git LFS server API (spec v1, basic transfer):
-//   POST /projects/<nama>.git/info/lfs/objects/batch   -> action hrefs
-//   PUT  /projects/<nama>.git/info/lfs/objects/:oid    -> upload content
-//   POST /projects/<nama>.git/info/lfs/objects/:oid/verify -> verifikasi size
-//   GET  /projects/<nama>.git/info/lfs/objects/:oid    -> download content
-// Objek disimpan di STORAGE USER (bukan disk server): projects/{id}/lfs/{oid}.
+//   POST /projects/<name>.git/info/lfs/objects/batch   -> action hrefs
+//   PUT  /projects/<name>.git/info/lfs/objects/:oid    -> upload content
+//   POST /projects/<name>.git/info/lfs/objects/:oid/verify -> verify size
+//   GET  /projects/<name>.git/info/lfs/objects/:oid    -> download content
+// Objects are stored in USER STORAGE (not server disk): projects/{id}/lfs/{oid}.
 // Wajib dipasang SEBELUM gitRoutes (catch-all .git) di index.ts.
 export const lfsRoutes = new Hono();
 
 const LFS_JSON = "application/vnd.git-lfs+json";
 const MAX_BATCH_OBJECTS = 1000;
 
-// Error LFS mengikuti spec: JSON { message } - BUKAN format { error: { code } }.
-// Dibuat langsung (bukan HttpError) supaya global onError tidak membungkusnya.
+// LFS errors follow the spec: JSON { message } - NOT the { error: { code } } format.
+// Built directly (not HttpError) so the global onError does not wrap them.
 class LfsError extends Error {
   constructor(
     public status: ContentfulStatusCode,

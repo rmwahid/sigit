@@ -1,8 +1,8 @@
-// Test logger dijalankan dalam SUBPROCESS: bun test mengeksekusi semua file
-// dalam SATU proses, jadi env (LOG_RING_SIZE, LOG_DIR) dan module cache
-// logger.ts di-share antar file test — assertion langsung akan race dengan
-// audit event dari file lain (mis. "storage.delete_connection").
-// Subprocess menjamin env & state pribadi, hasil dikirim via JSON di stdout.
+// Logger tests run in a SUBPROCESS: bun test executes all files in ONE process,
+// so env (LOG_RING_SIZE, LOG_DIR) and the logger.ts module cache are shared
+// across test files - direct assertions would race with audit events from
+// other files (e.g. "storage.delete_connection").
+// The subprocess guarantees private env & state; results are sent via JSON on stdout.
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -28,7 +28,7 @@ function runInSubprocess(): Record<string, unknown> {
     env: { ...process.env, LOG_RING_SIZE: "5", LOG_DIR: logDir },
     encoding: "utf8",
   });
-  // Baris terakhir = JSON hasil; baris lain = log console dari subprocess.
+  // Last line = result JSON; other lines = console logs from the subprocess.
   return JSON.parse(out.trim().split("\n").pop()!) as Record<string, unknown>;
 }
 

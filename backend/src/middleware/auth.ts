@@ -31,11 +31,11 @@ export const optionalAuth = createMiddleware<AuthEnv>(async (c, next) => {
   await next();
 });
 
-// Helper untuk route OpenAPIHono: validasi session cookie, return user atau null.
-// Dipanggil DI DALAM handler (bukan wrapper) supaya handler tetap menerima
-// route-typed context dari openapi() — c.req.valid() dan response typing jalan.
-// (Wrapper `authed` dihapus: generic-nya meng-eras tipe route dan memicu
-// error tsc pre-existing "valid() -> never" di seluruh route.)
+// Helper for OpenAPIHono routes: validate the session cookie, return user or null.
+// Called INSIDE the handler (not as a wrapper) so the handler keeps the
+// route-typed context from openapi() - c.req.valid() and response typing work.
+// (The `authed` wrapper was removed: its generics erased route types and caused
+// pre-existing tsc errors "valid() -> never" across routes.)
 export async function requireUser(c: Context<AuthEnv>): Promise<User | null> {
   const token = getSessionTokenFromCookie(c.req.header("Cookie"));
   if (!token) return null;

@@ -30,9 +30,9 @@ const tokenSchema = z
 const tokenListResponse = z.object({ data: z.array(tokenSchema) });
 const tokenCreateInput = z.object({
   name: z.string().min(1).max(100),
-  // Akses per project: token hanya berlaku untuk project terpilih ("write" termasuk "read").
+  // Per-project access: the token only works for the selected projects ("write" includes "read").
   projects: z.array(tokenProjectSchema).min(1),
-  // Flexible (bebas 1-30 hari), cap maksimal 30 hari demi keamanan token.
+  // Flexible (1-30 days), capped at 30 days for token security.
   expiresInDays: z.coerce.number().int().min(1).max(TOKEN_MAX_EXPIRY_DAYS),
 });
 const tokenCreatedResponse = z.object({
@@ -98,9 +98,9 @@ tokenRoutes.openapi(
   async (c) => {
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
-    // Anotasi struktural eksplisit: c.req.valid() dari zod-openapi 1.5.2 + zod v4
-    // ter-resolve ke any untuk schema nested (z.infer/z.output ikut any); anotasi
-    // ini menjaga type safety tanpa mengubah runtime (validasi tetap zod).
+    // Explicit structural annotation: c.req.valid() from zod-openapi 1.5.2 + zod v4
+    // resolves to any for nested schemas (z.infer/z.output too); this annotation
+    // keeps type safety without changing runtime (zod still validates).
     const body: {
       name: string;
       projects: { projectId: string; scope: "read" | "write" }[];

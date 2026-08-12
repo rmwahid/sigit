@@ -9,8 +9,8 @@ import { log, audit } from "../../lib/logger";
 
 const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
 
-// git http-backend memakai konvensi CGI: baris header seperti
-// "Status: 200 OK" + "Content-Type: ..." lalu \r\n\r\n dan body.
+// git http-backend uses CGI conventions: header lines like
+// "Status: 200 OK" + "Content-Type: ..." then \r\n\r\n and the body.
 async function parseCgiHeaders(
   bodyStream: ReadableStream<Uint8Array>
 ): Promise<{ status: number; headers: Headers; body: ReadableStream<Uint8Array> }> {
@@ -43,7 +43,7 @@ async function parseCgiHeaders(
     }
   }
 
-  // Body stream: sisa header yang sudah terbaca + lanjutan dari reader asli.
+  // Body stream: remaining header bytes already read + the rest from the original reader.
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       if (rest.length) controller.enqueue(rest);
@@ -63,7 +63,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
   if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
 
   const url = new URL(c.req.url);
-  // PATH_INFO pakai UUID (folder repo bare), URL tetap nama project.
+  // PATH_INFO uses the UUID (bare repo folder), the URL keeps the project name.
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     GIT_PROJECT_ROOT: PROJECTS_ROOT,
@@ -77,7 +77,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
 
   const child = spawn("git", ["http-backend"], { env });
 
-  // Request body → child stdin (git client mengirim packfile untuk receive-pack)
+  // Request body -> child stdin (the git client sends the packfile for receive-pack)
   const reqBody = c.req.raw.body;
   if (reqBody) {
     const nodeStream = Readable.fromWeb(reqBody as unknown as import("node:stream/web").ReadableStream);
@@ -89,9 +89,9 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
   const childStdout = Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>;
   const { status, headers, body } = await parseCgiHeaders(childStdout);
 
-  // Backup otomatis SETELAH receive-pack selesai: http-backend menulis header
-  // sebelum ref di-update, jadi trigger harus menunggu child close (bukan
-  // setelah header) — kalau tidak, bundle dibuat dari repo yang masih kosong.
+  // Backup AFTER receive-pack completes: http-backend writes the headers
+  // before refs are updated, so the trigger must wait for child close (not
+  // for the header) - otherwise the bundle is created from an empty repo.
   const isReceivePack = c.req.method === "POST" && pathInfo.endsWith("/git-receive-pack");
   if (isReceivePack) {
     child.on("close", (code) => {

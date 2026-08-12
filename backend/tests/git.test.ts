@@ -33,7 +33,7 @@ describe("git module (bare repo)", () => {
     sh("git add . && git commit -m \"test: initial commit\"", workPath);
     sh(`git remote add sigit ${barePath}`, workPath);
     sh("git push sigit main", workPath);
-    // commit kedua supaya getDiff("HEAD~1", "HEAD") valid
+    // second commit so getDiff("HEAD~1", "HEAD") is valid
     await fs.writeFile(path.join(workPath, "readme.md"), "# Hello\n\nUpdated.\n");
     sh("git add . && git commit -m \"test: update readme\"", workPath);
     sh("git push sigit main", workPath);
@@ -63,7 +63,7 @@ describe("git module (bare repo)", () => {
       sh("git init -b main", smallWork);
       sh('git config user.email "t@l"', smallWork);
       sh('git config user.name "T"', smallWork);
-      // commit kecil dulu, lalu commit berisi blob besar
+      // small commit first, then a commit with a large blob
       await fs.writeFile(path.join(smallWork, "small.txt"), "ok");
       sh("git add . && git commit -m \"test: small first\" -q", smallWork);
       await fs.writeFile(path.join(smallWork, "big.bin"), Buffer.alloc(2048));
@@ -78,8 +78,8 @@ describe("git module (bare repo)", () => {
       }
       expect(rejected).toBe(true);
 
-      // Buang commit berisi blob besar dari history lokal (reset), lalu push
-      // commit kecil — harus diterima.
+      // Drop the large-blob commit from local history (reset), then push the
+      // small commit - it must be accepted.
       sh("git reset --hard HEAD~1 -q", smallWork);
       sh("git push sigit main -q", smallWork);
       const log = await getLog(smallBare, 10);

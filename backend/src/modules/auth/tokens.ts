@@ -5,8 +5,8 @@ import { tokenProjectScopes, tokens, type Token } from "../../db/schema/auth";
 
 const TOKEN_PREFIX = "sigit_";
 
-// Masa berlaku token maksimal (hari). Satu sumber kebenaran - dipakai route
-// (zod max) dan frontend (input max). Frontend punya salinan di token-config.ts.
+// Maximum token lifetime in days. Single source of truth - used by the route
+// (zod max) and mirrored in the frontend token-config.ts (input max).
 export const TOKEN_MAX_EXPIRY_DAYS = 30;
 
 export type TokenScope = "read" | "write";
@@ -20,8 +20,8 @@ function sha256(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-// Membuat token baru. Raw token hanya dikembalikan SEKALI di sini;
-// yang disimpan di DB hanya hash SHA-256-nya. expiresAt WAJIB.
+// Creates a new token. The raw token is returned ONLY ONCE here;
+// only its SHA-256 hash is stored in the DB. expiresAt is required.
 export async function createToken(
   userId: string,
   name: string,
@@ -37,8 +37,8 @@ export async function createToken(
   return { token: raw, id: row.id };
 }
 
-// Menetapkan akses token per project. Tanpa baris di sini, token tidak bisa
-// dipakai untuk project itu. Scope "write" otomatis termasuk "read".
+// Sets per-project token access. Without a row here the token cannot be used
+// for that project. Scope "write" automatically includes "read".
 export async function setTokenProjectScopes(
   tokenId: string,
   projects: TokenProjectScopeInput[]
@@ -49,7 +49,7 @@ export async function setTokenProjectScopes(
     .values(projects.map((p) => ({ tokenId, projectId: p.projectId, scope: p.scope })));
 }
 
-// Scope token untuk satu project: "write" | "read" | undefined (tidak punya akses).
+// Token scope for one project: "write" | "read" | undefined (no access).
 export async function resolveTokenScope(
   tokenId: string,
   projectId: string
@@ -74,7 +74,7 @@ export async function listTokenProjectScopes(tokenId: string): Promise<{ project
   return rows;
 }
 
-// List token + scope per project dalam SATU query (hindari N+1).
+// Lists tokens + per-project scopes in ONE query (avoids N+1).
 export async function listTokensWithProjectScopes(
   userId: string
 ): Promise<Array<{ token: Token; projects: { projectId: string; scope: TokenScope }[] }>> {
@@ -105,8 +105,8 @@ export async function revokeToken(id: string, userId: string): Promise<boolean> 
   return rows.length > 0;
 }
 
-// Validasi raw token (password dari Basic auth): hash cocok DAN belum expired.
-// Update lastUsedAt. Token expired dianggap tidak valid.
+// Validates a raw token (Basic auth password): hash matches AND not expired.
+// Updates lastUsedAt. Expired tokens are treated as invalid.
 export async function validateToken(raw: string): Promise<Token | null> {
   if (!raw.startsWith(TOKEN_PREFIX)) return null;
   const rows = await db.select().from(tokens).where(eq(tokens.tokenHash, sha256(raw)));

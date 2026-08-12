@@ -24,13 +24,13 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return rows[0];
 }
 
-// Nama project unik CASE-INSENSITIVE (NotesApp == notesapp → ditolak),
-// tapi huruf besar/kecil asli dipertahankan dan dipakai konsisten di URL.
-// Spasi tidak boleh (URL git /projects/<name>.git).
+// Project names are unique CASE-INSENSITIVELY (NotesApp == notesapp is rejected),
+// but the original casing is kept and used consistently in the URL.
+// Spaces are not allowed (git URL /projects/<name>.git).
 const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$/;
 
-// Nama project dari route param git (/projects/<nama>.git): strip suffix .git.
-// Satu sumber kebenaran - semua route git/LFS memakai ini, jangan inline replace.
+// Project name from the git route param (/projects/<name>.git): strip the .git suffix.
+// Single source of truth - all git/LFS routes use this, no inline replace.
 export function projectNameFromRouteParam(param: string | undefined): string {
   return (param ?? "").replace(/\.git$/, "");
 }

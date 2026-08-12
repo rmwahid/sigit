@@ -9,18 +9,18 @@ export type LfsObject = { oid: string; size: number };
 
 export const OID_RE = /^[a-f0-9]{64}$/;
 
-// Path objek di storage user: projects/{id}/lfs/{oid} (kontrak AGENTS.md).
+// Object path in user storage: projects/{id}/lfs/{oid} (AGENTS.md contract).
 export function lfsObjectKey(projectId: string, oid: string): string {
   return `projects/${projectId}/lfs/${oid}`;
 }
 
-// Cek keberadaan objek tanpa men-download kontennya (HeadObject).
+// Checks object existence without downloading its content (HeadObject).
 export async function objectExists(connection: StorageConnection, projectId: string, oid: string): Promise<boolean> {
   return (await objectSize(connection, lfsObjectKey(projectId, oid))) !== null;
 }
 
-// Verifikasi sha256(konten) == oid SEBELUM disimpan — aturan SiGit: server
-// tidak menyimpan objek yang oid-nya tidak cocok dengan isinya.
+// Verifies sha256(content) == oid BEFORE storing - SiGit rule: the server
+// never stores an object whose oid does not match its content.
 export function verifyLfsContent(buffer: Buffer, oid: string): boolean {
   return sha256(buffer) === oid;
 }
@@ -32,10 +32,10 @@ export function isValidOid(oid: string): boolean {
 export type BatchOptions = {
   operation: LfsOperation;
   objects: LfsObject[];
-  // Base URL action: {origin}/projects/<nama>.git/info/lfs/objects
+  // Action base URL: {origin}/projects/<name>.git/info/lfs/objects
   baseUrl: string;
-  // Cek keberadaan objek (untuk operation download). Di-inject agar logika
-  // murni bisa di-unit-test tanpa S3.
+  // Object existence check (for the download operation). Injected so the pure
+  // logic can be unit-tested without S3.
   exists?: (oid: string) => Promise<boolean>;
 };
 
@@ -49,10 +49,10 @@ export type BatchResponse = {
   }[];
 };
 
-// Git LFS batch API (spec v1): client minta action untuk tiap oid.
-// - download: action hanya diberikan kalau objek sudah ada di storage.
-// - upload: action upload + verify selalu diberikan; konten diverifikasi
-//   saat PUT (oid) dan verify (size).
+// Git LFS batch API (spec v1): the client asks for actions per oid.
+// - download: action is only given when the object already exists in storage.
+// - upload: upload + verify actions are always given; content is verified
+//   at PUT (oid) and verify (size).
 export async function buildBatchResponse(opts: BatchOptions): Promise<BatchResponse> {
   const objects: BatchResponse["objects"] = [];
   for (const obj of opts.objects) {
@@ -89,7 +89,7 @@ export async function downloadObject(
   return getObject(connection, key);
 }
 
-// Simpan objek LFS: verifikasi oid dulu, lalu putObject ke storage user.
+// Stores an LFS object: verify the oid first, then putObject to user storage.
 export async function uploadObject(
   project: Project,
   connection: StorageConnection,
@@ -104,8 +104,8 @@ export async function uploadObject(
   return { ok: true };
 }
 
-// Verify step (spec): objek ada DAN ukuran sesuai yang diklaim client.
-// Kalau tidak cocok, objek dihapus agar storage tidak menampung sampah.
+// Verify step (spec): object exists AND size matches what the client claimed.
+// On mismatch the object is deleted so storage does not accumulate garbage.
 export async function verifyObject(
   project: Project,
   connection: StorageConnection,
@@ -121,7 +121,7 @@ export async function verifyObject(
     try {
       await deleteObject(connection, key);
     } catch (err) {
-      // objek salah tetap boleh tertinggal di storage, bukan kondisi fatal
+      // a wrong object may stay in storage; not a fatal condition
       log.error("lfs", `failed to delete mismatched object ${key}: ${err instanceof Error ? err.message : String(err)}`);
     }
     return { ok: false, error: "size mismatch: stored size != declared size" };

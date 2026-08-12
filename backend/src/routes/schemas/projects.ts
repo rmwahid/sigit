@@ -2,7 +2,7 @@ import { z } from "@hono/zod-openapi";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./common";
 import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
 
-// Nama project = slug aman untuk URL git (/projects/<name>.git):
+// Project name = safe slug for the git URL (/projects/<name>.git):
 // huruf kecil, angka, -, _; mulai & diakhiri alfanumerik; panjang 2-64.
 export const projectNameSchema = z
   .string()

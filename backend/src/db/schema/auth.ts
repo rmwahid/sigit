@@ -19,9 +19,9 @@ export const sessions = pgTable("sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Git token: dipakai sebagai password Basic auth untuk git push/pull + git-lfs.
-// Akses per project diatur lewat tabel token_project_scopes (read/write per project).
-// expiresAt wajib.
+// Git token: used as the Basic auth password for git push/pull and git-lfs.
+// Per-project access is defined in the token_project_scopes table (read/write per project).
+// expiresAt is required.
 export const tokens = pgTable("tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id")
@@ -34,8 +34,8 @@ export const tokens = pgTable("tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Scope token per project: token hanya berfungsi untuk project yang punya baris di sini.
-// "write" otomatis termasuk "read" (push = clone/pull). Tanpa baris = tanpa akses.
+// Per-project token scope: a token only works for projects that have a row here.
+// "write" automatically includes "read" (push = clone/pull). No row = no access.
 export const tokenProjectScopes = pgTable(
   "token_project_scopes",
   {

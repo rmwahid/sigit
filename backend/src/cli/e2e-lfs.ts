@@ -1,11 +1,11 @@
-// E2E Tahap 2: Git LFS via git protocol + storage user (MinIO lokal).
-// Prasyarat: MinIO jalan (http://127.0.0.1:9000, bucket sigit-test) + DB dev `sigit`.
-// Menjalankan server sendiri di port 3999 supaya tidak bentrok dengan dev server.
+// E2E LFS: Git LFS via git protocol + user storage (local MinIO).
+// Prerequisites: MinIO running (http://127.0.0.1:9000, bucket sigit-test) + dev DB `sigit`.
+// Starts its own server on port 3999 so it does not clash with the dev server.
 //
-// Alur: create project+connection (module) -> token write/read (module)
-//   -> git lfs push via HTTP -> verifikasi objek di MinIO (projects/{id}/lfs/{oid})
-//   -> clone + lfs pull -> sha256 sama -> token read ditolak push -> cleanup.
-// Jalankan: bun run e2e:lfs  (dari repo/backend)
+// Flow: create project+connection (module) -> token write/read (module)
+//   -> git lfs push via HTTP -> verify object in MinIO (projects/{id}/lfs/{oid})
+//   -> clone + lfs pull -> sha256 identical -> read-only token rejected on push -> cleanup.
+// Run: bun run e2e:lfs  (from repo/backend)
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -52,7 +52,7 @@ async function waitForServer(timeoutMs = 20000): Promise<void> {
       const res = await fetch(`${BASE}/`, { signal: AbortSignal.timeout(3000) });
       if (res.ok) return;
     } catch {
-      // belum up, tunggu
+      // server not up yet, keep waiting
     }
     await Bun.sleep(300);
   }
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   sh("git push sigit main", work);
   console.log("[e2e-lfs] push selesai");
 
-  // 4. Pointer di history git (bukan blob 12MB) + objek di storage user
+  // 4. Pointer in git history (not a 12MB blob) + object in user storage
   const objectKeys = await listAllObjects(connection!, `projects/${project.id}/lfs/`);
   check(objectKeys.length === 1, `objek LFS tersimpan di storage user: ${objectKeys[0] ?? "(none)"}`);
   check(objectKeys[0]?.endsWith(bigOid) === true, "key objek = projects/{id}/lfs/{oid} (sha256 konten)");
@@ -124,9 +124,9 @@ async function main(): Promise<void> {
   check(pulled.length === big.length && sha256(pulled) === bigOid, "konten setelah clone+lfs pull identik");
   console.log("[e2e-lfs] clone + pull selesai");
 
-  // 6. Token read-only tidak boleh push (scope enforcement lewat git protocol).
-  //    Clone dulu: git menolak push unrelated history di client sebelum HTTP,
-  //    jadi fresh repo tidak bisa menguji scope middleware.
+  // 6. Read-only token must not push (scope enforcement via git protocol).
+  //    Clone first: git rejects unrelated-history pushes at the client before HTTP,
+  //    so a fresh repo cannot exercise the scope middleware.
   const clone2 = path.join(tmpdir(), `sigit-lfs-ro-${suffix}`);
   sh(`git -c http.extraHeader="Authorization: ${basicAuth(writeTok.token)}" clone ${BASE}/projects/${projectName}.git ${clone2}`, tmpdir());
   await fs.writeFile(path.join(clone2, "new.txt"), "new");

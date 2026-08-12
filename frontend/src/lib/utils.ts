@@ -5,8 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Format tanggal ISO ke tampilan lokal (contoh "8/12/2026").
-// Satu helper untuk semua tampilan tanggal di UI.
+// Formats an ISO date to the local display (e.g. "8/12/2026").
+// Single helper for all date rendering in the UI.
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }

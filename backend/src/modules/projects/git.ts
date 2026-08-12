@@ -22,12 +22,12 @@ export async function initRepo(repoPath: string, lfsThreshold = DEFAULT_LFS_SIZE
   await installPreReceiveHook(repoPath, lfsThreshold);
 }
 
-// Hook pre-receive: tolak blob > threshold (file besar wajib lewat LFS).
-// Threshold di-bake ke script saat install; regenerasi saat project di-update.
+// Pre-receive hook: reject blobs above the threshold (big files must go through LFS).
+// The threshold is baked into the script at install; regenerated when the project is updated.
 export async function installPreReceiveHook(repoPath: string, threshold: number): Promise<void> {
   const script = `#!/bin/sh
-# SiGit pre-receive hook: menolak blob besar yang tidak lewat git-lfs.
-# File besar tidak pernah masuk history server (server tetap kecil).
+# SiGit pre-receive hook: rejects large blobs that did not go through git-lfs.
+# Large files never enter the server history (server stays small).
 THRESHOLD=${threshold}
 fail=0
 tmp=$(mktemp) || exit 1
@@ -45,8 +45,8 @@ while read oldrev newrev ref; do
     [ "$type" != "blob" ] && continue
     size=$(git cat-file -s "$sha" 2>/dev/null)
     if [ "$size" -gt "$THRESHOLD" ]; then
-      echo "SiGit: file '$path' ($size bytes) melebihi batas $THRESHOLD bytes." >&2
-      echo "SiGit: gunakan 'git lfs track' untuk file besar, atau naikkan lfsSizeThreshold project." >&2
+      echo "SiGit: file '$path' ($size bytes) exceeds the $THRESHOLD bytes limit." >&2
+      echo "SiGit: use 'git lfs track' for large files, or raise the project lfsSizeThreshold." >&2
       fail=1
     fi
   done < "$tmp"
@@ -80,8 +80,8 @@ export async function getDiff(repoPath: string, a?: string, b?: string): Promise
 }
 
 export async function getCommitFiles(repoPath: string, hash: string): Promise<{ path: string; status: string }[]> {
-  // git show (bukan diff-tree): diff-tree mengembalikan kosong di repo bare
-  // pada beberapa versi git Windows; format outputnya sama (status\tpath).
+  // git show (not diff-tree): diff-tree returns empty on bare repos with some
+  // Windows git versions; the output format is the same (status\tpath).
   const { stdout } = await execAsync(`git show --format= --name-status ${hash}`, repoCwd(repoPath));
   if (!stdout.trim()) return [];
   return stdout
@@ -95,8 +95,8 @@ export async function getCommitFiles(repoPath: string, hash: string): Promise<{ 
 
 export async function resolveHead(repoPath: string): Promise<string | null> {
   try {
-    // --verify: gagal (exit != 0) pada repo tanpa commit (unborn HEAD),
-    // sedangkan `git rev-parse HEAD` di git baru mengembalikan string "HEAD".
+    // --verify fails (exit != 0) on a repo without commits (unborn HEAD),
+    // whereas `git rev-parse HEAD` in newer git returns the string "HEAD".
     const { stdout } = await execAsync("git rev-parse --verify HEAD", repoCwd(repoPath));
     return stdout.trim();
   } catch {

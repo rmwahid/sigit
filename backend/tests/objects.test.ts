@@ -11,7 +11,7 @@ import {
   testConnection,
 } from "../src/modules/storage/objects";
 
-// Local MinIO (via FlyEnv). Koneksi dibuat inline seperti input user.
+// Local MinIO (via FlyEnv). Connection is created inline like user input.
 const TEST_TIMEOUT = 30000;
 
 const suffix = Date.now().toString(36);

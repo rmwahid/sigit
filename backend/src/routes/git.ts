@@ -4,13 +4,13 @@ import { requireGitToken } from "../middleware/git-auth";
 import { projectNameFromRouteParam } from "../modules/projects/projects";
 
 // Git smart HTTP: /projects/<name>.git/<path>
-// git client memanggil: info/refs?service=git-upload-pack|git-receive-pack,
-// git-upload-pack, git-receive-pack (POST dengan packfile).
+// the git client calls: info/refs?service=git-upload-pack|git-receive-pack,
+// git-upload-pack, git-receive-pack (POST with a packfile).
 //
-// PENTING 1: param pakai regex `:name{.+\.git}` — di Hono versi ini,
-// `:name.git` MATCH SEMUA path /x/y (literal ".git" diabaikan), sehingga
-// route git membajak API routes (/projects/{id}/history dll).
-// PENTING 2: requireGitToken hanya di route .git — API routes pakai session.
+// IMPORTANT 1: the param uses the regex `:name{.+\.git}` - in this Hono version
+// `:name.git` matches ALL /x/y paths (the literal ".git" is ignored), so the
+// git routes would hijack API routes (/projects/{id}/history etc).
+// IMPORTANT 2: requireGitToken is only on .git routes - API routes use sessions.
 export const gitRoutes = new Hono();
 
 gitRoutes.get("/:name{.+\.git}/*", requireGitToken, async (c) => {

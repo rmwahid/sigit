@@ -7,20 +7,20 @@ import { getProjectByName, projectNameFromRouteParam } from "../modules/projects
 export type GitAuthEnv = {
   Variables: {
     user: User;
-    // Token yang terautentikasi - dipakai route LFS untuk cek scope per-operasi
-    // (misal batch operation "upload" butuh scope write, bukan hanya di PUT).
+    // Authenticated token - used by LFS routes for per-operation scope checks
+    // (e.g. batch operation "upload" requires write scope, not just PUT).
     token: Token;
-    // Scope token yang sudah di-resolve per project oleh middleware.
+    // Token scope already resolved per project by the middleware.
     tokenScope: TokenScope;
   };
 };
 
-// Auth untuk git protocol (smart HTTP + LFS): client git mengirim
-// `Authorization: Basic base64(username:password)` - passwordnya adalah
-// token SiGit (prefix sigit_). Username diabaikan (pola seperti GitHub PAT).
-// Akses PER PROJECT: token hanya berlaku untuk project yang punya baris scope.
-// Scope minimum per aksi (clone/push/lfs) diatur di modules/auth/scopes.ts.
-// "write" otomatis termasuk "read". Token expired ditolak.
+// Auth for the git protocol (smart HTTP + LFS): the git client sends
+// `Authorization: Basic base64(username:password)` - the password is the
+// SiGit token (sigit_ prefix). Username is ignored (GitHub PAT style).
+// PER-PROJECT access: a token only works for projects with a scope row.
+// Minimum scope per action (clone/push/lfs) is defined in modules/auth/scopes.ts.
+// "write" automatically includes "read". Expired tokens are rejected.
 export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   const header = c.req.header("Authorization");
   if (!header || !header.startsWith("Basic ")) {
@@ -34,8 +34,8 @@ export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   }
   c.set("token", token);
 
-  // Project tidak ditemukan -> lewati cek di sini, biarkan handler yang 404
-  // (format error git/LFS tetap seperti sebelumnya).
+  // Project not found -> skip the scope check here, let the handler return 404
+  // (git/LFS error format stays as before).
   const name = projectNameFromRouteParam(c.req.param("name"));
   const project = name ? await getProjectByName(name) : undefined;
   if (project) {

@@ -73,7 +73,7 @@ describe("getUserByEmail (DB sigit)", () => {
   it("finds the existing user by email", async () => {
     const rows = await db.select().from(users).limit(1);
     const user = rows[0];
-    if (!user) return; // tidak ada user: skip
+    if (!user) return; // no user in DB: skip
     const found = await getUserByEmail(user.email);
     expect(found?.id).toBe(user.id);
     expect(await getUserByEmail("nonexistent@sigit.local")).toBeUndefined();

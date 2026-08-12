@@ -16,9 +16,9 @@ import {
 } from "../src/modules/projects/projects";
 
 // Integration test: runs against dev DB `sigit` + local MinIO (bucket sigit-test).
-// Alur push memakai git CLI asli ke repo bare server (menggantikan web push).
-// Koneksi storage adalah input user (arsitektur SiGit): kredensial dikirim
-// inline seperti user mengetik di form, bukan dari env.
+// Push flow uses the real git CLI against the server bare repo (replaces the removed web push).
+// Storage connection is user input (SiGit architecture): credentials are sent
+// inline like a user typing in the form, not from env.
 const TEST_TIMEOUT = 60000;
 
 const STORAGE = {
@@ -183,7 +183,7 @@ describe("projects integration (DB sigit + MinIO + git push)", () => {
     });
     createdProjectIds.push(project.id);
 
-    // Nama unik: create kedua dengan nama sama harus ditolak DB
+    // Unique name: creating a second project with the same name must be rejected
     let duplicateRejected = false;
     try {
       await createProject({ name: project.name, storageConnectionId: conn.id });
@@ -192,7 +192,7 @@ describe("projects integration (DB sigit + MinIO + git push)", () => {
     }
     expect(duplicateRejected).toBe(true);
 
-    // Objek di storage: tidak ada LFS objects untuk repo tanpa push besar
+    // Objects in storage: no LFS objects for a repo without a large push
     const objects = await listAllObjects(conn, `projects/${project.id}/`);
     expect(objects).toHaveLength(0);
   }, TEST_TIMEOUT);

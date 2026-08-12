@@ -12,7 +12,7 @@ import {
 import { createConnectionFromInput, deleteConnection } from "../src/modules/storage/connections";
 import { createProject, hardDeleteProject } from "../src/modules/projects/projects";
 
-// Scope token per project: DB dev `sigit` (tanpa MinIO, tidak ada operasi S3 di sini).
+// Per-project token scopes: dev DB `sigit` (no MinIO, no S3 operations here).
 const TEST_TIMEOUT = 30000;
 
 const suffix = Date.now().toString(36);

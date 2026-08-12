@@ -42,7 +42,7 @@ export type NewProject = Omit<Project, "id" | "storageConnectionId"> & {
   storageConnectionId: string;
 };
 
-// Update payload: storageConnectionId boleh null (disconnect dari storage)
+// Update payload: storageConnectionId may be null (disconnect from storage)
 export type ProjectUpdate = Partial<Omit<NewProject, "storageConnectionId">> & {
   storageConnectionId?: string | null;
 };
