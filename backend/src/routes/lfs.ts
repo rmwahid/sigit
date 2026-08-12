@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { requireGitToken } from "../middleware/git-auth";
-import { getProjectByName } from "../modules/projects/projects";
+import { getProjectByName, projectNameFromRouteParam } from "../modules/projects/projects";
 import { getConnection } from "../modules/storage/connections";
+import { scopeAllows, scopeForLfsOperation } from "../modules/auth/scopes";
 import { log } from "../lib/logger";
 import {
   buildBatchResponse,
@@ -69,7 +70,7 @@ async function guard(c: Context, fn: () => Promise<Response>): Promise<Response>
 }
 
 lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   return guard(c, async () => {
     const body = await c.req.json().catch(() => null);
     if (!body || (body.operation !== "download" && body.operation !== "upload") || !Array.isArray(body.objects)) {
@@ -79,8 +80,9 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
     if (objects.length === 0 || objects.length > MAX_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
       throw new LfsError(422, "Invalid batch objects");
     }
-    if (body.operation === "upload" && c.get("tokenScope") !== "write") {
-      throw new LfsError(403, "Token requires write scope for uploads");
+    const required = scopeForLfsOperation(body.operation);
+    if (!scopeAllows(c.get("tokenScope"), required)) {
+      throw new LfsError(403, `Token requires "${required}" scope for ${body.operation}`);
     }
     if (Array.isArray(body.transfers) && body.transfers.length > 0 && !body.transfers.includes("basic")) {
       throw new LfsError(422, "Unsupported transfer: only basic is supported");
@@ -100,7 +102,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
 });
 
 lfsRoutes.get("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
@@ -113,7 +115,7 @@ lfsRoutes.get("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
 });
 
 lfsRoutes.put("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
@@ -128,7 +130,7 @@ lfsRoutes.put("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
 });
 
 lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/:oid/verify", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");

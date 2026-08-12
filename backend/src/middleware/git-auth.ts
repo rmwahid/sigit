@@ -1,7 +1,8 @@
 import { createMiddleware } from "hono/factory";
 import type { Token, User } from "../db/schema/auth";
 import { resolveTokenScope, validateToken, type TokenScope } from "../modules/auth/tokens";
-import { getProjectByName } from "../modules/projects/projects";
+import { classifyAction, scopeAllows, scopeForAction } from "../modules/auth/scopes";
+import { getProjectByName, projectNameFromRouteParam } from "../modules/projects/projects";
 
 export type GitAuthEnv = {
   Variables: {
@@ -14,20 +15,11 @@ export type GitAuthEnv = {
   };
 };
 
-// Operasi git mana yang butuh scope "write":
-// - git-receive-pack (push)
-// - LFS upload (PUT objects) - Tahap 2
-function requiresWriteScope(c: { req: { method: string; path: string } }): boolean {
-  const { method, path } = c.req;
-  if (path.includes("git-receive-pack")) return true;
-  if (method === "PUT" && path.includes("/lfs/objects/")) return true;
-  return false;
-}
-
 // Auth untuk git protocol (smart HTTP + LFS): client git mengirim
 // `Authorization: Basic base64(username:password)` - passwordnya adalah
 // token SiGit (prefix sigit_). Username diabaikan (pola seperti GitHub PAT).
 // Akses PER PROJECT: token hanya berlaku untuk project yang punya baris scope.
+// Scope minimum per aksi (clone/push/lfs) diatur di modules/auth/scopes.ts.
 // "write" otomatis termasuk "read". Token expired ditolak.
 export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   const header = c.req.header("Authorization");
@@ -44,15 +36,15 @@ export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
 
   // Project tidak ditemukan -> lewati cek di sini, biarkan handler yang 404
   // (format error git/LFS tetap seperti sebelumnya).
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const project = name ? await getProjectByName(name) : undefined;
   if (project) {
     const scope = await resolveTokenScope(token.id, project.id);
     if (!scope) {
       return c.json({ error: { code: "FORBIDDEN", message: "Token has no access to this project" } }, 403);
     }
-    const required: TokenScope = requiresWriteScope(c) ? "write" : "read";
-    if (required === "write" && scope !== "write") {
+    const required = scopeForAction(classifyAction(c.req.method, c.req.path));
+    if (!scopeAllows(scope, required)) {
       return c.json({ error: { code: "FORBIDDEN", message: `Token requires "${required}" scope for this project` } }, 403);
     }
     c.set("tokenScope", scope);
