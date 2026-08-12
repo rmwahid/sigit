@@ -14,7 +14,7 @@ import fs from "node:fs/promises";
 import { db } from "../config/db";
 import { users } from "../db/schema/auth";
 import { createProjectWithConnection, hardDeleteProject } from "../modules/projects/projects";
-import { createToken, revokeToken } from "../modules/auth/tokens";
+import { createToken, revokeToken, setTokenProjectScopes } from "../modules/auth/tokens";
 import { deleteConnection, getConnection } from "../modules/storage/connections";
 import { listAllObjects } from "../modules/storage/objects";
 import { sha256 } from "../modules/lfs";
@@ -86,8 +86,10 @@ async function main(): Promise<void> {
   const admin = (await db.select().from(users))[0];
   check(!!admin, "admin user ditemukan");
   const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000);
-  const writeTok = await createToken(admin.id, "e2e-write", ["read", "write"], expires);
-  const readTok = await createToken(admin.id, "e2e-read", ["read"], expires);
+  const writeTok = await createToken(admin.id, "e2e-write", expires);
+  await setTokenProjectScopes(writeTok.id, [{ projectId: project.id, scope: "write" }]);
+  const readTok = await createToken(admin.id, "e2e-read", expires);
+  await setTokenProjectScopes(readTok.id, [{ projectId: project.id, scope: "read" }]);
   console.log("[e2e-lfs] project + tokens siap");
 
   // 3. Repo lokal: file 12MB (> threshold 10MB) -> git lfs push via HTTP
