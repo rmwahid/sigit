@@ -8,6 +8,7 @@
     getProjectDiff,
     backupProject,
     restoreProject,
+    getAppInfo,
     type Connection,
     type Project,
   } from "$lib/api";
@@ -16,6 +17,7 @@
   import { page } from "$app/stores";
   import DiffViewer from "$lib/DiffViewer.svelte";
   import { onMount } from "svelte";
+  import { gitRemoteCommands, lfsCommands, parseLfsPatterns } from "$lib/snippet";
 
   let project = $state<Project | null>(null);
   let connections = $state<Connection[]>([]);
@@ -30,6 +32,10 @@
 
   let backingUp = $state(false);
 
+  // setup snippet
+  let appInfo = $state<{ gitBaseUrl: string } | null>(null);
+  let copied = $state({ remote: false, lfs: false });
+
   // delete confirm
   let showDeleteConfirm = $state(false);
   let deleteConfirmName = $state("");
@@ -38,31 +44,64 @@
 
   const canConfirmDelete = $derived(project !== null && deleteConfirmName.trim() === project.name);
 
+  const gitBaseUrl = $derived(appInfo?.gitBaseUrl ?? "http://localhost:3000");
+  const remoteCommands = $derived(project ? gitRemoteCommands(gitBaseUrl, project.name) : "");
+  const lfsPatterns = $derived(project ? parseLfsPatterns(project.lfsPatterns) : []);
+  const lfsCommandText = $derived(lfsCommands(lfsPatterns));
+  const lfsThresholdMb = $derived(project ? Math.round(project.lfsSizeThreshold / (1024 * 1024)) : 0);
+
   async function loadProject() {
     const id = $page.params.id;
     if (!id) return;
     error = "";
     try {
       const [p, c] = await Promise.all([getProject(id), listConnections()]);
+      if ($page.params.id !== id) return; // sudah pindah ke project lain
       project = p.data;
       connections = c.data;
       await loadHistory();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if ($page.params.id === id) error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function loadAppInfo() {
+    try {
+      const res = await getAppInfo();
+      appInfo = res.data;
+    } catch {
+      // fallback ke base url default; snippet tetap bisa disalin
     }
   }
 
   async function loadHistory() {
     if (!project) return;
+    const projectId = project.id;
     try {
-      const res = await getProjectHistory(project.id);
+      const res = await getProjectHistory(projectId);
+      if (project?.id !== projectId) return; // project sudah berganti
       history = res.data.commits;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if (project?.id === projectId) error = e instanceof Error ? e.message : String(e);
     }
   }
 
-  onMount(loadProject);
+  // SvelteKit memakai ulang komponen ini antar /projects/[id]; reload data saat params berubah
+  $effect(() => {
+    const id = $page.params.id;
+    if (!id) return;
+    diff = null;
+    history = [];
+    error = "";
+    message = "";
+    selectedConnId = "";
+    connTab = "s3";
+    showDeleteConfirm = false;
+    deleteConfirmName = "";
+    void loadProject();
+  });
+
+  onMount(loadAppInfo);
 
   async function onConnect() {
     if (!project || !selectedConnId) return;
@@ -153,6 +192,16 @@
       error = e instanceof Error ? e.message : String(e);
     }
   }
+
+  async function copyText(text: string, key: "remote" | "lfs") {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied[key] = true;
+      setTimeout(() => (copied[key] = false), 1500);
+    } catch {
+      // clipboard tidak tersedia, user bisa salin manual
+    }
+  }
 </script>
 
 {#if !project}
@@ -212,14 +261,36 @@
     <button class="pixel-border-sm px-3 py-1 text-sm" disabled={!project.storageConnectionId} onclick={onRestore}>Restore</button>
   </section>
 
-  <!-- Git remote -->
+  <!-- Setup snippet -->
   <section class="mb-6">
-    <h3 class="text-base font-semibold mb-2">Git Remote</h3>
-    <p class="text-sm text-muted-foreground mb-2">
-      Push/pull dari project lokal dengan git biasa (token git dari Settings → Tokens sebagai password):
-    </p>
-    <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">git remote add sigit http://localhost:3000/projects/{project.name}.git
-git push sigit main</pre>
+    <h3 class="text-base font-semibold mb-2">Setup</h3>
+
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold">Git remote</span>
+        <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => copyText(remoteCommands, "remote")}>
+          {copied.remote ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">{remoteCommands}</pre>
+      <p class="text-xs text-muted-foreground mt-2">
+        Username bebas, password = git token. Buat token di
+        <a class="underline" href="/settings">Settings → Tokens</a> (token hanya muncul sekali saat dibuat).
+      </p>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold">Git LFS (file besar)</span>
+        <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => copyText(lfsCommandText, "lfs")}>
+          {copied.lfs ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">{lfsCommandText}</pre>
+      <p class="text-xs text-muted-foreground mt-2">
+        File lebih dari {lfsThresholdMb} MB otomatis ditangani LFS; pola di atas sinkron dengan konfigurasi server.
+      </p>
+    </div>
   </section>
 
   <!-- History + Diff -->
