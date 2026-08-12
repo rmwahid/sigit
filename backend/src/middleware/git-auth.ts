@@ -1,6 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import type { User } from "../db/schema/auth";
-import { validateToken } from "../modules/auth/tokens";
+import { tokenHasScope, validateToken, type TokenScope } from "../modules/auth/tokens";
 
 export type GitAuthEnv = {
   Variables: {
@@ -8,9 +8,20 @@ export type GitAuthEnv = {
   };
 };
 
+// Operasi git mana yang butuh scope "write":
+// - git-receive-pack (push)
+// - LFS upload (PUT objects) — Tahap 2
+function requiresWriteScope(c: { req: { method: string; path: string } }): boolean {
+  const { method, path } = c.req;
+  if (path.includes("git-receive-pack")) return true;
+  if (method === "PUT" && path.includes("/lfs/objects/")) return true;
+  return false;
+}
+
 // Auth untuk git protocol (smart HTTP + LFS): client git mengirim
 // `Authorization: Basic base64(username:password)` — passwordnya adalah
 // token SiGit (prefix sigit_). Username diabaikan (pola seperti GitHub PAT).
+// Scope: read (clone/pull) vs write (push + LFS upload). Token expired ditolak.
 export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   const header = c.req.header("Authorization");
   if (!header || !header.startsWith("Basic ")) {
@@ -22,6 +33,9 @@ export const requireGitToken = createMiddleware<GitAuthEnv>(async (c, next) => {
   if (!token) {
     return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401);
   }
-  // Single admin: token milik user mana pun = akses penuh. c.set user optional.
+  const required: TokenScope = requiresWriteScope(c) ? "write" : "read";
+  if (!tokenHasScope(token, required)) {
+    return c.json({ error: { code: "FORBIDDEN", message: `Token requires "${required}" scope` } }, 403);
+  }
   await next();
 });

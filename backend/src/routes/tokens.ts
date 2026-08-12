@@ -8,15 +8,31 @@ const tokenSchema = z
   .object({
     id: z.string().uuid(),
     name: z.string(),
+    scopes: z.array(z.enum(["read", "write"])),
+    expiresAt: z.string().datetime(),
     lastUsedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
   })
   .openapi("Token");
 
 const tokenListResponse = z.object({ data: z.array(tokenSchema) });
-const tokenCreateInput = z.object({ name: z.string().min(1).max(100) });
-const tokenCreatedResponse = z.object({ data: z.object({ id: z.string().uuid(), token: z.string(), name: z.string() }) });
+const tokenCreateInput = z.object({
+  name: z.string().min(1).max(100),
+  scopes: z.array(z.enum(["read", "write"])).default(["read"]),
+  // Flexible (bebas 1-30 hari), cap maksimal 30 hari demi keamanan token.
+  expiresInDays: z.coerce.number().int().min(1).max(30),
+});
+const tokenCreatedResponse = z.object({
+  data: z.object({
+    id: z.string().uuid(),
+    token: z.string(),
+    name: z.string(),
+    scopes: z.array(z.enum(["read", "write"])),
+    expiresAt: z.string().datetime(),
+  }),
+});
 const messageResponse = z.object({ message: z.string() });
+const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const tokenRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -40,6 +56,8 @@ tokenRoutes.openapi(
       data: items.map((t) => ({
         id: t.id,
         name: t.name,
+        scopes: t.scopes,
+        expiresAt: t.expiresAt.toISOString(),
         lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
         createdAt: t.createdAt.toISOString(),
       })),
@@ -65,10 +83,11 @@ tokenRoutes.openapi(
   }),
   authed(async (c) => {
     const user = c.get("user");
-    const { name } = c.req.valid("json");
-    const { token, id } = await createToken(user.id, name);
-    audit("token.create", { tokenId: id, name });
-    return c.json({ data: { id, token, name } }, 201);
+    const { name, scopes, expiresInDays } = c.req.valid("json");
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+    const { token, id } = await createToken(user.id, name, scopes, expiresAt);
+    audit("token.create", { tokenId: id, name, scopes, expiresInDays });
+    return c.json({ data: { id, token, name, scopes, expiresAt: expiresAt.toISOString() } }, 201);
   })
 );
 
@@ -86,7 +105,7 @@ tokenRoutes.openapi(
       },
       404: {
         description: "Not found",
-        content: { "application/json": { schema: z.object({ error: z.string() }).openapi("Error") } },
+        content: { "application/json": { schema: errorSchema } },
       },
     },
   }),
