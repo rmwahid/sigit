@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import { eq, and, gt, ne } from "drizzle-orm";
 import { db } from "../../config/db";
+import { env } from "../../config/env";
 import { users, sessions, type User } from "../../db/schema/auth";
 
-const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? "7");
+const SESSION_TTL_DAYS = Number(env.SESSION_TTL_DAYS);
 
 export async function hashPassword(password: string): Promise<string> {
   return Bun.password.hash(password, {

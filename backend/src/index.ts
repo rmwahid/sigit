@@ -17,8 +17,7 @@ import { log } from "./lib/logger";
 
 const app = new OpenAPIHono<AuthEnv>();
 
-const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
-  .split(",")
+const allowedOrigins = env.CORS_ORIGINS.split(",")
   .map((o) => o.trim())
   .filter(Boolean);
 

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../config/db";
 import { users } from "../db/schema/auth";
 import { requireUser, type AuthEnv } from "../middleware/auth";
+import { env } from "../config/env";
 import {
   createSession,
   deleteAllSessions,
@@ -15,9 +16,9 @@ import {
 } from "../modules/auth/auth";
 import { audit } from "../lib/logger";
 
-const SESSION_TTL_DAYS = Number(process.env.SESSION_TTL_DAYS ?? "7");
+const SESSION_TTL_DAYS = Number(env.SESSION_TTL_DAYS);
 const SESSION_MAX_AGE = SESSION_TTL_DAYS * 24 * 60 * 60;
-const SECURE_COOKIE = process.env.NODE_ENV === "production";
+const SECURE_COOKIE = env.NODE_ENV === "production";
 
 const loginSchema = z.object({
   email: z.string().email().openapi({ example: "admin@sigit.dev" }),

@@ -2,11 +2,12 @@ import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import path from "node:path";
 import type { Context } from "hono";
+import { env } from "../../config/env";
 import { getProjectByName } from "../projects/projects";
 import { backupProject } from "../projects/backup";
 import { log, audit } from "../../lib/logger";
 
-const PROJECTS_ROOT = path.resolve(process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects");
+const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
 
 // git http-backend memakai konvensi CGI: baris header seperti
 // "Status: 200 OK" + "Content-Type: ..." lalu \r\n\r\n dan body.

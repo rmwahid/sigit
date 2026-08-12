@@ -7,6 +7,10 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   SESSION_TTL_DAYS: z.string().default("7"),
   NODE_ENV: z.string().default("development"),
+  LOG_DIR: z.string().default("./data/logs"),
+  LOG_RING_SIZE: z.string().default("500"),
+  LOG_AUDIT_MAX_BYTES: z.string().default((5 * 1024 * 1024).toString()), // 5 MB
+  LOG_AUDIT_MAX_FILES: z.string().default("5"),
   SIGIT_PROJECTS_ROOT: z.string().default("./data/projects"),
   ENCRYPTION_KEYS: z
     .string()

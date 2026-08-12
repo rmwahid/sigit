@@ -1,10 +1,11 @@
 import { appendFileSync, mkdirSync, existsSync, statSync, renameSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { env } from "../config/env";
 
-const LOG_DIR = process.env.LOG_DIR ?? "./data/logs";
+const LOG_DIR = env.LOG_DIR;
 const AUDIT_FILE = join(LOG_DIR, "audit.log");
-const AUDIT_MAX_BYTES = Number(process.env.LOG_AUDIT_MAX_BYTES ?? (5 * 1024 * 1024).toString()); // 5 MB
-const AUDIT_MAX_FILES = Number(process.env.LOG_AUDIT_MAX_FILES ?? "5");
+const AUDIT_MAX_BYTES = Number(env.LOG_AUDIT_MAX_BYTES); // 5 MB
+const AUDIT_MAX_FILES = Number(env.LOG_AUDIT_MAX_FILES);
 
 try {
   mkdirSync(dirname(AUDIT_FILE), { recursive: true });
@@ -16,7 +17,7 @@ type Level = "info" | "warn" | "error";
 type LogEntry = { ts: string; level: Level; scope: string; message: string; [k: string]: unknown };
 
 // Ring buffer for request logs (in-memory only, NOT persisted). Bounded to avoid unbounded growth.
-const RING_SIZE = Number(process.env.LOG_RING_SIZE ?? "500");
+const RING_SIZE = Number(env.LOG_RING_SIZE);
 const ring: LogEntry[] = [];
 
 // SSE subscribers (callbacks to push live log lines).
