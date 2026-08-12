@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import type { AuthEnv } from "../middleware/auth";
-import { authed } from "../middleware/auth";
+import { requireUser } from "../middleware/auth";
 import { getRingBuffer, readAuditLog, subscribe, log } from "../lib/logger";
 
 const logEntrySchema = z
@@ -43,7 +43,9 @@ adminRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     const { limit, before } = c.req.valid("query");
     const l = limit ? Number(limit) : 200;
     const auditLogs = readAuditLog(l, before);
@@ -58,7 +60,7 @@ adminRoutes.openapi(
       merged.push(e);
     }
     return c.json({ data: merged });
-  })
+  }
 );
 
 // Server-Sent Events stream of live request logs
@@ -75,7 +77,9 @@ adminRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     log.info("admin", "log stream started");
     return streamSSE(c, async (stream) => {
       const unsubscribe = subscribe((entry) => {
@@ -89,5 +93,5 @@ adminRoutes.openapi(
         c.req.raw.signal.addEventListener("abort", () => resolve());
       });
     });
-  })
+  }
 );

@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db } from "../config/db";
 import { users } from "../db/schema/auth";
-import { AuthEnv, authed } from "../middleware/auth";
+import { requireUser, type AuthEnv } from "../middleware/auth";
 import {
   createSession,
   deleteAllSessions,
@@ -62,10 +62,11 @@ authRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
-    const user = c.get("user");
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     return c.json({ data: { id: user.id, email: user.email } });
-  })
+  }
 );
 
 authRoutes.openapi(
@@ -144,17 +145,18 @@ authRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
+  async (c) => {
     const { password } = c.req.valid("json");
-    const user = c.get("user");
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) return c.json({ error: { code: "INVALID_PASSWORD", message: "Invalid password" } }, 401);
+    if (!ok) return c.json({ error: { code: "INVALID_PASSWORD", message: "Invalid password" } }, 401) as never;
 
     const token = getSessionTokenFromCookie(c.req.header("Cookie")) ?? undefined;
     await deleteAllSessions(user.id, token);
     audit("auth.revoke_all", { userId: user.id });
     return c.json({ message: "All other sessions revoked" });
-  })
+  }
 );
 
 authRoutes.openapi(
@@ -177,18 +179,19 @@ authRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
+  async (c) => {
     const { currentPassword, newPassword } = c.req.valid("json");
-    const user = c.get("user");
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     const ok = await verifyPassword(currentPassword, user.passwordHash);
-    if (!ok) return c.json({ error: { code: "INVALID_CURRENT_PASSWORD", message: "Invalid current password" } }, 401);
+    if (!ok) return c.json({ error: { code: "INVALID_CURRENT_PASSWORD", message: "Invalid current password" } }, 401) as never;
 
     await updateUserPassword(user.id, newPassword);
     const token = getSessionTokenFromCookie(c.req.header("Cookie")) ?? undefined;
     await deleteAllSessions(user.id, token);
     audit("auth.change_password", { userId: user.id });
     return c.json({ message: "Password changed" });
-  })
+  }
 );
 
 // Bootstrap check: is there any user? (used by frontend to decide setup vs login)
