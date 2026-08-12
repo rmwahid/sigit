@@ -18,6 +18,7 @@
   import DiffViewer from "$lib/DiffViewer.svelte";
   import { onMount } from "svelte";
   import { gitRemoteCommands, lfsCommands, parseLfsPatterns } from "$lib/snippet";
+  import { listTokens, type GitToken, type TokenScope } from "$lib/api/tokens";
 
   let project = $state<Project | null>(null);
   let connections = $state<Connection[]>([]);
@@ -35,6 +36,7 @@
   // setup snippet
   let appInfo = $state<{ gitBaseUrl: string } | null>(null);
   let copied = $state({ remote: false, lfs: false });
+  let tokens = $state<GitToken[]>([]);
 
   // delete confirm
   let showDeleteConfirm = $state(false);
@@ -49,6 +51,14 @@
   const lfsPatterns = $derived(project ? parseLfsPatterns(project.lfsPatterns) : []);
   const lfsCommandText = $derived(lfsCommands(lfsPatterns));
   const lfsThresholdMb = $derived(project ? Math.round(project.lfsSizeThreshold / (1024 * 1024)) : 0);
+  const projectId = $derived(project?.id);
+  const projectTokens = $derived(
+    projectId
+      ? tokens
+          .map((t) => ({ token: t, scope: t.projects.find((p) => p.projectId === projectId)?.scope }))
+          .filter((x): x is { token: GitToken; scope: TokenScope } => x.scope !== undefined)
+      : []
+  );
 
   async function loadProject() {
     const id = $page.params.id;
@@ -71,6 +81,15 @@
       appInfo = res.data;
     } catch {
       // fallback ke base url default; snippet tetap bisa disalin
+    }
+  }
+
+  async function loadTokens() {
+    try {
+      const res = await listTokens();
+      tokens = res.data;
+    } catch {
+      // section token access hanya tampil kalau berhasil dimuat
     }
   }
 
@@ -99,6 +118,7 @@
     showDeleteConfirm = false;
     deleteConfirmName = "";
     void loadProject();
+    void loadTokens();
   });
 
   onMount(loadAppInfo);
@@ -291,6 +311,32 @@
         File lebih dari {lfsThresholdMb} MB otomatis ditangani LFS; pola di atas sinkron dengan konfigurasi server.
       </p>
     </div>
+  </section>
+
+  <!-- Token access -->
+  <section class="mb-6">
+    <h3 class="text-base font-semibold mb-2">Token access</h3>
+    {#if projectTokens.length === 0}
+      <p class="text-sm text-muted-foreground">
+        Belum ada token yang bisa mengakses project ini. Buat token di
+        <a class="underline" href="/settings">Settings → Tokens</a> lalu pilih project ini.
+      </p>
+    {:else}
+      <ul class="space-y-1">
+        {#each projectTokens as { token, scope }}
+          <li class="flex items-center gap-2 text-sm border-b border-border py-1">
+            <span class="flex-1 truncate font-medium">{token.name}</span>
+            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">
+              {scope === "write" ? "read+write" : "read"}
+            </span>
+            <span class="text-xs text-muted-foreground">expires {new Date(token.expiresAt).toLocaleDateString()}</span>
+          </li>
+        {/each}
+      </ul>
+      <p class="text-xs text-muted-foreground mt-2">
+        Kelola token di <a class="underline" href="/settings">Settings → Tokens</a>.
+      </p>
+    {/if}
   </section>
 
   <!-- History + Diff -->
