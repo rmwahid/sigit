@@ -4,6 +4,7 @@ import {
   listTokensWithProjectScopes,
   revokeToken,
   setTokenProjectScopes,
+  TOKEN_MAX_EXPIRY_DAYS,
 } from "../modules/auth/tokens";
 import { getProject } from "../modules/projects/projects";
 import { requireUser, type AuthEnv } from "../middleware/auth";
@@ -32,7 +33,7 @@ const tokenCreateInput = z.object({
   // Akses per project: token hanya berlaku untuk project terpilih ("write" termasuk "read").
   projects: z.array(tokenProjectSchema).min(1),
   // Flexible (bebas 1-30 hari), cap maksimal 30 hari demi keamanan token.
-  expiresInDays: z.coerce.number().int().min(1).max(30),
+  expiresInDays: z.coerce.number().int().min(1).max(TOKEN_MAX_EXPIRY_DAYS),
 });
 const tokenCreatedResponse = z.object({
   data: z.object({

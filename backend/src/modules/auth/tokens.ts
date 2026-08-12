@@ -5,6 +5,10 @@ import { tokenProjectScopes, tokens, type Token } from "../../db/schema/auth";
 
 const TOKEN_PREFIX = "sigit_";
 
+// Masa berlaku token maksimal (hari). Satu sumber kebenaran - dipakai route
+// (zod max) dan frontend (input max). Frontend punya salinan di token-config.ts.
+export const TOKEN_MAX_EXPIRY_DAYS = 30;
+
 export type TokenScope = "read" | "write";
 
 export type TokenProjectScopeInput = {
