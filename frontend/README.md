@@ -1,15 +1,41 @@
 # SiGit UI
 
-Frontend SvelteKit untuk SiGit.
+SvelteKit frontend for [SiGit](..): project dashboard, commit history, diff viewer, and token management.
+
+## Prerequisites
+
+- [Bun](https://bun.sh)
+- The [SiGit API](../backend) running on `http://localhost:3000`
 
 ## Setup
 
-1. Copy `.env.example` ke `.env`.
-2. Jalankan `bun install`.
-3. Jalankan `bun run dev`.
+```bash
+bun install
+cp .env.example .env
+bun run dev
+```
 
-Frontend berjalan di `http://localhost:5173` dan proxy ke backend `http://localhost:3000` via `/api`.
+The frontend runs on `http://localhost:5173` and proxies `/api` to the backend at `http://localhost:3000`.
 
-## Diff Viewer
+## Environment Variables
 
-Menggunakan `diff2html` untuk render output `git diff` dari backend.
+| Variable           | Default                   | Description                          |
+| ------------------ | ------------------------- | ------------------------------------ |
+| `PUBLIC_API_URL`   | `http://localhost:3000`   | Backend API base URL                 |
+
+## Scripts
+
+| Script         | Description                     |
+| -------------- | ------------------------------- |
+| `bun run dev`  | Start dev server                |
+| `bun run build`| Production build                |
+| `bun run preview` | Preview the production build |
+| `bun test`     | Run unit tests (vitest)         |
+
+## Project Structure
+
+```
+src/
+├── routes/     # SvelteKit routes (setup, login, dashboard, projects, settings)
+└── lib/        # API client, shared components (LogViewer, diff rendering)
+```
