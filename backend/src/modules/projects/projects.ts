@@ -1,11 +1,12 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../../config/db";
 import { projects, type NewProject, type Project } from "../../db/schema/projects";
 import { createConnectionFromInput, getConnection } from "../storage/connections";
 import { deleteObjectsByPrefix } from "../storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
+import { HttpError } from "../../lib/http-error";
 
 const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
 
@@ -22,9 +23,16 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return rows[0];
 }
 
-// Nama project unik (URL git /projects/<name>.git)
+// Nama project unik CASE-INSENSITIVE (NotesApp == notesapp → ditolak),
+// tapi huruf besar/kecil asli dipertahankan dan dipakai konsisten di URL.
+// Spasi tidak boleh (URL git /projects/<name>.git).
+const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$/;
+
 export async function getProjectByName(name: string): Promise<Project | undefined> {
-  const rows = await db.select().from(projects).where(eq(projects.name, name));
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(eq(sql`lower(${projects.name})`, sql`lower(${name})`));
   return rows[0];
 }
 
@@ -32,11 +40,22 @@ export async function createProject(data: NewProject): Promise<Project> {
   if (!data.storageConnectionId) {
     throw new Error("Project storage connection is required");
   }
+  await assertProjectNameAvailable(data.name);
   const inserted = await db.insert(projects).values(data).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
   await initRepo(projectRepoPath(project.id), project.lfsSizeThreshold);
   return project;
+}
+
+async function assertProjectNameAvailable(name: string): Promise<void> {
+  if (name.length < 2 || name.length > 64 || !PROJECT_NAME_RE.test(name)) {
+    throw new HttpError(400, "INVALID_PROJECT_NAME", "Use letters, numbers, dashes, or underscores (no spaces, e.g. my-project or NotesApp)");
+  }
+  const existing = await getProjectByName(name);
+  if (existing) {
+    throw new HttpError(409, "PROJECT_NAME_TAKEN", `Project name "${name}" is already taken`);
+  }
 }
 
 export type CreateProjectWithConnectionInput = {
@@ -57,6 +76,7 @@ export async function createProjectWithConnection(
   data: CreateProjectWithConnectionInput
 ): Promise<{ project: Project; connectionId: string }> {
   return db.transaction(async (tx) => {
+    await assertProjectNameAvailable(data.name);
     const connection = await createConnectionFromInput(data.connection, tx);
     const projRows = await tx
       .insert(projects)
@@ -75,6 +95,15 @@ export async function createProjectWithConnection(
 }
 
 export async function updateProject(id: string, data: Partial<NewProject>): Promise<Project | undefined> {
+  if (data.name) {
+    if (data.name.length < 2 || data.name.length > 64 || !PROJECT_NAME_RE.test(data.name)) {
+      throw new HttpError(400, "INVALID_PROJECT_NAME", "Use letters, numbers, dashes, or underscores (no spaces, e.g. my-project or NotesApp)");
+    }
+    const existing = await getProjectByName(data.name);
+    if (existing && existing.id !== id) {
+      throw new HttpError(409, "PROJECT_NAME_TAKEN", `Project name "${data.name}" is already taken`);
+    }
+  }
   const rows = await db
     .update(projects)
     .set({ ...data, updatedAt: new Date() })

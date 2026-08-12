@@ -1,10 +1,18 @@
 import { z } from "@hono/zod-openapi";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./common";
 
+// Nama project = slug aman untuk URL git (/projects/<name>.git):
+// huruf kecil, angka, -, _; mulai & diakhiri alfanumerik; panjang 2-64.
+export const projectNameSchema = z
+  .string()
+  .min(2)
+  .max(64)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$/, "Use letters, numbers, dashes, or underscores (no spaces, e.g. my-project or NotesApp)")
+
 export const projectSchema = z
   .object({
     id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
-    name: z.string().min(1).openapi({ example: "My Project" }),
+    name: projectNameSchema.openapi({ example: "notes-app" }),
     description: z.string().optional(),
     storageConnectionId: z.string().uuid().nullable(),
     lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
@@ -15,7 +23,7 @@ export const projectSchema = z
   .openapi("Project");
 
 export const projectInputSchema = z.object({
-  name: z.string().min(1).openapi({ example: "My Project" }),
+  name: projectNameSchema.openapi({ example: "notes-app" }),
   description: z.string().optional(),
   storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
   lfsSizeThreshold: z.number().int().min(1).default(10 * 1024 * 1024),
@@ -23,7 +31,7 @@ export const projectInputSchema = z.object({
 });
 
 export const projectUpdateSchema = z.object({
-  name: z.string().min(1).optional(),
+  name: projectNameSchema.optional(),
   description: z.string().optional(),
   storageConnectionId: z.string().uuid().nullable().optional(),
   lfsSizeThreshold: z.number().int().min(1).optional(),
@@ -31,7 +39,7 @@ export const projectUpdateSchema = z.object({
 });
 
 export const projectWithConnectionSchema = z.object({
-  name: z.string().min(1).openapi({ example: "My Project" }),
+  name: projectNameSchema.openapi({ example: "notes-app" }),
   description: z.string().optional(),
   connection: z.object({
     name: z.string().min(1).openapi({ example: "Hetzner" }),
