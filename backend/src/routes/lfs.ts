@@ -10,6 +10,7 @@ import {
   buildBatchResponse,
   downloadObject,
   isValidOid,
+  MAX_LFS_OBJECT_BYTES,
   objectExists,
   uploadObject,
   verifyObject,
@@ -80,14 +81,16 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
     if (objects.length === 0 || objects.length > MAX_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
       throw new LfsError(422, "Invalid batch objects");
     }
+    if (Array.isArray(body.transfers) && body.transfers.length > 0 && !body.transfers.includes("basic")) {
+      throw new LfsError(422, "Unsupported transfer: only basic is supported");
+    }
+    // Scope check AFTER the project is resolved: the middleware only sets
+    // tokenScope when the project exists (missing project -> handler 404, not 403).
+    const project = await loadProject(name);
     const required = scopeForLfsOperation(body.operation);
     if (!scopeAllows(c.get("tokenScope"), required)) {
       throw new LfsError(403, `Token requires "${required}" scope for ${body.operation}`);
     }
-    if (Array.isArray(body.transfers) && body.transfers.length > 0 && !body.transfers.includes("basic")) {
-      throw new LfsError(422, "Unsupported transfer: only basic is supported");
-    }
-    const project = await loadProject(name);
     const connection = await loadConnection(project);
     const origin = new URL(c.req.url).origin;
     const baseUrl = `${origin}/projects/${encodeURIComponent(name)}.git/info/lfs/objects`;
@@ -96,6 +99,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
       objects,
       baseUrl,
       exists: async (oid) => (await objectExists(connection, project.id, oid)) !== false,
+      maxObjectBytes: MAX_LFS_OBJECT_BYTES,
     });
     return c.json(payload, 200, { "Content-Type": LFS_JSON });
   });
@@ -121,7 +125,16 @@ lfsRoutes.put("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
     const project = await loadProject(name);
     const connection = await loadConnection(project);
-    const content = Buffer.from(await c.req.arrayBuffer());
+    // Limit the body size: pre-check Content-Length + stream with a cap
+    // (a client can lie about Content-Length, so the cap is also enforced while reading).
+    const declared = Number(c.req.header("Content-Length") ?? "0");
+    if (declared > MAX_LFS_OBJECT_BYTES) {
+      throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+    }
+    const content = await readBodyWithLimit(c, MAX_LFS_OBJECT_BYTES);
+    if (!content) {
+      throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+    }
     if (content.length === 0) throw new LfsError(422, "Empty object body");
     const result = await uploadObject(project, connection, oid, content);
     if (!result.ok) throw new LfsError(422, result.error ?? "Upload failed");
@@ -156,4 +169,24 @@ function isValidBatchObject(obj: unknown): obj is LfsObject {
     Number.isInteger(o.size) &&
     o.size >= 0
   );
+}
+
+// Streams the request body with a byte limit; returns null when the limit is
+// exceeded (prevents unbounded uploads from exhausting server memory).
+async function readBodyWithLimit(c: Context, maxBytes: number): Promise<Buffer | null> {
+  const reader = c.req.raw.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
 }

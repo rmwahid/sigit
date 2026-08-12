@@ -9,6 +9,10 @@ export type LfsObject = { oid: string; size: number };
 
 export const OID_RE = /^[a-f0-9]{64}$/;
 
+// Batas ukuran objek LFS (2 GiB). Satu sumber kebenaran - dipakai route PUT
+// (penolakan body) dan batch builder (action upload tidak ditawarkan).
+export const MAX_LFS_OBJECT_BYTES = 2 * 1024 * 1024 * 1024;
+
 // Object path in user storage: projects/{id}/lfs/{oid} (AGENTS.md contract).
 export function lfsObjectKey(projectId: string, oid: string): string {
   return `projects/${projectId}/lfs/${oid}`;
@@ -37,6 +41,8 @@ export type BatchOptions = {
   // Object existence check (for the download operation). Injected so the pure
   // logic can be unit-tested without S3.
   exists?: (oid: string) => Promise<boolean>;
+  // Max object size in bytes; upload action is omitted for larger objects.
+  maxObjectBytes?: number;
 };
 
 export type BatchResponse = {
@@ -62,6 +68,11 @@ export async function buildBatchResponse(opts: BatchOptions): Promise<BatchRespo
       authenticated: true,
     };
     if (opts.operation === "upload") {
+      if (opts.maxObjectBytes !== undefined && obj.size > opts.maxObjectBytes) {
+        // Object exceeds the server limit: do not offer an upload action.
+        objects.push(entry);
+        continue;
+      }
       const href = `${opts.baseUrl}/${obj.oid}`;
       entry.actions = {
         upload: { href },

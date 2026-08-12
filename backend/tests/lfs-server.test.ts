@@ -42,6 +42,17 @@ describe("lfs server (batch, oid verification, storage keys)", () => {
     expect(entry.actions?.download).toBeUndefined();
   });
 
+  it("omits the upload action when the object exceeds the max size", async () => {
+    const oid = sha256(Buffer.from("z"));
+    const payload = await buildBatchResponse({
+      operation: "upload",
+      objects: [{ oid, size: 3 * 1024 * 1024 * 1024 }],
+      baseUrl: "https://sigit.example/projects/my-repo.git/info/lfs/objects",
+      maxObjectBytes: 2 * 1024 * 1024 * 1024,
+    });
+    expect(payload.objects[0].actions).toBeUndefined();
+  });
+
   it("builds download batch with action only when object exists", async () => {
     const oid = sha256(Buffer.from("y"));
     const exists = async (o: string) => o === oid;
