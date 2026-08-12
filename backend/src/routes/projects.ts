@@ -275,6 +275,10 @@ projectRoutes.openapi(
         description: "Restored",
         content: { "application/json": { schema: messageSchema } },
       },
+      400: {
+        description: "Project has no storage connection",
+        content: { "application/json": { schema: errorSchema } },
+      },
       404: {
         description: "Not found",
         content: { "application/json": { schema: errorSchema } },
