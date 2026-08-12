@@ -11,7 +11,13 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    const message =
+      typeof body?.error === "string"
+        ? body.error
+        : typeof body?.error?.message === "string"
+          ? body.error.message
+          : body?.message || `Request failed: ${res.status}`;
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }
