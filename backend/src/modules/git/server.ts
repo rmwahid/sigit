@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Context } from "hono";
 import { getProjectByName } from "../projects/projects";
 import { backupProject } from "../projects/backup";
-import { log } from "../../lib/logger";
+import { log, audit } from "../../lib/logger";
 
 const PROJECTS_ROOT = path.resolve(process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects");
 
@@ -94,6 +94,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
   const isReceivePack = c.req.method === "POST" && pathInfo.endsWith("/git-receive-pack");
   if (isReceivePack) {
     child.on("close", (code) => {
+      audit("git.push", { projectId: project.id, projectName: project.name, result: code === 0 ? "accepted" : "failed" });
       if (code === 0) {
         backupProject(project).catch((err) => {
           log.error("backup", "auto backup after push failed", { projectId: project.id, error: err instanceof Error ? err.message : String(err) });
