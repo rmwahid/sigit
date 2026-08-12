@@ -14,6 +14,7 @@
     "db:create-admin": "bun run src/cli/create-admin.ts",
     "db:reset-password": "bun run src/cli/reset-password.ts",
     "db:reencrypt": "bun run src/cli/reencrypt-secrets.ts",
+    "e2e:lfs": "bun run src/cli/e2e-lfs.ts",
     "env:decrypt": "sops --decrypt --input-type dotenv --output-type dotenv .env.sops > .env",
     "env:encrypt": "sops --encrypt --input-type dotenv --output-type dotenv .env > .env.sops"
   },
