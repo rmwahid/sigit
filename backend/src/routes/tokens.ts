@@ -6,7 +6,7 @@ import {
   setTokenProjectScopes,
 } from "../modules/auth/tokens";
 import { getProject } from "../modules/projects/projects";
-import { authed, type AuthEnv } from "../middleware/auth";
+import { requireUser, type AuthEnv } from "../middleware/auth";
 import { audit } from "../lib/logger";
 import { idParamSchema } from "./schemas/common";
 
@@ -61,8 +61,9 @@ tokenRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
-    const user = c.get("user");
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     const items = await listTokensWithProjectScopes(user.id);
     return c.json({
       data: items.map(({ token, projects }) => ({
@@ -74,7 +75,7 @@ tokenRoutes.openapi(
         createdAt: token.createdAt.toISOString(),
       })),
     });
-  })
+  }
 );
 
 tokenRoutes.openapi(
@@ -93,18 +94,25 @@ tokenRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
-    const user = c.get("user");
-    // Cast eksplisit: typing c.req.valid() rusak di versi zod-openapi ini
-    // (pre-existing, sama di auth.ts/storage.ts); runtime tetap divalidasi zod.
-    const { name, projects, expiresInDays } = c.req.valid("json") as z.infer<typeof tokenCreateInput>;
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    // Anotasi struktural eksplisit: c.req.valid() dari zod-openapi 1.5.2 + zod v4
+    // ter-resolve ke any untuk schema nested (z.infer/z.output ikut any); anotasi
+    // ini menjaga type safety tanpa mengubah runtime (validasi tetap zod).
+    const body: {
+      name: string;
+      projects: { projectId: string; scope: "read" | "write" }[];
+      expiresInDays: number;
+    } = c.req.valid("json");
+    const { name, projects, expiresInDays } = body;
     const projectIds = projects.map((p) => p.projectId);
     if (new Set(projectIds).size !== projectIds.length) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "projects must not contain duplicates" } }, 400);
+      return c.json({ error: { code: "BAD_REQUEST", message: "projects must not contain duplicates" } }, 400) as never;
     }
     const found = await Promise.all(projects.map((p) => getProject(p.projectId)));
     if (found.some((p) => !p)) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "One or more projects do not exist" } }, 400);
+      return c.json({ error: { code: "BAD_REQUEST", message: "One or more projects do not exist" } }, 400) as never;
     }
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
     const { token, id } = await createToken(user.id, name, expiresAt);
@@ -116,7 +124,7 @@ tokenRoutes.openapi(
       expiresInDays,
     });
     return c.json({ data: { id, token, name, projects, expiresAt: expiresAt.toISOString() } }, 201);
-  })
+  }
 );
 
 tokenRoutes.openapi(
@@ -137,12 +145,13 @@ tokenRoutes.openapi(
       },
     },
   }),
-  authed(async (c) => {
-    const user = c.get("user");
+  async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
     const { id } = c.req.valid("param");
     const revoked = await revokeToken(id, user.id);
-    if (!revoked) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!revoked) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404) as never;
     audit("token.revoke", { tokenId: id });
     return c.json({ message: "Revoked" });
-  })
+  }
 );
