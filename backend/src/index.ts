@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { apiReference } from "@scalar/hono-api-reference";
 import { env } from "./config/env";
+import { appInfoRoutes } from "./routes/app-info";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { storageRoutes } from "./routes/storage";
@@ -82,6 +83,9 @@ app.get(
 );
 
 app.get("/", (c) => c.json({ message: "SiGit API" }));
+
+// Public app info (git base url untuk snippet setup), sebelum blok requireAuth
+app.route("/app-info", appInfoRoutes);
 
 app.route("/auth", authRoutes);
 
