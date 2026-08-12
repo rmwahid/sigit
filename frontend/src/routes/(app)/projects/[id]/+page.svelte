@@ -19,6 +19,8 @@
   import { onMount } from "svelte";
   import { gitRemoteCommands, lfsCommands, parseLfsPatterns } from "$lib/snippet";
   import { listTokens, type GitToken, type TokenScope } from "$lib/api/tokens";
+  import { scopeLabel } from "$lib/token-config";
+  import { formatDate } from "$lib/utils";
 
   let project = $state<Project | null>(null);
   let connections = $state<Connection[]>([]);
@@ -327,9 +329,9 @@
           <li class="flex items-center gap-2 text-sm border-b border-border py-1">
             <span class="flex-1 truncate font-medium">{token.name}</span>
             <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">
-              {scope === "write" ? "read+write" : "read"}
+              {scopeLabel(scope)}
             </span>
-            <span class="text-xs text-muted-foreground">expires {new Date(token.expiresAt).toLocaleDateString()}</span>
+            <span class="text-xs text-muted-foreground">expires {formatDate(token.expiresAt)}</span>
           </li>
         {/each}
       </ul>

@@ -9,6 +9,14 @@
     type TokenProjectScope,
   } from "$lib/api/tokens";
   import { projectsStore } from "$lib/stores/projects.svelte";
+  import {
+    DEFAULT_TOKEN_EXPIRY_DAYS,
+    DEFAULT_TOKEN_SCOPE,
+    scopeLabel,
+    TOKEN_MAX_EXPIRY_DAYS,
+    TOKEN_SCOPE_OPTIONS,
+  } from "$lib/token-config";
+  import { formatDate } from "$lib/utils";
   import Button from "$lib/components/ui/button/button.svelte";
   import Input from "$lib/components/ui/input/input.svelte";
   import Label from "$lib/components/ui/label/label.svelte";
@@ -29,7 +37,7 @@
   let tokenName = $state("");
   // projectId -> scope terpilih untuk token yang sedang dibuat
   let tokenProjects = $state<Record<string, TokenScope>>({});
-  let tokenExpiry = $state(30);
+  let tokenExpiry = $state(DEFAULT_TOKEN_EXPIRY_DAYS);
   let newToken = $state("");
   let creatingToken = $state(false);
   let copied = $state(false);
@@ -37,17 +45,13 @@
   const projects = $derived(projectsStore.list);
   const canCreate = $derived(tokenName.trim().length > 0 && Object.keys(tokenProjects).length > 0);
 
-  function scopeLabel(scope: TokenScope): string {
-    return scope === "write" ? "read+write" : "read";
-  }
-
   function projectName(projectId: string): string {
     return projects.find((p) => p.id === projectId)?.name ?? projectId.slice(0, 8);
   }
 
   function toggleProject(projectId: string, checked: boolean) {
     if (checked) {
-      tokenProjects = { ...tokenProjects, [projectId]: "read" };
+      tokenProjects = { ...tokenProjects, [projectId]: DEFAULT_TOKEN_SCOPE };
     } else {
       const next = { ...tokenProjects };
       delete next[projectId];
@@ -92,7 +96,7 @@
       newToken = res.data.token;
       tokenName = "";
       tokenProjects = {};
-      tokenExpiry = 30;
+      tokenExpiry = DEFAULT_TOKEN_EXPIRY_DAYS;
       copied = false;
       await loadTokens();
     } catch (err) {
@@ -211,8 +215,9 @@
                       onchange={(e) => setProjectScope(p.id, e.currentTarget.value as TokenScope)}
                       disabled={creatingToken}
                     >
-                      <option value="read">read</option>
-                      <option value="write">read+write</option>
+                      {#each TOKEN_SCOPE_OPTIONS as opt}
+                        <option value={opt.value}>{opt.label}</option>
+                      {/each}
                     </select>
                   {/if}
                 </div>
@@ -223,7 +228,7 @@
         <div class="flex items-center gap-2">
           <span class="text-xs uppercase tracking-wider text-muted-foreground">Expires</span>
           <div class="flex items-center gap-1">
-            <Input class="pixel-border-sm w-16 text-center" type="number" min={1} max={30} bind:value={tokenExpiry} disabled={creatingToken} />
+            <Input class="pixel-border-sm w-16 text-center" type="number" min={1} max={TOKEN_MAX_EXPIRY_DAYS} bind:value={tokenExpiry} disabled={creatingToken} />
             <span class="text-xs text-muted-foreground">days (max 30)</span>
           </div>
         </div>
@@ -248,9 +253,9 @@
               {/each}
             </div>
               <p class="text-xs text-muted-foreground mt-1">
-                expires {new Date(t.expiresAt).toLocaleDateString()}
+                expires {formatDate(t.expiresAt)}
                 <span class="mx-1">·</span>
-                last used {t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleDateString() : "never"}
+                last used {t.lastUsedAt ? formatDate(t.lastUsedAt) : "never"}
               </p>
             </div>
             <button class="pixel-border-sm px-3 py-1 text-xs text-destructive shrink-0" onclick={() => onRevokeToken(t.id)}>Revoke</button>
