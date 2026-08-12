@@ -69,7 +69,7 @@
       <CardContent>
         <pre class="bg-muted p-3 text-xs overflow-x-auto mb-4">cd repo/backend
 bun run db:create-admin</pre>
-        <p class="text-sm text-muted-foreground">Setelah selesai, klik tombol di bawah.</p>
+        <p class="text-sm text-muted-foreground">When done, click the button below.</p>
         {#if error}<p class="text-sm text-destructive mt-2">{error}</p>{/if}
       </CardContent>
       <CardFooter>

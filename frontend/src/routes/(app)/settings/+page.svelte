@@ -167,8 +167,8 @@
     <div>
       <h2 class="text-lg font-bold">Git Tokens</h2>
       <p class="text-sm text-muted-foreground mt-1">
-        Token dipakai sebagai password saat <code class="text-xs">git push</code>/<code class="text-xs">pull</code>
-        (username bebas). Akses diatur PER PROJECT: scope <code class="text-xs">read</code> (clone/pull) atau
+        The token is used as the password for <code class="text-xs">git push</code>/<code class="text-xs">pull</code>
+        (username is free-form). Access is PER PROJECT: scope <code class="text-xs">read</code> (clone/pull) or
         <code class="text-xs">read+write</code> (push + LFS upload).
       </p>
     </div>
@@ -176,7 +176,7 @@
     {#if newToken}
       <div class="pixel-border border-primary bg-card p-4 flex flex-col gap-2">
         <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold">Salin token ini sekarang - hanya tampil sekali.</span>
+          <span class="text-sm font-semibold">Copy this token now - it is only shown once.</span>
           <button class="pixel-border-sm px-3 py-1 text-xs" onclick={copyToken}>{copied ? "Copied!" : "Copy"}</button>
         </div>
         <code class="text-xs break-all bg-background px-3 py-2 pixel-border-sm">{newToken}</code>

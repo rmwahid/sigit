@@ -296,21 +296,21 @@
       </div>
       <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">{remoteCommands}</pre>
       <p class="text-xs text-muted-foreground mt-2">
-        Username bebas, password = git token. Buat token di
-        <a class="underline" href="/settings">Settings → Tokens</a> (token hanya muncul sekali saat dibuat).
+        Username is free-form, password = git token. Create a token in
+        <a class="underline" href="/settings">Settings → Tokens</a> (the token is only shown once when created).
       </p>
     </div>
 
     <div>
       <div class="flex items-center justify-between mb-2">
-        <span class="text-sm font-semibold">Git LFS (file besar)</span>
+        <span class="text-sm font-semibold">Git LFS (large files)</span>
         <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => copyText(lfsCommandText, "lfs")}>
           {copied.lfs ? "Copied!" : "Copy"}
         </button>
       </div>
       <pre class="pixel-border-sm bg-background p-3 text-xs overflow-x-auto">{lfsCommandText}</pre>
       <p class="text-xs text-muted-foreground mt-2">
-        File lebih dari {lfsThresholdMb} MB otomatis ditangani LFS; pola di atas sinkron dengan konfigurasi server.
+        Files larger than {lfsThresholdMb} MB are automatically handled by LFS; the patterns above match the server configuration.
       </p>
     </div>
   </section>
@@ -320,8 +320,8 @@
     <h3 class="text-base font-semibold mb-2">Token access</h3>
     {#if projectTokens.length === 0}
       <p class="text-sm text-muted-foreground">
-        Belum ada token yang bisa mengakses project ini. Buat token di
-        <a class="underline" href="/settings">Settings → Tokens</a> lalu pilih project ini.
+        No token can access this project yet. Create a token in
+        <a class="underline" href="/settings">Settings → Tokens</a> and select this project.
       </p>
     {:else}
       <ul class="space-y-1">
@@ -336,7 +336,7 @@
         {/each}
       </ul>
       <p class="text-xs text-muted-foreground mt-2">
-        Kelola token di <a class="underline" href="/settings">Settings → Tokens</a>.
+        Manage tokens in <a class="underline" href="/settings">Settings → Tokens</a>.
       </p>
     {/if}
   </section>
