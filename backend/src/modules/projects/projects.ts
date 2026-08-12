@@ -2,13 +2,14 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../../config/db";
+import { env } from "../../config/env";
 import { projects, type NewProject, type Project } from "../../db/schema/projects";
 import { createConnectionFromInput, getConnection } from "../storage/connections";
 import { deleteObjectsByPrefix } from "../storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
 import { HttpError } from "../../lib/http-error";
 
-const PROJECTS_ROOT = process.env.SIGIT_PROJECTS_ROOT ?? "./data/projects";
+const PROJECTS_ROOT = env.SIGIT_PROJECTS_ROOT;
 
 export function projectRepoPath(projectId: string): string {
   return path.resolve(PROJECTS_ROOT, projectId);
@@ -27,6 +28,12 @@ export async function getProject(id: string): Promise<Project | undefined> {
 // tapi huruf besar/kecil asli dipertahankan dan dipakai konsisten di URL.
 // Spasi tidak boleh (URL git /projects/<name>.git).
 const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*[A-Za-z0-9]$/;
+
+// Nama project dari route param git (/projects/<nama>.git): strip suffix .git.
+// Satu sumber kebenaran - semua route git/LFS memakai ini, jangan inline replace.
+export function projectNameFromRouteParam(param: string | undefined): string {
+  return (param ?? "").replace(/\.git$/, "");
+}
 
 export async function getProjectByName(name: string): Promise<Project | undefined> {
   const rows = await db

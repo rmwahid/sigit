@@ -11,6 +11,7 @@ import {
   getProject,
   hardDeleteProject,
   projectHistory,
+  projectNameFromRouteParam,
   projectRepoPath,
 } from "../src/modules/projects/projects";
 
@@ -88,6 +89,21 @@ async function cleanup() {
 afterAll(async () => {
   await cleanup();
 }, TEST_TIMEOUT);
+
+describe("projectNameFromRouteParam", () => {
+  it("strips the .git suffix from git route params", () => {
+    expect(projectNameFromRouteParam("demo-project.git")).toBe("demo-project");
+    expect(projectNameFromRouteParam("my.repo.git")).toBe("my.repo");
+  });
+
+  it("returns the param as-is when no .git suffix", () => {
+    expect(projectNameFromRouteParam("demo-project")).toBe("demo-project");
+  });
+
+  it("handles undefined param", () => {
+    expect(projectNameFromRouteParam(undefined)).toBe("");
+  });
+});
 
 describe("projects integration (DB sigit + MinIO + git push)", () => {
   it("creates a project with an encrypted storage connection", async () => {

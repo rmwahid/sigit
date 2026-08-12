@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { handleGitRequest } from "../modules/git/server";
 import { requireGitToken } from "../middleware/git-auth";
+import { projectNameFromRouteParam } from "../modules/projects/projects";
 
 // Git smart HTTP: /projects/<name>.git/<path>
 // git client memanggil: info/refs?service=git-upload-pack|git-receive-pack,
@@ -13,13 +14,13 @@ import { requireGitToken } from "../middleware/git-auth";
 export const gitRoutes = new Hono();
 
 gitRoutes.get("/:name{.+\.git}/*", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const pathInfo = c.req.path.replace(/^\/projects\/[^/]+\.git/, "") || "/";
   return handleGitRequest(c, name, pathInfo);
 });
 
 gitRoutes.post("/:name{.+\.git}/*", requireGitToken, async (c) => {
-  const name = (c.req.param("name") ?? "").replace(/\.git$/, "");
+  const name = projectNameFromRouteParam(c.req.param("name"));
   const pathInfo = c.req.path.replace(/^\/projects\/[^/]+\.git/, "") || "/";
   return handleGitRequest(c, name, pathInfo);
 });
