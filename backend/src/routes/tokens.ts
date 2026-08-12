@@ -1,14 +1,25 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { createToken, listTokens, revokeToken } from "../modules/auth/tokens";
+import {
+  createToken,
+  listTokensWithProjectScopes,
+  revokeToken,
+  setTokenProjectScopes,
+} from "../modules/auth/tokens";
+import { getProject } from "../modules/projects/projects";
 import { authed, type AuthEnv } from "../middleware/auth";
 import { audit } from "../lib/logger";
 import { idParamSchema } from "./schemas/common";
+
+const tokenProjectSchema = z.object({
+  projectId: z.string().uuid(),
+  scope: z.enum(["read", "write"]),
+});
 
 const tokenSchema = z
   .object({
     id: z.string().uuid(),
     name: z.string(),
-    scopes: z.array(z.enum(["read", "write"])),
+    projects: z.array(tokenProjectSchema),
     expiresAt: z.string().datetime(),
     lastUsedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
@@ -18,7 +29,8 @@ const tokenSchema = z
 const tokenListResponse = z.object({ data: z.array(tokenSchema) });
 const tokenCreateInput = z.object({
   name: z.string().min(1).max(100),
-  scopes: z.array(z.enum(["read", "write"])).default(["read"]),
+  // Akses per project: token hanya berlaku untuk project terpilih ("write" termasuk "read").
+  projects: z.array(tokenProjectSchema).min(1),
   // Flexible (bebas 1-30 hari), cap maksimal 30 hari demi keamanan token.
   expiresInDays: z.coerce.number().int().min(1).max(30),
 });
@@ -27,7 +39,7 @@ const tokenCreatedResponse = z.object({
     id: z.string().uuid(),
     token: z.string(),
     name: z.string(),
-    scopes: z.array(z.enum(["read", "write"])),
+    projects: z.array(tokenProjectSchema),
     expiresAt: z.string().datetime(),
   }),
 });
@@ -51,15 +63,15 @@ tokenRoutes.openapi(
   }),
   authed(async (c) => {
     const user = c.get("user");
-    const items = await listTokens(user.id);
+    const items = await listTokensWithProjectScopes(user.id);
     return c.json({
-      data: items.map((t) => ({
-        id: t.id,
-        name: t.name,
-        scopes: t.scopes,
-        expiresAt: t.expiresAt.toISOString(),
-        lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
-        createdAt: t.createdAt.toISOString(),
+      data: items.map(({ token, projects }) => ({
+        id: token.id,
+        name: token.name,
+        projects,
+        expiresAt: token.expiresAt.toISOString(),
+        lastUsedAt: token.lastUsedAt ? token.lastUsedAt.toISOString() : null,
+        createdAt: token.createdAt.toISOString(),
       })),
     });
   })
@@ -83,11 +95,27 @@ tokenRoutes.openapi(
   }),
   authed(async (c) => {
     const user = c.get("user");
-    const { name, scopes, expiresInDays } = c.req.valid("json");
+    // Cast eksplisit: typing c.req.valid() rusak di versi zod-openapi ini
+    // (pre-existing, sama di auth.ts/storage.ts); runtime tetap divalidasi zod.
+    const { name, projects, expiresInDays } = c.req.valid("json") as z.infer<typeof tokenCreateInput>;
+    const projectIds = projects.map((p) => p.projectId);
+    if (new Set(projectIds).size !== projectIds.length) {
+      return c.json({ error: { code: "BAD_REQUEST", message: "projects must not contain duplicates" } }, 400);
+    }
+    const found = await Promise.all(projects.map((p) => getProject(p.projectId)));
+    if (found.some((p) => !p)) {
+      return c.json({ error: { code: "BAD_REQUEST", message: "One or more projects do not exist" } }, 400);
+    }
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
-    const { token, id } = await createToken(user.id, name, scopes, expiresAt);
-    audit("token.create", { tokenId: id, name, scopes, expiresInDays });
-    return c.json({ data: { id, token, name, scopes, expiresAt: expiresAt.toISOString() } }, 201);
+    const { token, id } = await createToken(user.id, name, expiresAt);
+    await setTokenProjectScopes(id, projects);
+    audit("token.create", {
+      tokenId: id,
+      name,
+      projects: projects.map((p) => p.projectId),
+      expiresInDays,
+    });
+    return c.json({ data: { id, token, name, projects, expiresAt: expiresAt.toISOString() } }, 201);
   })
 );
 
