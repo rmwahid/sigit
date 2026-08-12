@@ -4,7 +4,6 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { requireGitToken } from "../middleware/git-auth";
 import { getProjectByName } from "../modules/projects/projects";
 import { getConnection } from "../modules/storage/connections";
-import { tokenHasScope } from "../modules/auth/tokens";
 import { log } from "../lib/logger";
 import {
   buildBatchResponse,
@@ -30,7 +29,7 @@ export const lfsRoutes = new Hono();
 const LFS_JSON = "application/vnd.git-lfs+json";
 const MAX_BATCH_OBJECTS = 1000;
 
-// Error LFS mengikuti spec: JSON { message } — BUKAN format { error: { code } }.
+// Error LFS mengikuti spec: JSON { message } - BUKAN format { error: { code } }.
 // Dibuat langsung (bukan HttpError) supaya global onError tidak membungkusnya.
 class LfsError extends Error {
   constructor(
@@ -80,7 +79,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
     if (objects.length === 0 || objects.length > MAX_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
       throw new LfsError(422, "Invalid batch objects");
     }
-    if (body.operation === "upload" && !tokenHasScope(c.get("token"), "write")) {
+    if (body.operation === "upload" && c.get("tokenScope") !== "write") {
       throw new LfsError(403, "Token requires write scope for uploads");
     }
     if (Array.isArray(body.transfers) && body.transfers.length > 0 && !body.transfers.includes("basic")) {
