@@ -71,8 +71,8 @@ async function main(): Promise<void> {
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  server.stdout.on("data", (d) => process.stdout.write(`[srv] ${d}`));
-  server.stderr.on("data", (d) => process.stderr.write(`[server] ${d}`));
+  server.stdout?.on("data", (d) => process.stdout.write(`[srv] ${d}`));
+  server.stderr?.on("data", (d) => process.stderr.write(`[server] ${d}`));
   await waitForServer();
   console.log("[e2e-lfs] server up");
 
