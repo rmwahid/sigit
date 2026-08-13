@@ -1,9 +1,9 @@
-import crypto from "node:crypto";
 import { env } from "../config/env";
+import crypto from "node:crypto";
 
-const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
+export const AES_ALGORITHM = "aes-256-gcm";
+export const AES_IV_LENGTH = 12;
+export const AES_AUTH_TAG_LENGTH = 16;
 
 export type EncryptedSecret = {
   keyId: string;
@@ -25,8 +25,8 @@ function getKey(keyId: string): Buffer {
 
 export function encryptSecret(plaintext: string, keyId = currentKeyId()): EncryptedSecret {
   const key = getKey(keyId);
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const iv = crypto.randomBytes(AES_IV_LENGTH);
+  const cipher = crypto.createCipheriv(AES_ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return {
@@ -38,10 +38,10 @@ export function encryptSecret(plaintext: string, keyId = currentKeyId()): Encryp
 export function decryptSecret(secret: EncryptedSecret): string {
   const key = getKey(secret.keyId);
   const buf = Buffer.from(secret.ciphertext, "base64");
-  const iv = buf.subarray(0, IV_LENGTH);
-  const tag = buf.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
-  const encrypted = buf.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  const iv = buf.subarray(0, AES_IV_LENGTH);
+  const tag = buf.subarray(AES_IV_LENGTH, AES_IV_LENGTH + AES_AUTH_TAG_LENGTH);
+  const encrypted = buf.subarray(AES_IV_LENGTH + AES_AUTH_TAG_LENGTH);
+  const decipher = crypto.createDecipheriv(AES_ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }

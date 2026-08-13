@@ -1,11 +1,14 @@
+import { REMOTE_USER } from "../../constants/protocol";
+import { AUDIT_EVENTS } from "../../constants/audit-events";
+import { ERROR_CODES } from "../../constants/errors";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
-import path from "node:path";
-import type { Context } from "hono";
 import { env } from "../../config/env";
 import { getProjectByName } from "../projects/projects";
 import { backupProject } from "../projects/backup";
-import { log, audit } from "../../lib/logger";
+import { audit, log } from "../../lib/logger";
+import path from "node:path";
+import type { Context } from "hono";
 
 const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
 
@@ -60,7 +63,7 @@ async function parseCgiHeaders(
 
 export async function handleGitRequest(c: Context, projectName: string, pathInfo: string): Promise<Response> {
   const project = await getProjectByName(projectName);
-  if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Project not found" } }, 404);
+  if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Project not found" } }, 404);
 
   const url = new URL(c.req.url);
   // PATH_INFO uses the UUID (bare repo folder), the URL keeps the project name.
@@ -95,7 +98,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
   const isReceivePack = c.req.method === "POST" && pathInfo.endsWith("/git-receive-pack");
   if (isReceivePack) {
     child.on("close", (code) => {
-      audit("git.push", { projectId: project.id, projectName: project.name, result: code === 0 ? "accepted" : "failed" });
+      audit(AUDIT_EVENTS.GIT_PUSH, { projectId: project.id, projectName: project.name, result: code === 0 ? "accepted" : "failed" });
       if (code === 0) {
         backupProject(project).catch((err) => {
           log.error("backup", "auto backup after push failed", { projectId: project.id, error: err instanceof Error ? err.message : String(err) });

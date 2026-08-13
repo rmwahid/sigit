@@ -1,3 +1,5 @@
+import { AES_ALGORITHM, AES_AUTH_TAG_LENGTH, AES_IV_LENGTH, decryptSecret } from "../../lib/secret-encryption";
+import { getObject, putObject } from "../storage/objects";
 // At-rest encryption for user storage objects (LFS objects + backup bundle).
 // Transparent server-side: call sites encrypt before putObject and decrypt after
 // getObject. Each project has its own 32-byte AES-256-GCM key, wrapped with
@@ -8,12 +10,10 @@
 import crypto from "node:crypto";
 import type { Project } from "../../db/schema/projects";
 import type { StorageConnection } from "../../db/schema/storage";
-import { decryptSecret } from "../../lib/secret-encryption";
-import { getObject, putObject } from "../storage/objects";
 
-const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
+
+
+
 
 // S3 metadata key that stores the plaintext size (verifyObject compares the
 // client-declared size against this, since the ciphertext is 28 bytes larger).
@@ -36,18 +36,18 @@ function getProjectKey(project: Project): Buffer {
 
 export function encryptProjectBuffer(project: Project, plaintext: Buffer): Buffer {
   const key = getProjectKey(project);
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const iv = crypto.randomBytes(AES_IV_LENGTH);
+  const cipher = crypto.createCipheriv(AES_ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]);
 }
 
 export function decryptProjectBuffer(project: Project, ciphertext: Buffer): Buffer {
   const key = getProjectKey(project);
-  const iv = ciphertext.subarray(0, IV_LENGTH);
-  const tag = ciphertext.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
-  const encrypted = ciphertext.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  const iv = ciphertext.subarray(0, AES_IV_LENGTH);
+  const tag = ciphertext.subarray(AES_IV_LENGTH, AES_IV_LENGTH + AES_AUTH_TAG_LENGTH);
+  const encrypted = ciphertext.subarray(AES_IV_LENGTH + AES_AUTH_TAG_LENGTH);
+  const decipher = crypto.createDecipheriv(AES_ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]);
 }

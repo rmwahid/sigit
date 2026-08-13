@@ -1,3 +1,6 @@
+import { S3_DELETE_BATCH } from "../../constants/limits";
+import { CONTENT_TYPE_OCTET_STREAM } from "../../constants/protocol";
+import { createS3Client } from "../../config/s3";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -9,7 +12,6 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import type { StorageConnection } from "../../db/schema/storage";
-import { createS3Client } from "../../config/s3";
 
 export async function testConnection(connection: StorageConnection): Promise<{ ok: boolean; error?: string }> {
   const client = createS3Client(connection);
@@ -60,7 +62,7 @@ export async function putObject(
       Bucket: connection.bucket,
       Key: key,
       Body: body,
-      ContentType: contentType ?? "application/octet-stream",
+      ContentType: contentType ?? CONTENT_TYPE_OCTET_STREAM,
       Metadata: metadata,
     })
   );
@@ -128,7 +130,7 @@ export async function deleteObjectsByPrefix(connection: StorageConnection, prefi
   if (keys.length === 0) return 0;
   const client = createS3Client(connection);
   // Delete in batches of 1000 (S3 limit)
-  for (let i = 0; i < keys.length; i += 1000) {
+  for (let i = 0; i < keys.length; i += S3_DELETE_BATCH) {
     const batch = keys.slice(i, i + 1000).map((k) => ({ Key: k }));
     await client.send(new DeleteObjectsCommand({ Bucket: connection.bucket, Delete: { Objects: batch } }));
   }

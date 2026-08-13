@@ -1,8 +1,10 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { DEFAULT_LOG_LIMIT } from "../constants/limits";
+import { ERROR_CODES } from "../constants/errors";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
+import { requireAdmin } from "../middleware/auth";
+import { getRingBuffer, log, readAuditLog, subscribe } from "../lib/logger";
 import type { AuthEnv } from "../middleware/auth";
-import { requireUser } from "../middleware/auth";
-import { getRingBuffer, readAuditLog, subscribe, log } from "../lib/logger";
 
 const logEntrySchema = z
   .object({
@@ -44,10 +46,10 @@ adminRoutes.openapi(
     },
   }),
   async (c) => {
-    const user = await requireUser(c);
-    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { limit, before } = c.req.valid("query");
-    const l = limit ? Number(limit) : 200;
+    const l = limit ? Number(limit) : DEFAULT_LOG_LIMIT;
     const auditLogs = readAuditLog(l, before);
     const ringLogs = getRingBuffer(l).reverse();
     // Combine: audit (persisted) + recent ring (live). Dedup by ts+message+scope.
@@ -78,8 +80,8 @@ adminRoutes.openapi(
     },
   }),
   async (c) => {
-    const user = await requireUser(c);
-    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     log.info("admin", "log stream started");
     return streamSSE(c, async (stream) => {
       const unsubscribe = subscribe((entry) => {

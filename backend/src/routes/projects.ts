@@ -1,18 +1,33 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { AUDIT_EVENTS } from "../constants/audit-events";
+import { ERROR_CODES } from "../constants/errors";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { eq } from "drizzle-orm";
+import { db } from "../config/db";
+import { getCommitFiles, getDiff } from "../modules/projects/git";
+import { backupProject, restoreProject } from "../modules/projects/backup";
+import { getConnection } from "../modules/storage/connections";
+import { requireAdmin, requireUser, type AuthEnv } from "../middleware/auth";
+import { projectCollaborators, users } from "../db/schema/auth";
+import { audit } from "../lib/logger";
+import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 import {
   createProject,
   createProjectWithConnection,
   getProject,
-  listProjects,
   projectHistory,
   updateProject,
   projectRepoPath,
   hardDeleteProject,
 } from "../modules/projects/projects";
-import { getDiff, getCommitFiles } from "../modules/projects/git";
-import { backupProject, restoreProject } from "../modules/projects/backup";
-import { getConnection } from "../modules/storage/connections";
-import { audit } from "../lib/logger";
+import {
+  ALL_PROJECT_PERMISSIONS,
+  getProjectAccess,
+  hasPermission,
+  isSiteAdmin,
+  listAccessibleProjects,
+  normalizePermissions,
+  type ProjectPermission,
+} from "../modules/auth/access";
 import {
   projectSchema,
   projectInputSchema,
@@ -26,15 +41,29 @@ import {
   historyQuerySchema,
   diffParamSchema,
 } from "./schemas/projects";
-import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 import type { Project } from "../db/schema/projects";
 
-export const projectRoutes = new OpenAPIHono();
+export const projectRoutes = new OpenAPIHono<AuthEnv>();
 
 // API responses must never expose the per-project encryption key columns.
 function toProjectResponse(p: Project) {
   const { encryptionKeyEncrypted: _key, encryptionKeyId: _keyId, ...safe } = p;
   return safe;
+}
+
+// 403 guard for actions that require a specific permission (admin bypasses).
+async function requireProjectPermission(
+  c: Parameters<typeof requireUser>[0],
+  projectId: string,
+  perm: ProjectPermission
+): Promise<{ user: NonNullable<Awaited<ReturnType<typeof requireUser>>>; access: ProjectPermission[] | null } | Response> {
+  const user = await requireUser(c);
+  if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401);
+  const access = await getProjectAccess(user.id, projectId);
+  if (!hasPermission(access, perm)) {
+    return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "No access to this project" } }, 403);
+  }
+  return { user, access };
 }
 
 projectRoutes.openapi(
@@ -51,7 +80,9 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
-    const data = await listProjects();
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
+    const data = await listAccessibleProjects(user.id);
     return c.json({ data: data.map(toProjectResponse) });
   }
 );
@@ -73,8 +104,18 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
     const project = await createProject(body);
+    // Non-admin creators become collaborators with full (non-management) access.
+    if (!isSiteAdmin(user)) {
+      await db.insert(projectCollaborators).values({
+        projectId: project.id,
+        userId: user.id,
+        permissions: [...ALL_PROJECT_PERMISSIONS],
+      });
+    }
     return c.json({ data: toProjectResponse(project) }, 201);
   }
 );
@@ -96,9 +137,18 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const user = await requireUser(c);
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
     const { project } = await createProjectWithConnection(body);
-    audit("project.create_with_connection", { projectId: project.id, name: project.name });
+    if (!isSiteAdmin(user)) {
+      await db.insert(projectCollaborators).values({
+        projectId: project.id,
+        userId: user.id,
+        permissions: [...ALL_PROJECT_PERMISSIONS],
+      });
+    }
+    audit(AUDIT_EVENTS.PROJECT_CREATE_WITH_CONNECTION, { projectId: project.id, name: project.name });
     return c.json({ data: toProjectResponse(project) }, 201);
   }
 );
@@ -122,10 +172,13 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const guard = await requireProjectPermission(c, c.req.valid("param").id, "view");
+    if (guard instanceof Response) return guard as never;
     const { id } = c.req.valid("param");
     const project = await getProject(id);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    return c.json({ data: toProjectResponse(project) });
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
+    // myPermissions: null = admin (everything), otherwise the granted set.
+    return c.json({ data: { ...toProjectResponse(project), myPermissions: guard.access } });
   }
 );
 
@@ -151,10 +204,12 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
     const project = await updateProject(id, body);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     return c.json({ data: toProjectResponse(project) });
   }
 );
@@ -178,10 +233,12 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id } = c.req.valid("param");
     const result = await hardDeleteProject(id);
-    if (!result.deletedDb) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    audit("project.delete", { projectId: id, ...result });
+    if (!result.deletedDb) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
+    audit(AUDIT_EVENTS.PROJECT_DELETE, { projectId: id, ...result });
     return c.json({ data: result });
   }
 );
@@ -205,6 +262,8 @@ projectRoutes.openapi(
   }),
   async (c) => {
     const { id } = c.req.valid("param");
+    const guard = await requireProjectPermission(c, id, "history");
+    if (guard instanceof Response) return guard as never;
     const { limit } = c.req.valid("query");
     const history = await projectHistory(id, limit ? Number(limit) : undefined);
     return c.json({ data: history });
@@ -233,8 +292,10 @@ projectRoutes.openapi(
   }),
   async (c) => {
     const { id, hash } = c.req.valid("param");
+    const guard = await requireProjectPermission(c, id, "diff");
+    if (guard instanceof Response) return guard as never;
     const project = await getProject(id);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     const repoPath = projectRepoPath(project.id);
     const diff = await getDiff(repoPath, hash);
     const files = await getCommitFiles(repoPath, hash);
@@ -261,11 +322,13 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id } = c.req.valid("param");
     const project = await getProject(id);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     const result = await backupProject(project);
-    audit("project.backup", { projectId: id, key: result.key });
+    audit(AUDIT_EVENTS.PROJECT_BACKUP, { projectId: id, key: result.key });
     return c.json({ data: result });
   }
 );
@@ -293,16 +356,199 @@ projectRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id } = c.req.valid("param");
     const project = await getProject(id);
-    if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     if (!project.storageConnectionId) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "Project has no storage connection" } }, 400);
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Project has no storage connection" } }, 400) as never;
     }
     const connection = await getConnection(project.storageConnectionId);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Storage connection not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Storage connection not found" } }, 404) as never;
     await restoreProject(project, connection);
-    audit("project.restore", { projectId: id });
+    audit(AUDIT_EVENTS.PROJECT_RESTORE, { projectId: id });
     return c.json({ message: "Restored" });
+  }
+);
+
+// --- Collaborators (admin only) ---
+
+const collaboratorSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  email: z.string().email(),
+  permissions: z.array(z.enum(ALL_PROJECT_PERMISSIONS)),
+});
+const collaboratorListResponse = z.object({ data: z.array(collaboratorSchema) });
+const collaboratorInput = z.object({
+  userId: z.string().uuid(),
+  permissions: z.array(z.enum(ALL_PROJECT_PERMISSIONS)),
+});
+const collaboratorUpdateInput = z.object({
+  permissions: z.array(z.enum(ALL_PROJECT_PERMISSIONS)),
+});
+
+projectRoutes.openapi(
+  createRoute({
+    method: "get",
+    path: "/{id}/collaborators",
+    tags: ["Projects"],
+    summary: "List project collaborators (admin only)",
+    request: { params: idParamSchema },
+    responses: {
+      200: {
+        description: "Collaborators with permissions",
+        content: { "application/json": { schema: collaboratorListResponse } },
+      },
+    },
+  }),
+  async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
+    const { id } = c.req.valid("param");
+    const rows = await db
+      .select({
+        id: projectCollaborators.id,
+        userId: projectCollaborators.userId,
+        email: users.email,
+        permissions: projectCollaborators.permissions,
+      })
+      .from(projectCollaborators)
+      .innerJoin(users, eq(users.id, projectCollaborators.userId))
+      .where(eq(projectCollaborators.projectId, id));
+    return c.json({
+      data: rows.map((r) => ({ ...r, permissions: normalizePermissions(r.permissions) })),
+    });
+  }
+);
+
+projectRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/{id}/collaborators",
+    tags: ["Projects"],
+    summary: "Add a collaborator with permissions (admin only)",
+    request: {
+      params: idParamSchema,
+      body: { content: { "application/json": { schema: collaboratorInput } } },
+    },
+    responses: {
+      201: {
+        description: "Collaborator added",
+        content: { "application/json": { schema: collaboratorSchema } },
+      },
+      404: {
+        description: "Project or user not found",
+        content: { "application/json": { schema: errorSchema } },
+      },
+    },
+  }),
+  async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
+    const { id } = c.req.valid("param");
+    const { userId, permissions } = c.req.valid("json");
+    const project = await getProject(id);
+    if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
+    const target = await db
+      .select({ id: users.id, role: users.role, email: users.email })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!target[0] || target[0].role === "admin") {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "User not found or is an admin" } }, 400) as never;
+    }
+    // Upsert: replace any existing collaborator row for this user.
+    await db.delete(projectCollaborators).where(eq(projectCollaborators.userId, userId));
+    const rows = await db
+      .insert(projectCollaborators)
+      .values({ projectId: id, userId, permissions: normalizePermissions(permissions) })
+      .returning();
+    const row = rows[0];
+    audit(AUDIT_EVENTS.PROJECT_COLLABORATOR_ADD, { projectId: id, userId, by: admin.email });
+    return c.json(
+      {
+        data: {
+          id: row.id,
+          userId: row.userId,
+          email: target[0].email ?? "",
+          permissions: normalizePermissions(row.permissions),
+        },
+      },
+      201
+    );
+  }
+);
+
+projectRoutes.openapi(
+  createRoute({
+    method: "patch",
+    path: "/{id}/collaborators/{userId}",
+    tags: ["Projects"],
+    summary: "Update collaborator permissions (admin only)",
+    request: {
+      params: z.object({ id: z.string().uuid(), userId: z.string().uuid() }),
+      body: { content: { "application/json": { schema: collaboratorUpdateInput } } },
+    },
+    responses: {
+      200: {
+        description: "Updated collaborator",
+        content: { "application/json": { schema: collaboratorSchema } },
+      },
+      404: {
+        description: "Not found",
+        content: { "application/json": { schema: errorSchema } },
+      },
+    },
+  }),
+  async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
+    const { id, userId } = c.req.valid("param");
+    const { permissions } = c.req.valid("json");
+    const rows = await db
+      .update(projectCollaborators)
+      .set({ permissions: normalizePermissions(permissions) })
+      .where(eq(projectCollaborators.userId, userId))
+      .returning();
+    const row = rows[0];
+    if (!row) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
+    audit(AUDIT_EVENTS.PROJECT_COLLABORATOR_UPDATE, { projectId: id, userId, by: admin.email });
+    return c.json({ data: { id: row.id, userId: row.userId, email: "", permissions: normalizePermissions(row.permissions) } });
+  }
+);
+
+projectRoutes.openapi(
+  createRoute({
+    method: "delete",
+    path: "/{id}/collaborators/{userId}",
+    tags: ["Projects"],
+    summary: "Remove a collaborator (admin only)",
+    request: {
+      params: z.object({ id: z.string().uuid(), userId: z.string().uuid() }),
+    },
+    responses: {
+      200: {
+        description: "Removed",
+        content: { "application/json": { schema: messageSchema } },
+      },
+      404: {
+        description: "Not found",
+        content: { "application/json": { schema: errorSchema } },
+      },
+    },
+  }),
+  async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
+    const { userId } = c.req.valid("param");
+    const rows = await db
+      .delete(projectCollaborators)
+      .where(eq(projectCollaborators.userId, userId))
+      .returning();
+    if (rows.length === 0) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
+    audit(AUDIT_EVENTS.PROJECT_COLLABORATOR_REMOVE, { userId, by: admin.email });
+    return c.json({ message: "Removed" });
   }
 );

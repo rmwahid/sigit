@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { MIN_PASSWORD_LENGTH } from "../constants/limits";
 
 export async function promptEmail(message: string): Promise<string> {
   const value = (await p.text({
@@ -18,7 +19,7 @@ export async function promptPassword(message: string): Promise<string> {
   const value = (await p.password({
     message,
     validate: (v) => {
-      if (!v || v.length < 8) return "Password must be at least 8 characters";
+      if (!v || v.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
     },
   })) as string;
   if (p.isCancel(value)) {

@@ -1,19 +1,24 @@
-import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { AUDIT_EVENTS } from "../constants/audit-events";
+import { ERROR_CODES } from "../constants/errors";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { getProject } from "../modules/projects/projects";
+import { getProjectAccess, tokenScopeForUser } from "../modules/auth/access";
+import { requireUser, type AuthEnv } from "../middleware/auth";
+import { audit } from "../lib/logger";
+import { idParamSchema } from "./schemas/common";
 import {
   createToken,
   listTokensWithProjectScopes,
   revokeToken,
   setTokenProjectScopes,
   TOKEN_MAX_EXPIRY_DAYS,
+  TOKEN_SCOPES,
 } from "../modules/auth/tokens";
-import { getProject } from "../modules/projects/projects";
-import { requireUser, type AuthEnv } from "../middleware/auth";
-import { audit } from "../lib/logger";
-import { idParamSchema } from "./schemas/common";
+import type { TokenScope } from "../constants/scopes";
 
 const tokenProjectSchema = z.object({
   projectId: z.string().uuid(),
-  scope: z.enum(["read", "write"]),
+  scope: z.enum(TOKEN_SCOPES),
 });
 
 const tokenSchema = z
@@ -64,7 +69,7 @@ tokenRoutes.openapi(
   }),
   async (c) => {
     const user = await requireUser(c);
-    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const items = await listTokensWithProjectScopes(user.id);
     return c.json({
       data: items.map(({ token, projects }) => ({
@@ -97,28 +102,36 @@ tokenRoutes.openapi(
   }),
   async (c) => {
     const user = await requireUser(c);
-    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     // Explicit structural annotation: c.req.valid() from zod-openapi 1.5.2 + zod v4
     // resolves to any for nested schemas (z.infer/z.output too); this annotation
     // keeps type safety without changing runtime (zod still validates).
     const body: {
       name: string;
-      projects: { projectId: string; scope: "read" | "write" }[];
+      projects: { projectId: string; scope: TokenScope }[];
       expiresInDays: number;
     } = c.req.valid("json");
     const { name, projects, expiresInDays } = body;
     const projectIds = projects.map((p) => p.projectId);
     if (new Set(projectIds).size !== projectIds.length) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "projects must not contain duplicates" } }, 400) as never;
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "projects must not contain duplicates" } }, 400) as never;
     }
     const found = await Promise.all(projects.map((p) => getProject(p.projectId)));
     if (found.some((p) => !p)) {
-      return c.json({ error: { code: "BAD_REQUEST", message: "One or more projects do not exist" } }, 400) as never;
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "One or more projects do not exist" } }, 400) as never;
+    }
+    // Token permissions are DERIVED: they can never exceed the owner's access
+    // (read needs clone, write needs push; admin bypasses).
+    for (const p of projects) {
+      const access = await getProjectAccess(user.id, p.projectId);
+      if (!tokenScopeForUser(access, p.scope)) {
+        return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "No access to this project" } }, 403) as never;
+      }
     }
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
     const { token, id } = await createToken(user.id, name, expiresAt);
     await setTokenProjectScopes(id, projects);
-    audit("token.create", {
+    audit(AUDIT_EVENTS.TOKEN_CREATE, {
       tokenId: id,
       name,
       projects: projects.map((p) => p.projectId),
@@ -148,11 +161,11 @@ tokenRoutes.openapi(
   }),
   async (c) => {
     const user = await requireUser(c);
-    if (!user) return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401) as never;
+    if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const { id } = c.req.valid("param");
     const revoked = await revokeToken(id, user.id);
-    if (!revoked) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404) as never;
-    audit("token.revoke", { tokenId: id });
+    if (!revoked) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
+    audit(AUDIT_EVENTS.TOKEN_REVOKE, { tokenId: id });
     return c.json({ message: "Revoked" });
   }
 );

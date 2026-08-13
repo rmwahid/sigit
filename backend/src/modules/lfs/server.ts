@@ -1,8 +1,9 @@
-import type { Project } from "../../db/schema/projects";
+import { AUDIT_EVENTS } from "../../constants/audit-events";
 import { deleteObject, objectMeta, objectSize } from "../storage/objects";
-import { getDecrypted, PLAINTEXT_SIZE_METADATA, putEncrypted } from "../encryption/at-rest";
-import { log, audit } from "../../lib/logger";
+import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "../encryption/at-rest";
+import { audit, log } from "../../lib/logger";
 import { sha256 } from "./index";
+import type { Project } from "../../db/schema/projects";
 import type { StorageConnection } from "../../db/schema/storage";
 
 export type LfsOperation = "download" | "upload";
@@ -97,7 +98,7 @@ export async function downloadObject(
 ): Promise<Buffer | null> {
   const key = lfsObjectKey(project.id, oid);
   if ((await objectSize(connection, key)) === null) return null;
-  audit("lfs.download", { projectId: project.id, oid });
+  audit(AUDIT_EVENTS.LFS_DOWNLOAD, { projectId: project.id, oid });
   return getDecrypted(project, connection, key);
 }
 
@@ -112,7 +113,7 @@ export async function uploadObject(
     return { ok: false, error: "oid mismatch: sha256(content) != oid" };
   }
   await putEncrypted(project, connection, lfsObjectKey(project.id, oid), content);
-  audit("lfs.upload", { projectId: project.id, oid, size: content.length });
+  audit(AUDIT_EVENTS.LFS_UPLOAD, { projectId: project.id, oid, size: content.length });
   return { ok: true };
 }
 

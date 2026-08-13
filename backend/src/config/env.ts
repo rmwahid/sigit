@@ -4,6 +4,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.string().default("3000"),
   GIT_BASE_URL: z.string().default("http://localhost:3000"),
+  FRONTEND_URL: z.string().default("http://localhost:5173"),
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   SESSION_TTL_DAYS: z.string().default("7"),
   NODE_ENV: z.string().default("development"),

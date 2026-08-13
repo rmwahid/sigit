@@ -1,13 +1,14 @@
+import { CONTENT_TYPE_OCTET_STREAM } from "../../constants/protocol";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { getConnection } from "../storage/connections";
+import { getDecrypted, putEncrypted } from "../encryption/at-rest";
+import { projectRepoPath } from "./projects";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Project } from "../../db/schema/projects";
 import type { StorageConnection } from "../../db/schema/storage";
-import { getConnection } from "../storage/connections";
-import { getDecrypted, putEncrypted } from "../encryption/at-rest";
-import { projectRepoPath } from "./projects";
 
 const execAsync = promisify(exec);
 
@@ -27,7 +28,7 @@ export async function backupProject(project: Project): Promise<{ key: string; si
 
   const bundle = await createBundle(project);
   const key = `projects/${project.id}/backup.bundle`;
-  await putEncrypted(project, connection, key, bundle, "application/octet-stream");
+  await putEncrypted(project, connection, key, bundle, CONTENT_TYPE_OCTET_STREAM);
   return { key, size: bundle.length };
 }
 

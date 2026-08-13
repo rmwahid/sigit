@@ -1,11 +1,12 @@
+import { CONTENT_TYPE_LFS_JSON, CONTENT_TYPE_OCTET_STREAM } from "../constants/protocol";
 import { Hono } from "hono";
-import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { requireGitToken } from "../middleware/git-auth";
 import { getProjectByName, projectNameFromRouteParam } from "../modules/projects/projects";
 import { getConnection } from "../modules/storage/connections";
 import { scopeAllows, scopeForLfsOperation } from "../modules/auth/scopes";
 import { log } from "../lib/logger";
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   buildBatchResponse,
   downloadObject,
@@ -28,7 +29,7 @@ import type { StorageConnection } from "../db/schema/storage";
 // Wajib dipasang SEBELUM gitRoutes (catch-all .git) di index.ts.
 export const lfsRoutes = new Hono();
 
-const LFS_JSON = "application/vnd.git-lfs+json";
+const LFS_JSON = CONTENT_TYPE_LFS_JSON;
 const MAX_BATCH_OBJECTS = 1000;
 
 // LFS errors follow the spec: JSON { message } - NOT the { error: { code } } format.
@@ -114,7 +115,7 @@ lfsRoutes.get("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
     const connection = await loadConnection(project);
     const content = await downloadObject(project, connection, oid);
     if (!content) throw new LfsError(404, "Object does not exist");
-    return new Response(new Uint8Array(content), { headers: { "Content-Type": "application/octet-stream" } });
+    return new Response(new Uint8Array(content), { headers: { "Content-Type": CONTENT_TYPE_OCTET_STREAM } });
   });
 });
 

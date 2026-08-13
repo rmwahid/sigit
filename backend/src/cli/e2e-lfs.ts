@@ -4,21 +4,28 @@
 //
 // Flow: create project+connection (module) -> token write/read (module)
 //   -> git lfs push via HTTP -> verify object in MinIO (projects/{id}/lfs/{oid})
-//   -> clone + lfs pull -> sha256 identical -> read-only token rejected on push -> cleanup.
+//   -> clone + lfs pull -> sha256 identical -> read-only token rejected on push
+//   -> collaborator permission derivation -> public anonymous clone -> cleanup.
 // Run: bun run e2e:lfs  (from repo/backend)
 import { spawn } from "node:child_process";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { eq } from "drizzle-orm";
 import { db } from "../config/db";
-import { users } from "../db/schema/auth";
+import { projectCollaborators, users } from "../db/schema/auth";
+import { DEFAULT_LFS_SIZE_THRESHOLD, projects } from "../db/schema/projects";
 import { createProjectWithConnection, hardDeleteProject } from "../modules/projects/projects";
-import { createToken, revokeToken, setTokenProjectScopes } from "../modules/auth/tokens";
+import { createToken, revokeToken, setTokenProjectScopes, TOKEN_MAX_EXPIRY_DAYS } from "../modules/auth/tokens";
+import { createUser, deleteUser } from "../modules/auth/auth";
 import { deleteConnection, getConnection } from "../modules/storage/connections";
 import { getObject, listAllObjects } from "../modules/storage/objects";
 import { sha256 } from "../modules/lfs";
-import { DEFAULT_LFS_SIZE_THRESHOLD } from "../db/schema/projects";
+import { BASIC_AUTH_PREFIX } from "../constants/protocol";
+import { DEFAULT_ROLE } from "../constants/roles";
+import { TOKEN_SCOPES } from "../constants/scopes";
+import { PROJECT_PERMISSIONS } from "../constants/permissions";
 
 const PORT = 3999;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -42,7 +49,7 @@ function sh(cmd: string, cwd: string): string {
 }
 
 function basicAuth(token: string): string {
-  return "Basic " + Buffer.from(`x:${token}`).toString("base64");
+  return BASIC_AUTH_PREFIX + Buffer.from(`x:${token}`).toString("base64");
 }
 
 async function waitForServer(timeoutMs = 20000): Promise<void> {
@@ -56,7 +63,7 @@ async function waitForServer(timeoutMs = 20000): Promise<void> {
     }
     await Bun.sleep(300);
   }
-  throw new Error("server tidak start dalam batas waktu");
+  throw new Error("server did not start within the time limit");
 }
 
 function check(cond: boolean, label: string): void {
@@ -67,7 +74,7 @@ function check(cond: boolean, label: string): void {
 async function main(): Promise<void> {
   console.log(`[e2e-lfs] project=${projectName}`);
 
-  // 1. Server sendiri di port 3999
+  // 1. Own server on port 3999
   server = spawn("bun", ["run", "src/index.ts"], {
     env: { ...process.env, PORT: String(PORT) },
     stdio: ["ignore", "pipe", "pipe"],
@@ -77,7 +84,7 @@ async function main(): Promise<void> {
   await waitForServer();
   console.log("[e2e-lfs] server up");
 
-  // 2. Project + koneksi storage + token (via module, seperti user di UI)
+  // 2. Project + storage connection + tokens (via modules, like the UI does)
   const { project, connectionId } = await createProjectWithConnection({
     name: projectName,
     connection: STORAGE,
@@ -86,14 +93,14 @@ async function main(): Promise<void> {
   check(!!connection, "connection created");
   const admin = (await db.select().from(users))[0];
   check(!!admin, "admin user found");
-  const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000);
+  const expires = new Date(Date.now() + TOKEN_MAX_EXPIRY_DAYS * 24 * 3600 * 1000);
   const writeTok = await createToken(admin.id, "e2e-write", expires);
-  await setTokenProjectScopes(writeTok.id, [{ projectId: project.id, scope: "write" }]);
+  await setTokenProjectScopes(writeTok.id, [{ projectId: project.id, scope: TOKEN_SCOPES.WRITE.slug }]);
   const readTok = await createToken(admin.id, "e2e-read", expires);
-  await setTokenProjectScopes(readTok.id, [{ projectId: project.id, scope: "read" }]);
+  await setTokenProjectScopes(readTok.id, [{ projectId: project.id, scope: TOKEN_SCOPES.READ.slug }]);
   console.log("[e2e-lfs] project + tokens ready");
 
-  // 3. Repo lokal: file 12MB (> threshold 10MB) -> git lfs push via HTTP
+  // 3. Local repo: 12MB file (> 10MB threshold) -> git lfs push via HTTP
   const work = path.join(tmpdir(), `sigit-lfs-work-${suffix}`);
   await fs.mkdir(work, { recursive: true });
   const big = Buffer.alloc(THRESHOLD + 2 * 1024 * 1024, 0x5a);
@@ -144,7 +151,40 @@ async function main(): Promise<void> {
   }
   check(rejected403, "push with a read-only token rejected with HTTP 403");
 
-  // 8. Cleanup
+  // 8. Collaborator permission derivation: a clone-only member cannot push,
+  //    even with a write-scoped token (tokens never exceed the owner's access).
+  const member = await createUser(`e2e-member-${suffix}@test.local`, "password123", DEFAULT_ROLE);
+  await db.insert(projectCollaborators).values({
+    projectId: project.id,
+    userId: member.id,
+    permissions: [PROJECT_PERMISSIONS.CLONE.slug],
+  });
+  const memberTok = await createToken(member.id, "e2e-member", expires);
+  await setTokenProjectScopes(memberTok.id, [{ projectId: project.id, scope: TOKEN_SCOPES.WRITE.slug }]);
+  sh(`git config http.extraHeader "Authorization: ${basicAuth(memberTok.token)}"`, clone2);
+  let memberRejected = false;
+  try {
+    sh("git push origin main", clone2);
+  } catch (err) {
+    memberRejected = ((err as { stderr?: string }).stderr ?? "").includes("403");
+  }
+  check(memberRejected, "clone-only collaborator push rejected with HTTP 403");
+  await revokeToken(memberTok.id, member.id);
+  await deleteUser(member.id);
+
+  // 9. Public project: anonymous read-only clone works; private requires auth.
+  await db.update(projects).set({ isPublic: true }).where(eq(projects.id, project.id));
+  const pubClone = path.join(tmpdir(), `sigit-lfs-public-${suffix}`);
+  sh(`git clone ${BASE}/projects/${projectName}.git ${pubClone}`, tmpdir());
+  check(true, "public project cloned anonymously");
+  await fs.rm(pubClone, { recursive: true, force: true });
+
+  await db.update(projects).set({ isPublic: false }).where(eq(projects.id, project.id));
+  // HTTP-level check: anonymous upload-pack must be rejected for private projects.
+  const anonRes = await fetch(`${BASE}/projects/${projectName}.git/info/refs?service=git-upload-pack`);
+  check(anonRes.status === 401, `private project anonymous clone rejected (HTTP ${anonRes.status})`);
+
+  // 10. Cleanup
   await hardDeleteProject(project.id);
   await deleteConnection(connectionId);
   await revokeToken(writeTok.id, admin.id);

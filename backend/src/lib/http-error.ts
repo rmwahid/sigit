@@ -1,6 +1,7 @@
+import { ERROR_CODES } from "../constants/errors";
+import { env } from "../config/env";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { env } from "../config/env";
 
 export class HttpError extends Error {
   status: ContentfulStatusCode;
@@ -19,5 +20,5 @@ export function errorResponse(c: Context, err: Error): Response {
     return c.json({ error: { code: err.code, message: err.message } }, err.status);
   }
   const msg = env.NODE_ENV === "production" ? "Internal server error" : err.message;
-  return c.json({ error: { code: "INTERNAL_ERROR", message: msg } }, 500);
+  return c.json({ error: { code: ERROR_CODES.INTERNAL_ERROR, message: msg } }, 500);
 }

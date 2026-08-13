@@ -1,7 +1,9 @@
+import { ERROR_CODES } from "../constants/errors";
 import { createMiddleware } from "hono/factory";
-import type { Context } from "hono";
-import type { User } from "../db/schema/auth";
+import { type User } from "../db/schema/auth";
+import { ADMIN_ROLE } from "../constants/roles";
 import { getSessionTokenFromCookie, validateSessionToken } from "../modules/auth/auth";
+import type { Context } from "hono";
 
 export type AuthEnv = {
   Variables: {
@@ -12,11 +14,11 @@ export type AuthEnv = {
 export const requireAuth = createMiddleware<AuthEnv>(async (c, next) => {
   const token = getSessionTokenFromCookie(c.req.header("Cookie"));
   if (!token) {
-    return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401);
+    return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401);
   }
   const user = await validateSessionToken(token);
   if (!user) {
-    return c.json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } }, 401);
+    return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401);
   }
   c.set("user", user);
   await next();
@@ -40,4 +42,11 @@ export async function requireUser(c: Context<AuthEnv>): Promise<User | null> {
   const token = getSessionTokenFromCookie(c.req.header("Cookie"));
   if (!token) return null;
   return validateSessionToken(token);
+}
+
+// Admin-only guard (site owner). Returns null for non-admin users.
+export async function requireAdmin(c: Context<AuthEnv>): Promise<User | null> {
+  const user = await requireUser(c);
+  if (!user || user.role !== ADMIN_ROLE) return null;
+  return user;
 }

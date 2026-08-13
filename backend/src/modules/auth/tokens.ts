@@ -1,24 +1,22 @@
-import crypto from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../config/db";
 import { tokenProjectScopes, tokens, type Token } from "../../db/schema/auth";
-
-const TOKEN_PREFIX = "sigit_";
+import { TOKEN_SCOPES, type TokenScope } from "../../constants/scopes";
+import { TOKEN_PREFIX } from "../../constants/protocol";
+import { RANDOM_TOKEN_BYTES } from "../../constants/limits";
+import { sha256 } from "../../lib/hash";
+import crypto from "node:crypto";
 
 // Maximum token lifetime in days. Single source of truth - used by the route
-// (zod max) and mirrored in the frontend token-config.ts (input max).
+// (zod max) and mirrored in the frontend validation constants.
 export const TOKEN_MAX_EXPIRY_DAYS = 30;
 
-export type TokenScope = "read" | "write";
+export { TOKEN_SCOPES, type TokenScope };
 
 export type TokenProjectScopeInput = {
   projectId: string;
   scope: TokenScope;
 };
-
-function sha256(input: string): string {
-  return crypto.createHash("sha256").update(input).digest("hex");
-}
 
 // Creates a new token. The raw token is returned ONLY ONCE here;
 // only its SHA-256 hash is stored in the DB. expiresAt is required.
@@ -27,7 +25,7 @@ export async function createToken(
   name: string,
   expiresAt: Date
 ): Promise<{ token: string; id: string }> {
-  const raw = TOKEN_PREFIX + crypto.randomBytes(24).toString("base64url");
+  const raw = TOKEN_PREFIX + crypto.randomBytes(RANDOM_TOKEN_BYTES).toString("base64url");
   const rows = await db
     .insert(tokens)
     .values({ userId, name, expiresAt, tokenHash: sha256(raw) })

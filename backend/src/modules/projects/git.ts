@@ -1,8 +1,10 @@
+import { DEFAULT_HISTORY_LIMIT } from "../../constants/limits";
+import { GIT_ZERO_HASH } from "../../constants/protocol";
 import { exec } from "node:child_process";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { promisify } from "node:util";
 import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const execAsync = promisify(exec);
 
@@ -32,8 +34,8 @@ THRESHOLD=${threshold}
 fail=0
 tmp=$(mktemp) || exit 1
 while read oldrev newrev ref; do
-  [ "$newrev" = "0000000000000000000000000000000000000000" ] && continue
-  if [ "$oldrev" = "0000000000000000000000000000000000000000" ]; then
+  [ "$newrev" = "${GIT_ZERO_HASH}" ] && continue
+  if [ "$oldrev" = "${GIT_ZERO_HASH}" ]; then
     git rev-list --objects "$newrev" > "$tmp" 2>/dev/null || continue
   else
     git rev-list --objects "$newrev" --not "$oldrev" > "$tmp" 2>/dev/null || continue
@@ -60,7 +62,7 @@ exit 0
   await fs.writeFile(hookPath, script, { mode: 0o755 });
 }
 
-export async function getLog(repoPath: string, limit = 50): Promise<{ hash: string; date: string; message: string; author: string }[]> {
+export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT): Promise<{ hash: string; date: string; message: string; author: string }[]> {
   const format = "%H%x1f%ai%x1f%s%x1f%an%x1e";
   const { stdout } = await execAsync(`git log --pretty=format:"${format}" -n ${limit}`, repoCwd(repoPath));
   if (!stdout.trim()) return [];

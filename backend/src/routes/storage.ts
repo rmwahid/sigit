@@ -1,4 +1,9 @@
-import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { AUDIT_EVENTS } from "../constants/audit-events";
+import { ERROR_CODES } from "../constants/errors";
+import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
+import { audit } from "../lib/logger";
+import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
 import {
   createConnection,
   createConnectionFromInput,
@@ -12,8 +17,6 @@ import {
   listObjects,
   testConnection,
 } from "../modules/storage/objects";
-import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
-import { audit } from "../lib/logger";
 import type { StorageConnection } from "../db/schema/storage";
 import {
   connectionSchema,
@@ -28,7 +31,6 @@ import {
   keyResponse,
   prefixQuerySchema,
 } from "./schemas/storage";
-import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
 
 function toConnectionResponse(conn: StorageConnection) {
   const secret = decryptSecret({ keyId: conn.encryptionKeyId, ciphertext: conn.secretEncrypted });
@@ -89,7 +91,7 @@ storageRoutes.openapi(
   async (c) => {
     const body = c.req.valid("json");
     const connection = await createConnectionFromInput(body);
-    audit("storage.create_connection", { connectionId: connection.id, name: connection.name, bucket: connection.bucket });
+    audit(AUDIT_EVENTS.STORAGE_CREATE_CONNECTION, { connectionId: connection.id, name: connection.name, bucket: connection.bucket });
     return c.json({ data: toConnectionResponse(connection) }, 201);
   }
 );
@@ -115,7 +117,7 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     return c.json({ data: toConnectionResponse(connection) });
   }
 );
@@ -152,7 +154,7 @@ storageRoutes.openapi(
       updateData.encryptionKeyId = encrypted.keyId;
     }
     const connection = await updateConnection(id, updateData);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     return c.json({ data: toConnectionResponse(connection) });
   }
 );
@@ -178,8 +180,8 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const deleted = await deleteConnection(id);
-    if (!deleted) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    audit("storage.delete_connection", { connectionId: id });
+    if (!deleted) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
+    audit(AUDIT_EVENTS.STORAGE_DELETE_CONNECTION, { connectionId: id });
     return c.json({ data: { id } });
   }
 );
@@ -205,7 +207,7 @@ storageRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     const result = await testConnection(connection);
     return c.json(result);
   }
@@ -236,7 +238,7 @@ storageRoutes.openapi(
     const { id } = c.req.valid("param");
     const { prefix } = c.req.valid("query");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     const objects = await listObjects(connection, prefix);
     return c.json({ data: objects });
   }
@@ -263,9 +265,9 @@ storageRoutes.openapi(
   async (c) => {
     const { id, key } = c.req.valid("param");
     const connection = await getConnection(id);
-    if (!connection) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     await deleteObject(connection, key);
-    audit("storage.delete_object", { connectionId: id, key });
+    audit(AUDIT_EVENTS.STORAGE_DELETE_OBJECT, { connectionId: id, key });
     return c.json({ data: { key } });
   }
 );

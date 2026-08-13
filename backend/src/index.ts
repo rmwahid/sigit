@@ -1,3 +1,4 @@
+import { ERROR_CODES } from "./constants/errors";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
@@ -6,13 +7,16 @@ import { env } from "./config/env";
 import { appInfoRoutes } from "./routes/app-info";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
+import { userRoutes } from "./routes/users";
+import { invitationRoutes } from "./routes/invitations";
+import { emailSettingsRoutes } from "./routes/email-settings";
 import { storageRoutes } from "./routes/storage";
 import { projectRoutes } from "./routes/projects";
 import { gitRoutes } from "./routes/git";
 import { lfsRoutes } from "./routes/lfs";
 import { tokenRoutes } from "./routes/tokens";
 import { requireAuth, type AuthEnv } from "./middleware/auth";
-import { errorResponse, HttpError } from "./lib/http-error";
+import { HttpError, errorResponse } from "./lib/http-error";
 import { log } from "./lib/logger";
 
 const app = new OpenAPIHono<AuthEnv>();
@@ -60,7 +64,7 @@ app.onError((err, c) => {
 // Global 404 handler
 app.notFound((c) => {
   log.warn("http", `404 ${c.req.method} ${c.req.path}`);
-  return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+  return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
 });
 
 app.doc("/openapi.json", {
@@ -103,6 +107,9 @@ app.route("/storage", storageRoutes);
 app.route("/projects", projectRoutes);
 app.route("/admin", adminRoutes);
 app.route("/tokens", tokenRoutes);
+app.route("/users", userRoutes);
+app.route("/invitations", invitationRoutes);
+app.route("/email-settings", emailSettingsRoutes);
 
 export default {
   port: Number(env.PORT),
