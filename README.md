@@ -129,12 +129,13 @@ git push sigit main                         # username: <token-name>, password: 
 - [x] **Unique project names** - projects live at `/projects/<name>.git`.
 - [x] **Web UI** - dashboard, commit history, line-by-line diff viewer (diff2html), token management.
 - [x] **Secrets encrypted at rest** - S3 credentials encrypted with AES-256-GCM; env managed with SOPS.
-- [ ] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
+- [x] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
+- [x] **Per-project token scopes** - tokens grant read/write per project; no global tokens. Project pages list which tokens can access them.
 - [ ] **Docker Compose deployment** - one-command self-hosting: backend, frontend, Postgres, and optional MinIO.
 - [ ] **UI restore from backup** - restore a project from its `backup.bundle` directly in the web UI.
 - [ ] **Multi-user and permissions** - roles (admin/member), per-project access, and public projects with anonymous read-only clone.
 - [ ] **Webhooks** - push and project events for CI integrations.
-- [ ] **Encryption at rest** - transparent server-side encryption (per-project keys) for LFS objects and `backup.bundle` in your storage.
+- [x] **Encryption at rest** - transparent server-side encryption (per-project AES-256-GCM keys) for LFS objects and `backup.bundle` in your storage.
 - [ ] **Branch protection and releases** - protected branches, tags, and downloadable release archives.
 - [ ] **SSH authentication** - git and LFS over SSH.
 - [ ] **Web-based file browser** - browse repository files per ref.
