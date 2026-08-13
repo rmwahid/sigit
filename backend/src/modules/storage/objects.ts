@@ -47,7 +47,13 @@ export async function getObject(connection: StorageConnection, key: string): Pro
   return Buffer.concat(chunks);
 }
 
-export async function putObject(connection: StorageConnection, key: string, body: Buffer, contentType?: string): Promise<void> {
+export async function putObject(
+  connection: StorageConnection,
+  key: string,
+  body: Buffer,
+  contentType?: string,
+  metadata?: Record<string, string>
+): Promise<void> {
   const client = createS3Client(connection);
   await client.send(
     new PutObjectCommand({
@@ -55,6 +61,7 @@ export async function putObject(connection: StorageConnection, key: string, body
       Key: key,
       Body: body,
       ContentType: contentType ?? "application/octet-stream",
+      Metadata: metadata,
     })
   );
 }
@@ -70,6 +77,26 @@ export async function objectSize(connection: StorageConnection, key: string): Pr
   try {
     const response = await client.send(new HeadObjectCommand({ Bucket: connection.bucket, Key: key }));
     return response.ContentLength ?? null;
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404) return null;
+    throw err;
+  }
+}
+
+// Object metadata (size + custom metadata), or null when it does not exist.
+// Used by LFS verify: the plaintext size is stored in metadata by putEncrypted.
+export async function objectMeta(
+  connection: StorageConnection,
+  key: string
+): Promise<{ size: number; metadata: Record<string, string> } | null> {
+  const client = createS3Client(connection);
+  try {
+    const response = await client.send(new HeadObjectCommand({ Bucket: connection.bucket, Key: key }));
+    return {
+      size: response.ContentLength ?? 0,
+      metadata: (response.Metadata ?? {}) as Record<string, string>,
+    };
   } catch (err) {
     const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
     if (status === 404) return null;

@@ -1,5 +1,6 @@
 import type { Project } from "../../db/schema/projects";
-import { getObject, putObject, objectSize, deleteObject } from "../storage/objects";
+import { deleteObject, objectMeta, objectSize } from "../storage/objects";
+import { getDecrypted, PLAINTEXT_SIZE_METADATA, putEncrypted } from "../encryption/at-rest";
 import { log, audit } from "../../lib/logger";
 import { sha256 } from "./index";
 import type { StorageConnection } from "../../db/schema/storage";
@@ -97,10 +98,10 @@ export async function downloadObject(
   const key = lfsObjectKey(project.id, oid);
   if ((await objectSize(connection, key)) === null) return null;
   audit("lfs.download", { projectId: project.id, oid });
-  return getObject(connection, key);
+  return getDecrypted(project, connection, key);
 }
 
-// Stores an LFS object: verify the oid first, then putObject to user storage.
+// Stores an LFS object: verify the oid first, then putObject (encrypted) to user storage.
 export async function uploadObject(
   project: Project,
   connection: StorageConnection,
@@ -110,12 +111,14 @@ export async function uploadObject(
   if (!verifyLfsContent(content, oid)) {
     return { ok: false, error: "oid mismatch: sha256(content) != oid" };
   }
-  await putObject(connection, lfsObjectKey(project.id, oid), content);
+  await putEncrypted(project, connection, lfsObjectKey(project.id, oid), content);
   audit("lfs.upload", { projectId: project.id, oid, size: content.length });
   return { ok: true };
 }
 
 // Verify step (spec): object exists AND size matches what the client claimed.
+// The stored size is the plaintext size from metadata (set by putEncrypted);
+// it falls back to ContentLength for legacy plaintext objects.
 // On mismatch the object is deleted so storage does not accumulate garbage.
 export async function verifyObject(
   project: Project,
@@ -124,11 +127,12 @@ export async function verifyObject(
   size: number
 ): Promise<{ ok: boolean; error?: string }> {
   const key = lfsObjectKey(project.id, oid);
-  const actual = await objectSize(connection, key);
-  if (actual === null) {
+  const meta = await objectMeta(connection, key);
+  if (!meta) {
     return { ok: false, error: "object does not exist" };
   }
-  if (actual !== size) {
+  const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
+  if (plaintextSize !== size) {
     try {
       await deleteObject(connection, key);
     } catch (err) {

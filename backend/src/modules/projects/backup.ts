@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Project } from "../../db/schema/projects";
 import type { StorageConnection } from "../../db/schema/storage";
 import { getConnection } from "../storage/connections";
-import { putObject, getObject } from "../storage/objects";
+import { getDecrypted, putEncrypted } from "../encryption/at-rest";
 import { projectRepoPath } from "./projects";
 
 const execAsync = promisify(exec);
@@ -27,7 +27,7 @@ export async function backupProject(project: Project): Promise<{ key: string; si
 
   const bundle = await createBundle(project);
   const key = `projects/${project.id}/backup.bundle`;
-  await putObject(connection, key, bundle, "application/octet-stream");
+  await putEncrypted(project, connection, key, bundle, "application/octet-stream");
   return { key, size: bundle.length };
 }
 
@@ -36,7 +36,7 @@ export async function restoreProject(
   connection: StorageConnection
 ): Promise<void> {
   const key = `projects/${project.id}/backup.bundle`;
-  const bundle = await getObject(connection, key);
+  const bundle = await getDecrypted(project, connection, key);
   const repoPath = projectRepoPath(project.id);
   const tmpFile = path.join(os.tmpdir(), `${project.id}-restore.bundle`);
   await fs.writeFile(tmpFile, bundle);
