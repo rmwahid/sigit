@@ -5,18 +5,23 @@
     createToken,
     revokeToken,
     type GitToken,
-    type TokenScope,
     type TokenProjectScope,
   } from "$lib/api/tokens";
   import { projectsStore } from "$lib/stores/projects.svelte";
+  import { DEFAULT_TOKEN_SCOPE, scopeLabel, TOKEN_SCOPE_OPTIONS, type TokenScope } from "$lib/constants/scopes";
   import {
-    DEFAULT_TOKEN_EXPIRY_DAYS,
-    DEFAULT_TOKEN_SCOPE,
-    scopeLabel,
+    COPY_FEEDBACK_MS,
+    MIN_PASSWORD_LENGTH,
+    TOKEN_DEFAULT_EXPIRY_DAYS,
     TOKEN_MAX_EXPIRY_DAYS,
-    TOKEN_SCOPE_OPTIONS,
-  } from "$lib/token-config";
+    TOKEN_MIN_EXPIRY_DAYS,
+  } from "$lib/constants/validation";
+  import { COPY, PLACEHOLDERS } from "$lib/constants/copy";
   import { formatDate } from "$lib/utils";
+  import { ADMIN_ROLE, DEFAULT_ROLE, ROLE_OPTIONS, type UserRole } from "$lib/constants/roles";
+  import { getMe, listUsers, updateUserRole, resetUserPassword, deleteUser, type ManagedUser } from "$lib/api";
+  import { createInvitation, listInvitations, revokeInvitation, type Invitation } from "$lib/api/invitations";
+  import { getEmailSettings, updateEmailSettings, testEmail } from "$lib/api/email-settings";
   import Button from "$lib/components/ui/button/button.svelte";
   import Input from "$lib/components/ui/input/input.svelte";
   import Label from "$lib/components/ui/label/label.svelte";
@@ -37,13 +42,127 @@
   let tokenName = $state("");
   // projectId -> selected scope for the token being created
   let tokenProjects = $state<Record<string, TokenScope>>({});
-  let tokenExpiry = $state(DEFAULT_TOKEN_EXPIRY_DAYS);
+  let tokenExpiry = $state(TOKEN_DEFAULT_EXPIRY_DAYS);
   let newToken = $state("");
   let creatingToken = $state(false);
   let copied = $state(false);
 
   const projects = $derived(projectsStore.list);
   const canCreate = $derived(tokenName.trim().length > 0 && Object.keys(tokenProjects).length > 0);
+
+  // Admin-only sections (Users + Email)
+  let isAdmin = $state(false);
+  let users = $state<ManagedUser[]>([]);
+  let invites = $state<Invitation[]>([]);
+  let inviteEmail = $state("");
+  let inviteRole = $state<UserRole>(DEFAULT_ROLE);
+  let inviteResult = $state<{ inviteLink: string; emailSent: boolean } | null>(null);
+  let resetTarget = $state<ManagedUser | null>(null);
+  let resetPassword = $state("");
+  let emailSettings = $state<{ apiKeyMasked: string | null; hasApiKey: boolean; fromEmail: string | null } | null>(null);
+  let emailApiKey = $state("");
+  let emailFrom = $state("");
+  let testingEmail = $state(false);
+
+  async function loadAdminData() {
+    try {
+      const me = await getMe();
+      isAdmin = me.data.role === ADMIN_ROLE;
+      if (!isAdmin) return;
+      const [u, i, e] = await Promise.all([listUsers(), listInvitations(), getEmailSettings()]);
+      users = u.data;
+      invites = i.data;
+      emailSettings = e.data;
+      emailFrom = e.data.fromEmail ?? "";
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onInvite() {
+    if (!inviteEmail.trim()) return;
+    error = "";
+    try {
+      const res = await createInvitation(inviteEmail.trim(), inviteRole);
+      inviteResult = { inviteLink: res.data.inviteLink, emailSent: res.data.emailSent };
+      inviteEmail = "";
+      const list = await listInvitations();
+      invites = list.data;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onRevokeInvite(id: string) {
+    error = "";
+    try {
+      await revokeInvitation(id);
+      invites = (await listInvitations()).data;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onChangeRole(id: string, role: UserRole) {
+    error = "";
+    try {
+      await updateUserRole(id, role);
+      users = (await listUsers()).data;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onResetPassword() {
+    if (!resetTarget || resetPassword.length < MIN_PASSWORD_LENGTH) return;
+    error = "";
+    try {
+      await resetUserPassword(resetTarget.id, resetPassword);
+      message = `Password reset for ${resetTarget.email}`;
+      resetTarget = null;
+      resetPassword = "";
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onDeleteUser(id: string, email: string) {
+    if (!confirm(`Delete user ${email}? Their sessions, tokens and project access are removed.`)) return;
+    error = "";
+    try {
+      await deleteUser(id);
+      users = (await listUsers()).data;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onSaveEmail() {
+    error = "";
+    try {
+      await updateEmailSettings({ apiKey: emailApiKey || undefined, fromEmail: emailFrom || undefined });
+      emailApiKey = "";
+      const e = await getEmailSettings();
+      emailSettings = e.data;
+      emailFrom = e.data.fromEmail ?? "";
+      message = "Email settings saved";
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function onTestEmail() {
+    testingEmail = true;
+    error = "";
+    try {
+      const res = await testEmail();
+      message = res.message;
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      testingEmail = false;
+    }
+  }
 
   function projectName(projectId: string): string {
     return projects.find((p) => p.id === projectId)?.name ?? projectId.slice(0, 8);
@@ -68,7 +187,7 @@
     try {
       await navigator.clipboard.writeText(newToken);
       copied = true;
-      setTimeout(() => (copied = false), 1500);
+      setTimeout(() => (copied = false), COPY_FEEDBACK_MS);
     } catch {
       // clipboard unavailable, user can copy manually
     }
@@ -96,7 +215,7 @@
       newToken = res.data.token;
       tokenName = "";
       tokenProjects = {};
-      tokenExpiry = DEFAULT_TOKEN_EXPIRY_DAYS;
+      tokenExpiry = TOKEN_DEFAULT_EXPIRY_DAYS;
       copied = false;
       await loadTokens();
     } catch (err) {
@@ -150,6 +269,7 @@
   }
 
   loadTokens();
+  loadAdminData();
 </script>
 
 <div class="max-w-2xl mx-auto py-10 flex flex-col gap-10">
@@ -228,8 +348,8 @@
         <div class="flex items-center gap-2">
           <span class="text-xs uppercase tracking-wider text-muted-foreground">Expires</span>
           <div class="flex items-center gap-1">
-            <Input class="pixel-border-sm w-16 text-center" type="number" min={1} max={TOKEN_MAX_EXPIRY_DAYS} bind:value={tokenExpiry} disabled={creatingToken} />
-            <span class="text-xs text-muted-foreground">days (max 30)</span>
+            <Input class="pixel-border-sm w-16 text-center" type="number" min={TOKEN_MIN_EXPIRY_DAYS} max={TOKEN_MAX_EXPIRY_DAYS} bind:value={tokenExpiry} disabled={creatingToken} />
+            <span class="text-xs text-muted-foreground">{COPY.DAYS_MAX_LABEL}</span>
           </div>
         </div>
       </div>
@@ -269,6 +389,141 @@
 
   <hr class="border-border" />
 
+  {#if isAdmin}
+    <!-- Users -->
+    <section class="flex flex-col gap-5">
+      <div>
+        <h2 class="text-lg font-bold">Users</h2>
+        <p class="text-sm text-muted-foreground mt-1">
+          Invite people by email. Invitees set their own password via the invite link.
+        </p>
+      </div>
+
+      {#if inviteResult}
+        {@const inviteLink = inviteResult.inviteLink}
+        <div class="pixel-border border-primary bg-card p-4 flex flex-col gap-2">
+          {#if inviteResult.emailSent}
+            <span class="text-sm font-semibold">Invitation email sent.</span>
+          {:else}
+            <span class="text-sm font-semibold">{COPY.EMAIL_NOT_CONFIGURED}</span>
+            <code class="text-xs break-all bg-background px-3 py-2 pixel-border-sm">{inviteLink}</code>
+            <button
+              class="pixel-border-sm px-3 py-1 text-xs self-start"
+              onclick={async () => {
+                try {
+                  await navigator.clipboard.writeText(inviteLink);
+                  message = COPY.INVITE_LINK_COPIED;
+                } catch {
+                  // clipboard unavailable, user can copy manually
+                }
+              }}
+            >
+              Copy
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="pixel-border bg-card p-5 flex flex-col gap-4">
+        <div class="flex gap-3 items-end">
+          <div class="flex-1">
+            <Label for="invite-email">Email</Label>
+            <Input id="invite-email" class="pixel-border-sm w-full" bind:value={inviteEmail} placeholder={PLACEHOLDERS.INVITE_EMAIL} />
+          </div>
+          <div>
+            <Label for="invite-role">Role</Label>
+            <select id="invite-role" class="pixel-border-sm bg-background px-2 py-2 text-sm" bind:value={inviteRole}>
+              {#each ROLE_OPTIONS as r}
+                <option value={r.slug}>{r.name}</option>
+              {/each}
+            </select>
+          </div>
+          <Button class="pixel-border-sm shrink-0" onclick={onInvite} disabled={!inviteEmail.trim()}>Invite</Button>
+        </div>
+      </div>
+
+      <ul class="flex flex-col gap-2">
+        {#each users as u}
+          <li class="pixel-border-sm bg-card px-4 py-3 flex items-center gap-3">
+            <div class="flex-1 min-w-0">
+              <span class="font-medium truncate">{u.email}</span>
+              <p class="text-xs text-muted-foreground mt-1">joined {formatDate(u.createdAt)}</p>
+            </div>
+            <select
+              class="pixel-border-sm bg-background px-2 py-1 text-xs"
+              value={u.role}
+              onchange={(e) => onChangeRole(u.id, e.currentTarget.value as UserRole)}
+            >
+              {#each ROLE_OPTIONS as r}
+                <option value={r.slug}>{r.name}</option>
+              {/each}
+            </select>
+            <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => (resetTarget = u)}>Reset password</button>
+            <button class="pixel-border-sm px-3 py-1 text-xs text-destructive shrink-0" onclick={() => onDeleteUser(u.id, u.email)}>
+              Delete
+            </button>
+          </li>
+        {/each}
+      </ul>
+
+      {#if resetTarget}
+        <div class="pixel-border bg-card p-4 flex flex-col gap-2">
+          <span class="text-sm font-semibold">Reset password for {resetTarget.email}</span>
+          <div class="flex gap-2 items-end">
+            <Input class="pixel-border-sm flex-1" type="password" bind:value={resetPassword} placeholder={PLACEHOLDERS.TEMP_PASSWORD} />
+            <button class="pixel-border-sm px-3 py-1 text-xs" onclick={onResetPassword} disabled={resetPassword.length < MIN_PASSWORD_LENGTH}>Set</button>
+            <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => (resetTarget = null)}>Cancel</button>
+          </div>
+        </div>
+      {/if}
+
+      {#if invites.length > 0}
+        <div>
+          <span class="text-xs uppercase tracking-wider text-muted-foreground">Pending invitations</span>
+          <ul class="mt-2 flex flex-col gap-2">
+            {#each invites as inv}
+              <li class="pixel-border-sm bg-card px-4 py-2 flex items-center gap-3">
+                <span class="flex-1 truncate text-sm">{inv.email}</span>
+                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">{inv.role}</span>
+                <button class="pixel-border-sm px-2 py-1 text-xs text-destructive" onclick={() => onRevokeInvite(inv.id)}>Revoke</button>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </section>
+
+    <hr class="border-border" />
+
+    <!-- Email -->
+    <section class="flex flex-col gap-4">
+      <div>
+        <h2 class="text-lg font-bold">Email</h2>
+        <p class="text-sm text-muted-foreground mt-1">
+          Resend API key for invitation emails{emailSettings?.hasApiKey ? ` (current key: ${emailSettings.apiKeyMasked})` : " (not configured yet)"}.
+        </p>
+      </div>
+      <div class="pixel-border bg-card p-5 flex flex-col gap-4">
+        <div class="grid gap-1">
+          <Label for="email-key">Resend API key</Label>
+          <Input id="email-key" class="pixel-border-sm w-full" type="password" bind:value={emailApiKey} placeholder={PLACEHOLDERS.RESEND_API_KEY} autocomplete="off" />
+        </div>
+        <div class="grid gap-1">
+          <Label for="email-from">From email</Label>
+          <Input id="email-from" class="pixel-border-sm w-full" bind:value={emailFrom} placeholder={PLACEHOLDERS.EMAIL_FROM} />
+        </div>
+        <div class="flex gap-2">
+          <Button class="pixel-border-sm" onclick={onSaveEmail}>Save</Button>
+          <Button class="pixel-border-sm" onclick={onTestEmail} disabled={testingEmail || !emailSettings?.hasApiKey}>
+            {testingEmail ? "Sending..." : "Send test email"}
+          </Button>
+        </div>
+      </div>
+    </section>
+  {/if}
+
+  <hr class="border-border" />
+
   <!-- Account -->
   <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <Card class="pixel-border bg-card">
@@ -283,11 +538,11 @@
           </div>
           <div class="grid gap-1">
             <Label for="np">New password</Label>
-            <Input id="np" class="pixel-border-sm" type="password" bind:value={newPassword} required minlength={8} autocomplete="new-password" />
+            <Input id="np" class="pixel-border-sm" type="password" bind:value={newPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
           </div>
           <div class="grid gap-1">
             <Label for="cf">Confirm new password</Label>
-            <Input id="cf" class="pixel-border-sm" type="password" bind:value={confirmPassword} required minlength={8} autocomplete="new-password" />
+            <Input id="cf" class="pixel-border-sm" type="password" bind:value={confirmPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
           </div>
         </CardContent>
         <CardFooter>

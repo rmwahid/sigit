@@ -1,6 +1,6 @@
 import { api } from "./client";
-
-export type TokenScope = "read" | "write";
+import type { TokenScope } from "../constants/scopes";
+import { API_PATHS } from "../constants/paths";
 
 export type TokenProjectScope = {
   projectId: string;
@@ -25,16 +25,16 @@ export type CreatedToken = {
 };
 
 export async function listTokens() {
-  return api<{ data: GitToken[] }>("/tokens");
+  return api<{ data: GitToken[] }>(API_PATHS.TOKENS);
 }
 
 export async function createToken(name: string, projects: TokenProjectScope[], expiresInDays: number) {
-  return api<{ data: CreatedToken }>("/tokens", {
+  return api<{ data: CreatedToken }>(API_PATHS.TOKENS, {
     method: "POST",
     body: JSON.stringify({ name, projects, expiresInDays }),
   });
 }
 
 export async function revokeToken(id: string) {
-  return api<{ message: string }>(`/tokens/${id}`, { method: "DELETE" });
+  return api<{ message: string }>(`${API_PATHS.TOKENS}/${id}`, { method: "DELETE" });
 }

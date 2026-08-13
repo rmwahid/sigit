@@ -1,3 +1,5 @@
+import type { UserRole } from "../constants/roles";
+
 export type Connection = {
   id: string;
   name: string;
@@ -36,6 +38,9 @@ export type Project = {
   storageConnectionId: string | null;
   lfsSizeThreshold: number;
   lfsPatterns?: string;
+  isPublic?: boolean;
+  // null = admin (everything); otherwise the granted permission set.
+  myPermissions?: string[] | null;
 };
 
 export type NewProject = Omit<Project, "id" | "storageConnectionId"> & {
@@ -54,7 +59,7 @@ export type DeleteProjectResult = {
   hadStorage: boolean;
 };
 
-export type CurrentUser = { id: string; email: string };
+export type CurrentUser = { id: string; email: string; role: UserRole };
 
 export type LogEntry = {
   ts: string;

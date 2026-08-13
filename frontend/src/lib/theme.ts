@@ -1,6 +1,7 @@
 export type Theme = "dark" | "light";
+import { THEME_STORAGE_KEY } from "./constants/paths";
 
-const KEY = "sigit-theme";
+const KEY = THEME_STORAGE_KEY;
 
 export function getTheme(): Theme {
   if (typeof localStorage === "undefined") return "dark";

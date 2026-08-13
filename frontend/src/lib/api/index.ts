@@ -5,3 +5,6 @@ export * from "./connections";
 export * from "./projects";
 export * from "./auth";
 export * from "./logs";
+export * from "./users";
+export * from "./invitations";
+export * from "./email-settings";

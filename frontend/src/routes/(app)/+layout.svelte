@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createProjectWithConnection, getMe, logout, type CurrentUser } from "$lib/api";
+  import { ADMIN_ROLE } from "$lib/constants/roles";
+  import { APP_ROUTES } from "$lib/constants/paths";
   import { projectsStore } from "$lib/stores/projects.svelte";
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
@@ -116,7 +118,7 @@
     <!-- Sidebar -->
     <aside class="w-64 shrink-0 border-r border-border flex flex-col bg-card">
       <div class="p-4 border-b border-border">
-        <a href="/" class="text-xl font-bold tracking-widest pixel-border inline-block px-3 py-1 bg-background">SiGit</a>
+        <a href={APP_ROUTES.ROOT} class="text-xl font-bold tracking-widest pixel-border inline-block px-3 py-1 bg-background">SiGit</a>
       </div>
 
       <div class="p-4 text-xs uppercase tracking-wider text-muted-foreground">Projects</div>
@@ -148,9 +150,11 @@
       <!-- Topbar -->
       <header class="h-14 border-b border-border flex items-center justify-between px-4 bg-card">
         <div class="flex items-center gap-2 text-sm">
-          <a href="/" class="pixel-border-sm px-3 py-1">Projects</a>
-          <a href="/logs" class="pixel-border-sm px-3 py-1">Logs</a>
-          <a href="/settings" class="pixel-border-sm px-3 py-1">Settings</a>
+          <a href={APP_ROUTES.ROOT} class="pixel-border-sm px-3 py-1">Projects</a>
+          {#if currentUser.role === ADMIN_ROLE}
+            <a href={APP_ROUTES.LOGS} class="pixel-border-sm px-3 py-1">Logs</a>
+          {/if}
+          <a href={APP_ROUTES.SETTINGS} class="pixel-border-sm px-3 py-1">Settings</a>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-sm text-muted-foreground">{currentUser.email}</span>
