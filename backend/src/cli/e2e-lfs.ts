@@ -16,7 +16,7 @@ import { users } from "../db/schema/auth";
 import { createProjectWithConnection, hardDeleteProject } from "../modules/projects/projects";
 import { createToken, revokeToken, setTokenProjectScopes } from "../modules/auth/tokens";
 import { deleteConnection, getConnection } from "../modules/storage/connections";
-import { listAllObjects } from "../modules/storage/objects";
+import { getObject, listAllObjects } from "../modules/storage/objects";
 import { sha256 } from "../modules/lfs";
 import { DEFAULT_LFS_SIZE_THRESHOLD } from "../db/schema/projects";
 
@@ -83,15 +83,15 @@ async function main(): Promise<void> {
     connection: STORAGE,
   });
   const connection = await getConnection(connectionId);
-  check(!!connection, "connection dibuat");
+  check(!!connection, "connection created");
   const admin = (await db.select().from(users))[0];
-  check(!!admin, "admin user ditemukan");
+  check(!!admin, "admin user found");
   const expires = new Date(Date.now() + 30 * 24 * 3600 * 1000);
   const writeTok = await createToken(admin.id, "e2e-write", expires);
   await setTokenProjectScopes(writeTok.id, [{ projectId: project.id, scope: "write" }]);
   const readTok = await createToken(admin.id, "e2e-read", expires);
   await setTokenProjectScopes(readTok.id, [{ projectId: project.id, scope: "read" }]);
-  console.log("[e2e-lfs] project + tokens siap");
+  console.log("[e2e-lfs] project + tokens ready");
 
   // 3. Repo lokal: file 12MB (> threshold 10MB) -> git lfs push via HTTP
   const work = path.join(tmpdir(), `sigit-lfs-work-${suffix}`);
@@ -109,22 +109,26 @@ async function main(): Promise<void> {
   sh(`git remote add sigit ${BASE}/projects/${projectName}.git`, work);
   sh(`git config http.extraHeader "Authorization: ${basicAuth(writeTok.token)}"`, work);
   sh("git push sigit main", work);
-  console.log("[e2e-lfs] push selesai");
+  console.log("[e2e-lfs] push done");
 
   // 4. Pointer in git history (not a 12MB blob) + object in user storage
   const objectKeys = await listAllObjects(connection!, `projects/${project.id}/lfs/`);
-  check(objectKeys.length === 1, `objek LFS tersimpan di storage user: ${objectKeys[0] ?? "(none)"}`);
-  check(objectKeys[0]?.endsWith(bigOid) === true, "key objek = projects/{id}/lfs/{oid} (sha256 konten)");
+  check(objectKeys.length === 1, `LFS object stored in user storage: ${objectKeys[0] ?? "(none)"}`);
+  check(objectKeys[0]?.endsWith(bigOid) === true, "object key = projects/{id}/lfs/{oid} (sha256 content)");
 
-  // 5. Clone via HTTP + lfs pull -> konten sama persis
+  // 5. At-rest encryption: raw bytes in MinIO are NOT the plaintext.
+  const rawStored = await getObject(connection!, objectKeys[0]!);
+  check(sha256(rawStored) !== bigOid, "object bytes at rest are encrypted (not plaintext)");
+
+  // 6. Clone via HTTP + lfs pull -> content identical
   const cloneDir = path.join(tmpdir(), `sigit-lfs-clone-${suffix}`);
   sh(`git -c http.extraHeader="Authorization: ${basicAuth(readTok.token)}" clone ${BASE}/projects/${projectName}.git ${cloneDir}`, tmpdir());
   sh("git lfs pull", cloneDir);
   const pulled = await fs.readFile(path.join(cloneDir, "big.bin"));
-  check(pulled.length === big.length && sha256(pulled) === bigOid, "konten setelah clone+lfs pull identik");
-  console.log("[e2e-lfs] clone + pull selesai");
+  check(pulled.length === big.length && sha256(pulled) === bigOid, "content after clone + lfs pull is identical");
+  console.log("[e2e-lfs] clone + pull done");
 
-  // 6. Read-only token must not push (scope enforcement via git protocol).
+  // 7. Read-only token must not push (scope enforcement via git protocol).
   //    Clone first: git rejects unrelated-history pushes at the client before HTTP,
   //    so a fresh repo cannot exercise the scope middleware.
   const clone2 = path.join(tmpdir(), `sigit-lfs-ro-${suffix}`);
@@ -138,9 +142,9 @@ async function main(): Promise<void> {
   } catch (err) {
     rejected403 = ((err as { stderr?: string }).stderr ?? "").includes("403");
   }
-  check(rejected403, "push dengan token read-only ditolak HTTP 403");
+  check(rejected403, "push with a read-only token rejected with HTTP 403");
 
-  // 7. Cleanup
+  // 8. Cleanup
   await hardDeleteProject(project.id);
   await deleteConnection(connectionId);
   await revokeToken(writeTok.id, admin.id);
