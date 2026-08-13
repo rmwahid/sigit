@@ -27,8 +27,15 @@ import {
   diffParamSchema,
 } from "./schemas/projects";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
+import type { Project } from "../db/schema/projects";
 
 export const projectRoutes = new OpenAPIHono();
+
+// API responses must never expose the per-project encryption key columns.
+function toProjectResponse(p: Project) {
+  const { encryptionKeyEncrypted: _key, encryptionKeyId: _keyId, ...safe } = p;
+  return safe;
+}
 
 projectRoutes.openapi(
   createRoute({
@@ -45,7 +52,7 @@ projectRoutes.openapi(
   }),
   async (c) => {
     const data = await listProjects();
-    return c.json({ data });
+    return c.json({ data: data.map(toProjectResponse) });
   }
 );
 
@@ -68,7 +75,7 @@ projectRoutes.openapi(
   async (c) => {
     const body = c.req.valid("json");
     const project = await createProject(body);
-    return c.json({ data: project }, 201);
+    return c.json({ data: toProjectResponse(project) }, 201);
   }
 );
 
@@ -92,7 +99,7 @@ projectRoutes.openapi(
     const body = c.req.valid("json");
     const { project } = await createProjectWithConnection(body);
     audit("project.create_with_connection", { projectId: project.id, name: project.name });
-    return c.json({ data: project }, 201);
+    return c.json({ data: toProjectResponse(project) }, 201);
   }
 );
 
@@ -118,7 +125,7 @@ projectRoutes.openapi(
     const { id } = c.req.valid("param");
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    return c.json({ data: project });
+    return c.json({ data: toProjectResponse(project) });
   }
 );
 
@@ -148,7 +155,7 @@ projectRoutes.openapi(
     const body = c.req.valid("json");
     const project = await updateProject(id, body);
     if (!project) return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
-    return c.json({ data: project });
+    return c.json({ data: toProjectResponse(project) });
   }
 );
 

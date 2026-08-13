@@ -11,6 +11,11 @@ export const projects = pgTable("projects", {
   storageConnectionId: uuid("storage_connection_id"),
   lfsSizeThreshold: integer("lfs_size_threshold").notNull().default(DEFAULT_LFS_SIZE_THRESHOLD), // 10 MB
   lfsPatterns: text("lfs_patterns").default("*.png,*.jpg,*.jpeg,*.gif,*.mp4,*.mov,*.zip,*.tar.gz,*.psd,*.ai,*.exe,*.bin,*.pdf"),
+  // Per-project encryption key for at-rest encryption (LFS objects + backup bundle).
+  // The raw 32-byte key is encrypted with ENCRYPTION_KEYS (secret-encryption.ts),
+  // never stored in plaintext. NOT NULL - no legacy/plaintext projects.
+  encryptionKeyEncrypted: text("encryption_key_encrypted").notNull(),
+  encryptionKeyId: varchar("encryption_key_id", { length: 50 }).notNull().default("v1"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

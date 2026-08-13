@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../../config/db";
 import { env } from "../../config/env";
@@ -8,8 +9,18 @@ import { createConnectionFromInput, getConnection } from "../storage/connections
 import { deleteObjectsByPrefix } from "../storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
 import { HttpError } from "../../lib/http-error";
+import { encryptSecret } from "../../lib/secret-encryption";
 
 const PROJECTS_ROOT = env.SIGIT_PROJECTS_ROOT;
+
+// Generates the per-project 32-byte key, wrapped with ENCRYPTION_KEYS (the
+// at-rest layer). Only the encrypted ciphertext + key id reach the DB; the raw
+// key is never stored anywhere.
+function newProjectKey(): { encryptionKeyEncrypted: string; encryptionKeyId: string } {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const wrapped = encryptSecret(raw);
+  return { encryptionKeyEncrypted: wrapped.ciphertext, encryptionKeyId: wrapped.keyId };
+}
 
 export function projectRepoPath(projectId: string): string {
   return path.resolve(PROJECTS_ROOT, projectId);
@@ -48,7 +59,7 @@ export async function createProject(data: NewProject): Promise<Project> {
     throw new Error("Project storage connection is required");
   }
   await assertProjectNameAvailable(data.name);
-  const inserted = await db.insert(projects).values(data).returning();
+  const inserted = await db.insert(projects).values({ ...data, ...newProjectKey() }).returning();
   const project = inserted[0];
   if (!project) throw new Error("Failed to create project");
   await initRepo(projectRepoPath(project.id), project.lfsSizeThreshold);
@@ -91,6 +102,7 @@ export async function createProjectWithConnection(
         name: data.name,
         description: data.description,
         storageConnectionId: connection.id,
+        ...newProjectKey(),
       })
       .returning();
     const project = projRows[0];
@@ -111,14 +123,16 @@ export async function updateProject(id: string, data: Partial<NewProject>): Prom
       throw new HttpError(409, "PROJECT_NAME_TAKEN", `Project name "${data.name}" is already taken`);
     }
   }
+  // Encryption keys are write-once: never updatable through this path.
+  const { encryptionKeyEncrypted: _key, encryptionKeyId: _keyId, ...safe } = data;
   const rows = await db
     .update(projects)
-    .set({ ...data, updatedAt: new Date() })
+    .set({ ...safe, updatedAt: new Date() })
     .where(eq(projects.id, id))
     .returning();
   const project = rows[0];
-  // Threshold berubah → regenerate pre-receive hook
-  if (project && data.lfsSizeThreshold) {
+  // Threshold changed -> regenerate the pre-receive hook
+  if (project && safe.lfsSizeThreshold) {
     await installPreReceiveHook(projectRepoPath(project.id), project.lfsSizeThreshold);
   }
   return project;
