@@ -131,9 +131,9 @@ git push sigit main                         # username: <token-name>, password: 
 - [x] **Secrets encrypted at rest** - S3 credentials encrypted with AES-256-GCM; env managed with SOPS.
 - [x] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
 - [x] **Per-project token scopes** - tokens grant read/write per project; no global tokens. Project pages list which tokens can access them.
+- [x] **Multi-user and permissions** - admin invites users by email (Resend); collaborators get granular per-project permissions (clone, push, LFS, view, history, diff); public projects support anonymous read-only clone.
 - [ ] **Docker Compose deployment** - one-command self-hosting: backend, frontend, Postgres, and optional MinIO.
-- [ ] **UI restore from backup** - restore a project from its `backup.bundle` directly in the web UI.
-- [ ] **Multi-user and permissions** - roles (admin/member), per-project access, and public projects with anonymous read-only clone.
+- [x] **UI restore from backup** - restore a project from its `backup.bundle` in the web UI.
 - [ ] **Webhooks** - push and project events for CI integrations.
 - [x] **Encryption at rest** - transparent server-side encryption (per-project AES-256-GCM keys) for LFS objects and `backup.bundle` in your storage.
 - [ ] **Branch protection and releases** - protected branches, tags, and downloadable release archives.
