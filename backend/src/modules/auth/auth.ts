@@ -45,8 +45,7 @@ export async function createSession(userId: string): Promise<{ token: string; ex
 }
 
 export async function getUserByEmail(email: string): Promise<User | undefined> {
-  const rows = await db.select().from(users).where(eq(users.email, email));
-  return rows[0];
+  return db.query.users.findFirst({ where: eq(users.email, email) });
 }
 
 export async function countUsers(): Promise<number> {

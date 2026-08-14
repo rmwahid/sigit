@@ -8,6 +8,7 @@ import { backupProject, restoreProject } from "../modules/projects/backup";
 import { getConnection } from "../modules/storage/connections";
 import { requireAdmin, requireUser, type AuthEnv } from "../middleware/auth";
 import { projectCollaborators, users } from "../db/schema/auth";
+import { ADMIN_ROLE } from "../constants/roles";
 import { audit } from "../lib/logger";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 import {
@@ -451,12 +452,11 @@ projectRoutes.openapi(
     const { userId, permissions } = c.req.valid("json");
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
-    const target = await db
-      .select({ id: users.id, role: users.role, email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    if (!target[0] || target[0].role === "admin") {
+    const target = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { id: true, role: true, email: true },
+    });
+    if (!target || target.role === ADMIN_ROLE) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "User not found or is an admin" } }, 400) as never;
     }
     // Upsert: replace any existing collaborator row for this user.
@@ -472,7 +472,7 @@ projectRoutes.openapi(
         data: {
           id: row.id,
           userId: row.userId,
-          email: target[0].email ?? "",
+          email: target.email ?? "",
           permissions: normalizePermissions(row.permissions),
         },
       },

@@ -52,12 +52,11 @@ export async function resolveTokenScope(
   tokenId: string,
   projectId: string
 ): Promise<TokenScope | undefined> {
-  const rows = await db
-    .select({ scope: tokenProjectScopes.scope })
-    .from(tokenProjectScopes)
-    .where(and(eq(tokenProjectScopes.tokenId, tokenId), eq(tokenProjectScopes.projectId, projectId)))
-    .limit(1);
-  return rows[0]?.scope;
+  const row = await db.query.tokenProjectScopes.findFirst({
+    where: and(eq(tokenProjectScopes.tokenId, tokenId), eq(tokenProjectScopes.projectId, projectId)),
+    columns: { scope: true },
+  });
+  return row?.scope;
 }
 
 export async function listTokens(userId: string): Promise<Token[]> {
@@ -107,8 +106,7 @@ export async function revokeToken(id: string, userId: string): Promise<boolean> 
 // Updates lastUsedAt. Expired tokens are treated as invalid.
 export async function validateToken(raw: string): Promise<Token | null> {
   if (!raw.startsWith(TOKEN_PREFIX)) return null;
-  const rows = await db.select().from(tokens).where(eq(tokens.tokenHash, sha256(raw)));
-  const token = rows[0];
+  const token = await db.query.tokens.findFirst({ where: eq(tokens.tokenHash, sha256(raw)) });
   if (!token) return null;
   if (token.expiresAt.getTime() <= Date.now()) return null;
   await db.update(tokens).set({ lastUsedAt: new Date() }).where(eq(tokens.id, token.id));

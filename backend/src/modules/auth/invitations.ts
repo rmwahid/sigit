@@ -28,8 +28,7 @@ export async function createInvitation(
 
 export async function validateInvitation(token: string): Promise<InvitationInfo | null> {
   if (!token.startsWith(INVITE_PREFIX)) return null;
-  const rows = await db.select().from(invitations).where(eq(invitations.tokenHash, sha256(token))).limit(1);
-  const inv = rows[0];
+  const inv = await db.query.invitations.findFirst({ where: eq(invitations.tokenHash, sha256(token)) });
   if (!inv) return null;
   if (inv.expiresAt.getTime() <= Date.now()) return null;
   if (inv.usedAt) return null;

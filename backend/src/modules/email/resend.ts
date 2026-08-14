@@ -14,8 +14,7 @@ const RESEND_URL = "https://api.resend.com/emails";
 export type SendEmailResult = { sent: boolean; error?: string };
 
 export async function getEmailSettings() {
-  const rows = await db.select().from(emailSettings).limit(1);
-  return rows[0] ?? null;
+  return (await db.query.emailSettings.findFirst()) ?? null;
 }
 
 export async function saveEmailSettings(input: { apiKey?: string; fromEmail?: string }): Promise<void> {

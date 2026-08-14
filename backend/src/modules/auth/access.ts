@@ -36,14 +36,13 @@ export async function getProjectAccess(
   userId: string,
   projectId: string
 ): Promise<ProjectPermission[] | null> {
-  const user = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
-  if (user[0]?.role === ADMIN_ROLE) return null;
-  const rows = await db
-    .select({ permissions: projectCollaborators.permissions })
-    .from(projectCollaborators)
-    .where(and(eq(projectCollaborators.projectId, projectId), eq(projectCollaborators.userId, userId)))
-    .limit(1);
-  return rows[0] ? normalizePermissions(rows[0].permissions) : [];
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { role: true } });
+  if (user?.role === ADMIN_ROLE) return null;
+  const row = await db.query.projectCollaborators.findFirst({
+    where: and(eq(projectCollaborators.projectId, projectId), eq(projectCollaborators.userId, userId)),
+    columns: { permissions: true },
+  });
+  return row ? normalizePermissions(row.permissions) : [];
 }
 
 // null access = admin: everything is allowed.
@@ -69,8 +68,8 @@ export function tokenScopeForUser(
 }
 
 export async function listAccessibleProjects(userId: string): Promise<Project[]> {
-  const user = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1);
-  if (user[0]?.role === ADMIN_ROLE) return db.select().from(projects);
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { role: true } });
+  if (user?.role === ADMIN_ROLE) return db.select().from(projects);
   const rows = await db
     .select({ projectId: projectCollaborators.projectId })
     .from(projectCollaborators)
@@ -78,4 +77,22 @@ export async function listAccessibleProjects(userId: string): Promise<Project[]>
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.projectId);
   return db.select().from(projects).where(inArray(projects.id, ids));
+}
+
+export async function listAccessibleProjectIds(userId: string): Promise<string[]> {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { role: true } });
+  if (user?.role === ADMIN_ROLE) {
+    const all = await db.select({ id: projects.id }).from(projects);
+    return all.map((p) => p.id);
+  }
+  const rows = await db
+    .select({ projectId: projectCollaborators.projectId })
+    .from(projectCollaborators)
+    .where(eq(projectCollaborators.userId, userId));
+  return rows.map((r) => r.projectId);
+}
+
+// Public projects for the explore page (no auth needed).
+export async function listPublicProjects(): Promise<Project[]> {
+  return db.select().from(projects).where(eq(projects.isPublic, true));
 }

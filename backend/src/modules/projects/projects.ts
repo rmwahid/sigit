@@ -31,8 +31,7 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
-  const rows = await db.select().from(projects).where(eq(projects.id, id));
-  return rows[0];
+  return db.query.projects.findFirst({ where: eq(projects.id, id) });
 }
 
 // Project names are unique CASE-INSENSITIVELY (NotesApp == notesapp is rejected),
@@ -47,11 +46,9 @@ export function projectNameFromRouteParam(param: string | undefined): string {
 }
 
 export async function getProjectByName(name: string): Promise<Project | undefined> {
-  const rows = await db
-    .select()
-    .from(projects)
-    .where(eq(sql`lower(${projects.name})`, sql`lower(${name})`));
-  return rows[0];
+  return db.query.projects.findFirst({
+    where: eq(sql`lower(${projects.name})`, sql`lower(${name})`),
+  });
 }
 
 export async function createProject(data: NewProject): Promise<Project> {
