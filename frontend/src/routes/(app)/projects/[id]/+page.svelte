@@ -571,7 +571,11 @@
     <!-- Breadcrumb + header -->
     <div class="flex flex-col gap-2">
       <div class="flex items-center gap-1 text-sm text-muted-foreground flex-wrap">
-        <a href={APP_ROUTES.ROOT} class="font-bold text-foreground">Projects</a>
+        {#if isAnon}
+          <a href={APP_ROUTES.EXPLORE} class="font-bold text-foreground">Explore</a>
+        {:else}
+          <a href={APP_ROUTES.ROOT} class="font-bold text-foreground">Projects</a>
+        {/if}
         <span>/</span>
         <span class="font-bold text-foreground">{project.name}</span>
         {#if project.isPublic}

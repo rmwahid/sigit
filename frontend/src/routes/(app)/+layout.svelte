@@ -46,14 +46,20 @@
       currentUser = me.data;
       await load();
     } catch {
-      // Anonymous: only public project pages are reachable without a session.
-      if (!/^\/projects\/[^/]+\/?$/.test($page.url.pathname)) {
-        await goto("/login");
-        return;
-      }
+      // Anonymous: handled by the $effect below (public project pages only).
     } finally {
       loading = false;
     }
+  });
+
+  // Anonymous users may only browse public project pages. Every other route
+  // bounces to the public explore page (which offers Sign in). Reactive, so it
+  // also covers client-side navigation after the initial mount (not just the
+  // first load, like onMount would).
+  $effect(() => {
+    if (loading || currentUser) return;
+    if (/^\/projects\/[^/]+\/?$/.test($page.url.pathname)) return;
+    void goto(APP_ROUTES.EXPLORE);
   });
 
   async function onLogout() {
