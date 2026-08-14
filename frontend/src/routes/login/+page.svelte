@@ -11,6 +11,9 @@
   import CardContent from "$lib/components/ui/card/card-content.svelte";
   import CardFooter from "$lib/components/ui/card/card-footer.svelte";
   import ThemeToggle from "$lib/ThemeToggle.svelte";
+  import Starburst from "$lib/components/decor/Starburst.svelte";
+  import Squiggle from "$lib/components/decor/Squiggle.svelte";
+  import { Crown } from "lucide-svelte";
 
   let status = $state<"loading" | "setup" | "login">("loading");
   let email = $state("");
@@ -53,6 +56,10 @@
 </svelte:head>
 
 <div class="relative min-h-screen flex items-center justify-center bg-background p-4">
+  <div class="absolute inset-0 nb-dots pointer-events-none" aria-hidden="true"></div>
+  <div class="absolute -top-4 -left-4 size-24 bg-secondary pixel-border nb-tilt" aria-hidden="true"></div>
+  <div class="absolute -bottom-4 -right-4 size-24 bg-accent pixel-border" aria-hidden="true"></div>
+  <Starburst class="absolute bottom-16 left-16 size-10 text-primary" />
   <div class="absolute top-4 right-4">
     <ThemeToggle />
   </div>
@@ -77,11 +84,13 @@ bun run db:create-admin</pre>
       </CardFooter>
     {:else}
       <CardHeader class="text-center">
-        <CardTitle class="text-3xl tracking-widest">SiGit</CardTitle>
+        <Crown class="size-8 text-primary mx-auto mb-1 rotate-12" />
+        <CardTitle class="text-4xl tracking-tight font-extrabold"><span class="nb-mark">SiGit</span></CardTitle>
         <CardDescription>Storage Integration for Git</CardDescription>
+        <Squiggle class="h-2 w-24 mx-auto mt-2 text-accent" />
       </CardHeader>
       <form onsubmit={onLogin}>
-        <CardContent class="grid gap-4">
+        <CardContent class="grid gap-4 pb-4">
           <div class="grid gap-2">
             <Label for="email">Email</Label>
             <Input id="email" type="email" bind:value={email} placeholder="admin@sigit.dev" required autocomplete="email" class="pixel-border-sm" />

@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
+  --font-sans: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -36,60 +38,63 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --radius: 0.625rem;
+  --background: #fffdf0;
+  --foreground: #141414;
+  --card: #ffffff;
+  --card-foreground: #141414;
+  --popover: #ffffff;
+  --popover-foreground: #141414;
+  --primary: #ffe500;
+  --primary-foreground: #141414;
+  --secondary: #ff90e8;
+  --secondary-foreground: #141414;
+  --muted: #f3edda;
+  --muted-foreground: #6f6a5e;
+  --accent: #a3e635;
+  --accent-foreground: #141414;
+  --destructive: #ff5a5a;
+  --border: #141414;
+  --input: #141414;
+  --ring: #141414;
+  --sidebar: #fdf6d8;
+  --sidebar-foreground: #141414;
+  --sidebar-primary: #ffe500;
+  --sidebar-primary-foreground: #141414;
+  --sidebar-accent: #ff90e8;
+  --sidebar-accent-foreground: #141414;
+  --sidebar-border: #141414;
+  --radius: 0.25rem;
+  --nb-mark: var(--primary);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --background: #221f3a;
+  --foreground: #f5f5f0;
+  --card: #2c2948;
+  --card-foreground: #f5f5f0;
+  --popover: #2c2948;
+  --popover-foreground: #f5f5f0;
+  --primary: #ffe500;
+  --primary-foreground: #141414;
+  --secondary: #ff90e8;
+  --secondary-foreground: #141414;
+  --muted: #38345c;
+  --muted-foreground: #b9b4d4;
+  --accent: #a3e635;
+  --accent-foreground: #141414;
+  --destructive: #ff5a5a;
+  --border: #f5f5f0;
+  --input: #f5f5f0;
+  --ring: #ffe500;
+  --sidebar: #2c2948;
+  --sidebar-foreground: #f5f5f0;
+  --sidebar-primary: #ffe500;
+  --sidebar-primary-foreground: #141414;
+  --sidebar-accent: #ff90e8;
+  --sidebar-accent-foreground: #141414;
+  --sidebar-border: #f5f5f0;
+  /* Deep amber mark: bright yellow behind light text is unreadable in dark mode */
+  --nb-mark: #a16207;
 }
 
 @layer base {
@@ -101,21 +106,87 @@
   }
 }
 
-/* Pixel-style UI: crisp rectangular border + hard offset shadow (retro blocky look) */
+/* Neobrutalism: thick border + hard offset shadow, small radius, sticker feel */
 .pixel-border {
-  border: 3px solid var(--foreground);
-  border-radius: 0;
-  box-shadow: 4px 4px 0 0 var(--foreground);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 4px 4px 0 0 var(--border);
 }
 
 .pixel-border-sm {
-  border: 2px solid var(--foreground);
-  border-radius: 0;
-  box-shadow: 3px 3px 0 0 var(--foreground);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 2px 2px 0 0 var(--border);
 }
 
 .pixel-active {
   transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 0 var(--foreground);
+  box-shadow: 1px 1px 0 0 var(--border);
+}
+
+/* Global component neobrutal touches */
+[data-slot="card"] {
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 4px 4px 0 0 var(--border);
+}
+
+[data-slot="input"],
+select,
+textarea {
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+h1, h2, h3 {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* Neobrutal decorations (no external assets) */
+.nb-dots {
+  background-image: radial-gradient(var(--muted-foreground) 1px, transparent 1px);
+  background-size: 22px 22px;
+  opacity: 0.35;
+}
+
+.nb-mark {
+  background: linear-gradient(180deg, transparent 60%, var(--nb-mark) 60%);
+  padding: 0 2px;
+}
+
+.nb-tilt {
+  transform: rotate(-1deg);
+}
+
+.nb-tilt:nth-child(even) {
+  transform: rotate(1deg);
+}
+
+.nb-dashed {
+  border: 2px dashed var(--border);
+}
+
+/* Geometric fills for stickers (checkerboard + diagonal stripes), drawn
+   with the border color so they follow light/dark mode automatically. */
+.nb-checker {
+  background-image:
+    linear-gradient(45deg, var(--check) 25%, transparent 25% 75%, var(--check) 75%),
+    linear-gradient(45deg, var(--check) 25%, transparent 25% 75%, var(--check) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.nb-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--check) 0 2px,
+    transparent 2px 10px
+  );
+}
+
+:root {
+  --check: color-mix(in oklab, var(--border) 22%, transparent);
 }
 
