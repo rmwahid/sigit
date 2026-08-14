@@ -168,6 +168,40 @@ h1, h2, h3 {
   border: 2px dashed var(--border);
 }
 
+/* Rendered repo README (lib/markdown.ts escapes raw HTML; marked output only) */
+.markdown-body {
+  line-height: 1.6;
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3 {
+  margin: 1em 0 0.5em;
+}
+.markdown-body h1 { font-size: 1.4rem; }
+.markdown-body h2 { font-size: 1.2rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+.markdown-body p { margin: 0.5em 0; }
+.markdown-body ul,
+.markdown-body ol { padding-left: 1.25rem; margin: 0.5em 0; }
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body code {
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  border-radius: 2px;
+  font-size: 0.85em;
+}
+.markdown-body pre {
+  background: var(--muted);
+  padding: 0.75em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.markdown-body pre code { background: transparent; padding: 0; }
+.markdown-body a { text-decoration: underline; }
+
 /* Geometric fills for stickers (checkerboard + diagonal stripes), drawn
    with the border color so they follow light/dark mode automatically. */
 .nb-checker {

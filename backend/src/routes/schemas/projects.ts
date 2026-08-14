@@ -86,6 +86,6 @@ export const backupResponse = z
   .object({ data: z.object({ key: z.string(), size: z.number() }) })
   .openapi("BackupResult");
 
-export const historyQuerySchema = z.object({ limit: z.string().optional() });
+export const historyQuerySchema = z.object({ limit: z.string().optional(), offset: z.string().optional() });
 
 export const diffParamSchema = z.object({ id: z.string().uuid(), hash: z.string() });

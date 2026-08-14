@@ -3,6 +3,10 @@ export const MIN_PASSWORD_LENGTH = 8;
 export const TOKEN_NAME_MAX_LENGTH = 100;
 export const DEFAULT_LOG_LIMIT = 200;
 export const DEFAULT_HISTORY_LIMIT = 50;
+export const MAX_HISTORY_LIMIT = 100;
+
+// File browser: max bytes served as text via the blob endpoint (1 MB).
+export const MAX_FILE_BROWSER_BYTES = 1024 * 1024;
 
 // git http-backend CGI header cap (bytes).
 export const MAX_CGI_HEADER_BYTES = 64 * 1024;

@@ -24,6 +24,17 @@ export const GIT_ZERO_HASH = "0000000000000000000000000000000000000000";
 export const BACKUP_FILENAME = "backup.bundle";
 export const REMOTE_USER = "sigit";
 
+// Download archive formats for the file browser (git archive). Mirrored in
+// frontend lib/constants/protocol.ts; constants-sync.test.ts enforces parity.
+export const ARCHIVE_FORMATS = {
+  ZIP: { slug: "zip", name: "ZIP" },
+  TAR_GZ: { slug: "tar.gz", name: "TAR.GZ" },
+} as const;
+
+export type ArchiveFormatSlug = (typeof ARCHIVE_FORMATS)[keyof typeof ARCHIVE_FORMATS]["slug"];
+
+export const ARCHIVE_FORMAT_SLUGS = Object.values(ARCHIVE_FORMATS).map((f) => f.slug);
+
 // Wrapping key id default (ENCRYPTION_KEYS map).
 export const DEFAULT_ENCRYPTION_KEY_ID = "v1";
 

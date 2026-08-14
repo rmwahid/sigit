@@ -13,6 +13,7 @@ import { invitationRoutes } from "./routes/invitations";
 import { emailSettingsRoutes } from "./routes/email-settings";
 import { storageRoutes } from "./routes/storage";
 import { projectRoutes } from "./routes/projects";
+import { browserRoutes } from "./routes/browser";
 import { gitRoutes } from "./routes/git";
 import { lfsRoutes } from "./routes/lfs";
 import { tokenRoutes } from "./routes/tokens";
@@ -94,10 +95,13 @@ app.route("/explore", exploreRoutes);
 
 app.route("/auth", authRoutes);
 
-// Git smart HTTP + LFS - MUST be mounted before app.use("/projects/*", requireAuth):
-// git/git-lfs clients do not send a session cookie, only a Basic auth token.
+// Git smart HTTP + LFS + file browser - MUST be mounted before
+// app.use("/projects/*", requireAuth): git/git-lfs clients do not send a
+// session cookie, only a Basic auth token, and the browser routes decide
+// access per request (session `view` permission OR public anonymous).
 // LFS first, then git: the .git catch-all in gitRoutes would hijack /info/lfs/*.
 app.route("/projects", lfsRoutes);
+app.route("/projects", browserRoutes);
 app.route("/projects", gitRoutes);
 
 // Protected routes
@@ -117,3 +121,4 @@ export default {
   port: Number(env.PORT),
   fetch: app.fetch,
 };
+

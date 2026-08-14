@@ -3,6 +3,9 @@
 // TOKEN_MAX_EXPIRY_DAYS.
 export const MIN_PASSWORD_LENGTH = 8;
 
+// File browser cap: mirrors backend MAX_FILE_BROWSER_BYTES (blob endpoint).
+export const MAX_FILE_BROWSER_BYTES = 1024 * 1024;
+
 export const TOKEN_MIN_EXPIRY_DAYS = 1;
 export const TOKEN_MAX_EXPIRY_DAYS = 30;
 export const TOKEN_DEFAULT_EXPIRY_DAYS = 30;

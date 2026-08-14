@@ -1,15 +1,21 @@
-import { DEFAULT_HISTORY_LIMIT } from "../../constants/limits";
+import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES } from "../../constants/limits";
 import { GIT_ZERO_HASH } from "../../constants/protocol";
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 function repoCwd(repoPath: string) {
   return { cwd: repoPath };
+}
+
+// Run git WITHOUT a shell: refs and paths are argv, never interpolated strings.
+function execGit(repoPath: string, args: string[], maxBuffer = 32 * 1024 * 1024) {
+  return execFileAsync("git", args, { cwd: repoPath, encoding: "buffer", maxBuffer });
 }
 
 export async function initRepo(repoPath: string, lfsThreshold = DEFAULT_LFS_SIZE_THRESHOLD): Promise<void> {
@@ -62,9 +68,9 @@ exit 0
   await fs.writeFile(hookPath, script, { mode: 0o755 });
 }
 
-export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT): Promise<{ hash: string; date: string; message: string; author: string }[]> {
+export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT, offset = 0): Promise<{ hash: string; date: string; message: string; author: string }[]> {
   const format = "%H%x1f%ai%x1f%s%x1f%an%x1e";
-  const { stdout } = await execAsync(`git log --pretty=format:"${format}" -n ${limit}`, repoCwd(repoPath));
+  const { stdout } = await execAsync(`git log --pretty=format:"${format}" --skip ${offset} -n ${limit}`, repoCwd(repoPath));
   if (!stdout.trim()) return [];
   return stdout
     .split("\x1e")
@@ -76,9 +82,22 @@ export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT): P
 }
 
 export async function getDiff(repoPath: string, a?: string, b?: string): Promise<string> {
-  const range = a && b ? `${a}..${b}` : a ? `${a}~1..${a}` : "HEAD";
+  const range = a && b ? `${a}..${b}` : a ? await diffRangeForCommit(repoPath, a) : "HEAD";
   const { stdout } = await execAsync(`git diff ${range}`, repoCwd(repoPath));
   return stdout;
+}
+
+// Empty tree hash: the diff baseline for root commits (they have no parent,
+// so "hash~1" is an unknown revision and git fails hard).
+const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+async function diffRangeForCommit(repoPath: string, hash: string): Promise<string> {
+  try {
+    await execAsync(`git rev-parse --verify "${hash}~1"`, repoCwd(repoPath));
+    return `${hash}~1..${hash}`;
+  } catch {
+    return `${EMPTY_TREE_HASH}..${hash}`;
+  }
 }
 
 export async function getCommitFiles(repoPath: string, hash: string): Promise<{ path: string; status: string }[]> {
@@ -104,4 +123,106 @@ export async function resolveHead(repoPath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// --- File browser helpers (git plumbing, argv-based, no shell) ---
+
+// Refs and paths become git args (e.g. "HEAD:path"), so reject option-like or
+// revision-syntax values even though the shell cannot interpret them.
+export function isValidRefName(ref: string): boolean {
+  if (!ref || ref.length > 200 || ref.startsWith("-") || ref.includes("..")) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(ref);
+}
+
+export function isValidFilePath(filePath: string): boolean {
+  if (filePath.length > 500 || filePath.startsWith("/") || filePath.startsWith("-") || filePath.includes("..")) return false;
+  return /^[A-Za-z0-9._/ -]*$/.test(filePath);
+}
+
+export type TreeEntry = {
+  name: string;
+  type: "blob" | "tree";
+  mode: string;
+  hash: string;
+};
+
+// git ls-tree -z <ref>:<dirPath> - entries split by NUL, meta/name by tab.
+export async function listTree(repoPath: string, ref: string, dirPath = ""): Promise<TreeEntry[]> {
+  const target = dirPath ? `${ref}:${dirPath}` : ref;
+  const { stdout } = await execGit(repoPath, ["ls-tree", "-z", target]);
+  return stdout
+    .toString("utf8")
+    .split("\0")
+    .filter(Boolean)
+    .map((line) => {
+      const [meta, name] = line.split("\t");
+      const [mode, type, hash] = meta.split(" ");
+      return { name: name ?? "", type: type === "tree" ? "tree" : "blob", mode: mode ?? "", hash: hash ?? "" };
+    });
+}
+
+export type ReadFileResult =
+  | { ok: true; content: string; encoding: "text" | "base64"; size: number }
+  | { ok: false; reason: "not-found" | "too-large" };
+
+// Heuristic: NUL byte or a visible share of control bytes means binary content.
+function looksBinary(buf: Buffer): boolean {
+  const sample = buf.subarray(0, 8192);
+  if (sample.includes(0)) return true;
+  let weird = 0;
+  for (const byte of sample) {
+    if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) weird++;
+  }
+  return weird > sample.length * 0.05;
+}
+
+export async function readFileAtRef(
+  repoPath: string,
+  ref: string,
+  filePath: string,
+  maxBytes = MAX_FILE_BROWSER_BYTES
+): Promise<ReadFileResult> {
+  const target = `${ref}:${filePath}`;
+  let size = 0;
+  try {
+    const { stdout } = await execGit(repoPath, ["cat-file", "-s", target]);
+    size = Number(stdout.toString("utf8").trim());
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  if (!Number.isFinite(size) || size > maxBytes) return { ok: false, reason: "too-large" };
+  const { stdout } = await execGit(repoPath, ["cat-file", "blob", target]);
+  const buf = Buffer.from(stdout);
+  const binary = looksBinary(buf);
+  return {
+    ok: true,
+    content: binary ? buf.toString("base64") : buf.toString("utf8"),
+    encoding: binary ? "base64" : "text",
+    size,
+  };
+}
+
+export async function listBranches(repoPath: string): Promise<string[]> {
+  const { stdout } = await execGit(repoPath, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+  return stdout
+    .toString("utf8")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Short name of the branch HEAD points at ("main"), or null when unborn.
+export async function resolveDefaultBranch(repoPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execGit(repoPath, ["symbolic-ref", "--short", "HEAD"]);
+    const name = stdout.toString("utf8").trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function archive(repoPath: string, ref: string, format: string): Promise<Buffer> {
+  const { stdout } = await execGit(repoPath, ["archive", `--format=${format}`, ref]);
+  return Buffer.from(stdout);
 }

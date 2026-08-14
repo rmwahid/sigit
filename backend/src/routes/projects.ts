@@ -1,5 +1,6 @@
 import { AUDIT_EVENTS } from "../constants/audit-events";
 import { ERROR_CODES } from "../constants/errors";
+import { DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from "../constants/limits";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db } from "../config/db";
@@ -265,8 +266,10 @@ projectRoutes.openapi(
     const { id } = c.req.valid("param");
     const guard = await requireProjectPermission(c, id, "history");
     if (guard instanceof Response) return guard as never;
-    const { limit } = c.req.valid("query");
-    const history = await projectHistory(id, limit ? Number(limit) : undefined);
+    const { limit, offset } = c.req.valid("query");
+    const limitNum = Math.min(Math.max(Number(limit) || DEFAULT_HISTORY_LIMIT, 1), MAX_HISTORY_LIMIT);
+    const offsetNum = Math.max(Number(offset) || 0, 0);
+    const history = await projectHistory(id, limitNum, offsetNum);
     return c.json({ data: history });
   }
 );

@@ -4,6 +4,7 @@
   import { APP_ROUTES } from "$lib/constants/paths";
   import { projectsStore } from "$lib/stores/projects.svelte";
   import { goto } from "$app/navigation";
+  import { page } from "$app/stores";
   import { onMount } from "svelte";
   import ThemeToggle from "$lib/ThemeToggle.svelte";
   import { createModal } from "$lib/stores/create-modal.svelte";
@@ -45,8 +46,11 @@
       currentUser = me.data;
       await load();
     } catch {
-      await goto("/login");
-      return;
+      // Anonymous: only public project pages are reachable without a session.
+      if (!/^\/projects\/[^/]+\/?$/.test($page.url.pathname)) {
+        await goto("/login");
+        return;
+      }
     } finally {
       loading = false;
     }
@@ -144,8 +148,7 @@
     </main>
   </div>
 
-  {#if createModal.open}
-    <div
+  {#if createModal.open}    <div
       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
       role="presentation"
       onclick={(e) => { if (!creating && e.target === e.currentTarget) createModal.open = false; }}
@@ -194,4 +197,24 @@
       </div>
     </div>
   {/if}
+{:else}
+  <!-- Anonymous shell: only public project pages land here -->
+  <div class="relative flex min-h-screen bg-background text-foreground flex-col">
+    <header class="h-14 border-b-2 border-border flex items-center justify-between px-4 bg-card">
+      <div class="flex items-center gap-2 text-sm">
+        <a href={APP_ROUTES.EXPLORE} class="text-xl font-bold tracking-tight pixel-border-sm px-3 py-1 bg-background">
+          <span class="nb-mark">SiGit</span>
+        </a>
+        <a href={APP_ROUTES.EXPLORE} class="pixel-border-sm px-3 py-1 bg-primary text-primary-foreground">Explore</a>
+      </div>
+      <div class="flex items-center gap-2">
+        <ThemeToggle />
+        <a href="/login" class="pixel-border-sm px-3 py-1 text-sm">Sign in</a>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-4">
+      {@render children?.()}
+    </main>
+  </div>
 {/if}

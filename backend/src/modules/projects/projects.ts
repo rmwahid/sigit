@@ -183,11 +183,11 @@ export async function hardDeleteProject(id: string): Promise<DeleteProjectResult
   return result;
 }
 
-export async function projectHistory(projectId: string, limit?: number) {
+export async function projectHistory(projectId: string, limit?: number, offset?: number) {
   const repoPath = projectRepoPath(projectId);
   const head = await resolveHead(repoPath);
   if (!head) return { head: null, commits: [] };
-  const commits = await getLog(repoPath, limit ?? 50);
+  const commits = await getLog(repoPath, limit ?? 50, offset ?? 0);
   return { head, commits };
 }
 

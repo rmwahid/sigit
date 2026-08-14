@@ -54,6 +54,30 @@ describe("git module (bare repo)", () => {
     expect(diff).toContain("+Updated.");
   });
 
+  it("diffs a root commit against the empty tree (no parent)", async () => {
+    const rootBare = path.join(tmpdir(), `sigit-root-${Date.now()}`);
+    const rootWork = path.join(tmpdir(), `sigit-root-work-${Date.now()}`);
+    try {
+      await initRepo(rootBare);
+      await fs.mkdir(rootWork, { recursive: true });
+      sh("git init -b main", rootWork);
+      sh('git config user.email "t@l"', rootWork);
+      sh('git config user.name "T"', rootWork);
+      await fs.writeFile(path.join(rootWork, "hello.txt"), "hello root\n");
+      sh("git add . && git commit -m \"test: root only\" -q", rootWork);
+      sh(`git remote add sigit ${rootBare}`, rootWork);
+      sh("git push sigit main -q", rootWork);
+
+      const head = await resolveHead(rootBare);
+      const diff = await getDiff(rootBare, head!);
+      expect(diff).toContain("hello.txt");
+      expect(diff).toContain("+hello root");
+    } finally {
+      await fs.rm(rootBare, { recursive: true, force: true });
+      await fs.rm(rootWork, { recursive: true, force: true });
+    }
+  });
+
   it("pre-receive hook rejects blobs above the threshold", async () => {
     const smallBare = path.join(tmpdir(), `sigit-hook-${Date.now()}`);
     const smallWork = path.join(tmpdir(), `sigit-hook-work-${Date.now()}`);
