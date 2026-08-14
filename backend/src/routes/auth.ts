@@ -42,6 +42,7 @@ const meResponse = z.object({
   data: z.object({
     id: z.string(),
     email: z.string(),
+    role: z.string(),
   }),
 });
 
@@ -70,7 +71,7 @@ authRoutes.openapi(
   async (c) => {
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
-    return c.json({ data: { id: user.id, email: user.email } });
+    return c.json({ data: { id: user.id, email: user.email, role: user.role } });
   }
 );
 
@@ -104,7 +105,7 @@ authRoutes.openapi(
     const { token } = await createSession(user.id);
     c.header("Set-Cookie", sessionCookie(token, SESSION_MAX_AGE_SECONDS, SECURE_COOKIE));
     audit(AUDIT_EVENTS.AUTH_LOGIN, { userId: user.id, email: user.email });
-    return c.json({ data: { id: user.id, email: user.email } });
+    return c.json({ data: { id: user.id, email: user.email, role: user.role } });
   }
 );
 
@@ -271,7 +272,7 @@ authRoutes.openapi(
     const session = await createSession(accepted.id);
     c.header("Set-Cookie", sessionCookie(session.token, SESSION_MAX_AGE_SECONDS, SECURE_COOKIE));
     audit(AUDIT_EVENTS.AUTH_INVITE_ACCEPT, { userId: accepted.id, email: accepted.email, role: accepted.role });
-    return c.json({ data: { id: accepted.id, email: accepted.email } });
+    return c.json({ data: { id: accepted.id, email: accepted.email, role: accepted.role } });
   }
 );
 
