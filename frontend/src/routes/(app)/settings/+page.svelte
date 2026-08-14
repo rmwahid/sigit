@@ -18,8 +18,8 @@
   } from "$lib/constants/validation";
   import { COPY, PLACEHOLDERS } from "$lib/constants/copy";
   import { formatDate } from "$lib/utils";
-  import { ADMIN_ROLE, DEFAULT_ROLE, ROLE_OPTIONS, type UserRole } from "$lib/constants/roles";
-  import { getMe, listUsers, updateUserRole, resetUserPassword, deleteUser, type ManagedUser } from "$lib/api";
+  import { ADMIN_ROLE, roleName } from "$lib/constants/roles";
+  import { getMe, listUsers, resetUserPassword, deleteUser, type ManagedUser } from "$lib/api";
   import { createInvitation, listInvitations, revokeInvitation, type Invitation } from "$lib/api/invitations";
   import { getEmailSettings, updateEmailSettings, testEmail } from "$lib/api/email-settings";
   import Button from "$lib/components/ui/button/button.svelte";
@@ -30,6 +30,10 @@
   import CardTitle from "$lib/components/ui/card/card-title.svelte";
   import CardContent from "$lib/components/ui/card/card-content.svelte";
   import CardFooter from "$lib/components/ui/card/card-footer.svelte";
+  import Squiggle from "$lib/components/decor/Squiggle.svelte";
+  import { KeyRound, Mail, UserRound, Users as UsersIcon } from "lucide-svelte";
+
+  let tab = $state<"account" | "tokens" | "users" | "email">("account");
 
   let currentPassword = $state("");
   let newPassword = $state("");
@@ -50,12 +54,11 @@
   const projects = $derived(projectsStore.list);
   const canCreate = $derived(tokenName.trim().length > 0 && Object.keys(tokenProjects).length > 0);
 
-  // Admin-only sections (Users + Email)
+  // Admin-only sections (Collaborators + Email)
   let isAdmin = $state(false);
   let users = $state<ManagedUser[]>([]);
   let invites = $state<Invitation[]>([]);
   let inviteEmail = $state("");
-  let inviteRole = $state<UserRole>(DEFAULT_ROLE);
   let inviteResult = $state<{ inviteLink: string; emailSent: boolean } | null>(null);
   let resetTarget = $state<ManagedUser | null>(null);
   let resetPassword = $state("");
@@ -70,7 +73,9 @@
       isAdmin = me.data.role === ADMIN_ROLE;
       if (!isAdmin) return;
       const [u, i, e] = await Promise.all([listUsers(), listInvitations(), getEmailSettings()]);
-      users = u.data;
+      // Collaborators tab: the site admin is not a collaborator, so they are
+      // managed from the Account tab, not listed here.
+      users = u.data.filter((x) => x.role !== ADMIN_ROLE);
       invites = i.data;
       emailSettings = e.data;
       emailFrom = e.data.fromEmail ?? "";
@@ -83,7 +88,7 @@
     if (!inviteEmail.trim()) return;
     error = "";
     try {
-      const res = await createInvitation(inviteEmail.trim(), inviteRole);
+      const res = await createInvitation(inviteEmail.trim());
       inviteResult = { inviteLink: res.data.inviteLink, emailSent: res.data.emailSent };
       inviteEmail = "";
       const list = await listInvitations();
@@ -98,16 +103,6 @@
     try {
       await revokeInvitation(id);
       invites = (await listInvitations()).data;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  async function onChangeRole(id: string, role: UserRole) {
-    error = "";
-    try {
-      await updateUserRole(id, role);
-      users = (await listUsers()).data;
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -272,16 +267,95 @@
   loadAdminData();
 </script>
 
-<div class="max-w-2xl mx-auto py-10 flex flex-col gap-10">
+<div class="max-w-3xl mx-auto py-8 flex flex-col gap-6">
   <!-- Header -->
   <div>
-    <h1 class="text-2xl font-bold tracking-widest">Settings</h1>
-    <p class="text-sm text-muted-foreground mt-1">Manage git tokens, password, and sessions.</p>
+    <h1 class="text-3xl font-extrabold mb-2"><span class="nb-mark">Settings</span></h1>
+    <Squiggle class="h-2.5 w-32 text-accent" />
   </div>
 
   {#if error}<div class="p-3 border border-destructive text-destructive text-sm">{error}</div>{/if}
   {#if message}<div class="p-3 border border-primary text-primary text-sm">{message}</div>{/if}
 
+  <!-- Tab bar -->
+  <div class="flex gap-1 border-b-2 border-border">
+    <button
+      class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm {tab === "account" ? "bg-primary text-primary-foreground -mb-0.5" : "bg-card hover:bg-muted"}"
+      onclick={() => (tab = "account")}
+    >
+      <UserRound class="size-3.5" /> Account
+    </button>
+    <button
+      class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm {tab === "tokens" ? "bg-primary text-primary-foreground -mb-0.5" : "bg-card hover:bg-muted"}"
+      onclick={() => (tab = "tokens")}
+    >
+      <KeyRound class="size-3.5" /> Tokens
+    </button>
+    {#if isAdmin}
+      <button
+        class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm {tab === "users" ? "bg-primary text-primary-foreground -mb-0.5" : "bg-card hover:bg-muted"}"
+        onclick={() => (tab = "users")}
+      >
+        <UsersIcon class="size-3.5" /> Collaborators
+      </button>
+      <button
+        class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm {tab === "email" ? "bg-primary text-primary-foreground -mb-0.5" : "bg-card hover:bg-muted"}"
+        onclick={() => (tab = "email")}
+      >
+        <Mail class="size-3.5" /> Email
+      </button>
+    {/if}
+  </div>
+
+  {#if tab === "account"}
+  <!-- Account -->
+  <section class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+    <Card class="pixel-border bg-card">
+      <CardHeader>
+        <CardTitle>Change Password</CardTitle>
+      </CardHeader>
+      <form onsubmit={onChangePassword}>
+        <CardContent class="grid gap-3 pb-4">
+          <div class="grid gap-1">
+            <Label for="cp">Current password</Label>
+            <Input id="cp" class="pixel-border-sm" type="password" bind:value={currentPassword} required autocomplete="current-password" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="np">New password</Label>
+            <Input id="np" class="pixel-border-sm" type="password" bind:value={newPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
+          </div>
+          <div class="grid gap-1">
+            <Label for="cf">Confirm new password</Label>
+            <Input id="cf" class="pixel-border-sm" type="password" bind:value={confirmPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button type="submit" class="w-full pixel-border-sm">Change Password</Button>
+        </CardFooter>
+      </form>
+    </Card>
+
+    <Card class="pixel-border bg-card">
+      <CardHeader>
+        <CardTitle>Revoke All Sessions</CardTitle>
+      </CardHeader>
+      <form onsubmit={onRevokeAll}>
+        <CardContent class="grid gap-3 pb-4">
+          <p class="text-sm text-muted-foreground">Log out all other devices. Enter your password to confirm.</p>
+          <div class="grid gap-1">
+            <Label for="rp">Password</Label>
+            <Input id="rp" class="pixel-border-sm" type="password" bind:value={revokePassword} required />
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button type="submit" class="w-full pixel-border-sm">Revoke All Sessions</Button>
+        </CardFooter>
+      </form>
+    </Card>
+  </section>
+  {/if}
+
+  {#if tab === "tokens"}
   <!-- Git Tokens -->
   <section class="flex flex-col gap-5">
     <div>
@@ -386,14 +460,14 @@
       <p class="text-sm text-muted-foreground italic">No tokens yet - create one to push with git.</p>
     {/if}
   </section>
-
-  <hr class="border-border" />
+  {/if}
 
   {#if isAdmin}
+    {#if tab === "users"}
     <!-- Users -->
     <section class="flex flex-col gap-5">
       <div>
-        <h2 class="text-lg font-bold">Users</h2>
+        <h2 class="text-lg font-bold">Collaborators</h2>
         <p class="text-sm text-muted-foreground mt-1">
           Invite people by email. Invitees set their own password via the invite link.
         </p>
@@ -430,16 +504,9 @@
             <Label for="invite-email">Email</Label>
             <Input id="invite-email" class="pixel-border-sm w-full" bind:value={inviteEmail} placeholder={PLACEHOLDERS.INVITE_EMAIL} />
           </div>
-          <div>
-            <Label for="invite-role">Role</Label>
-            <select id="invite-role" class="pixel-border-sm bg-background px-2 py-2 text-sm" bind:value={inviteRole}>
-              {#each ROLE_OPTIONS as r}
-                <option value={r.slug}>{r.name}</option>
-              {/each}
-            </select>
-          </div>
           <Button class="pixel-border-sm shrink-0" onclick={onInvite} disabled={!inviteEmail.trim()}>Invite</Button>
         </div>
+        <p class="text-xs text-muted-foreground">Invitees always join as collaborators. The site admin is a single fixed account.</p>
       </div>
 
       <ul class="flex flex-col gap-2">
@@ -449,15 +516,7 @@
               <span class="font-medium truncate">{u.email}</span>
               <p class="text-xs text-muted-foreground mt-1">joined {formatDate(u.createdAt)}</p>
             </div>
-            <select
-              class="pixel-border-sm bg-background px-2 py-1 text-xs"
-              value={u.role}
-              onchange={(e) => onChangeRole(u.id, e.currentTarget.value as UserRole)}
-            >
-              {#each ROLE_OPTIONS as r}
-                <option value={r.slug}>{r.name}</option>
-              {/each}
-            </select>
+            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">{roleName(u.role)}</span>
             <button class="pixel-border-sm px-3 py-1 text-xs" onclick={() => (resetTarget = u)}>Reset password</button>
             <button class="pixel-border-sm px-3 py-1 text-xs text-destructive shrink-0" onclick={() => onDeleteUser(u.id, u.email)}>
               Delete
@@ -484,7 +543,7 @@
             {#each invites as inv}
               <li class="pixel-border-sm bg-card px-4 py-2 flex items-center gap-3">
                 <span class="flex-1 truncate text-sm">{inv.email}</span>
-                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">{inv.role}</span>
+                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm">{roleName(inv.role)}</span>
                 <button class="pixel-border-sm px-2 py-1 text-xs text-destructive" onclick={() => onRevokeInvite(inv.id)}>Revoke</button>
               </li>
             {/each}
@@ -492,9 +551,9 @@
         </div>
       {/if}
     </section>
+    {/if}
 
-    <hr class="border-border" />
-
+    {#if tab === "email"}
     <!-- Email -->
     <section class="flex flex-col gap-4">
       <div>
@@ -520,53 +579,6 @@
         </div>
       </div>
     </section>
+    {/if}
   {/if}
-
-  <hr class="border-border" />
-
-  <!-- Account -->
-  <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
-    <Card class="pixel-border bg-card">
-      <CardHeader>
-        <CardTitle>Change Password</CardTitle>
-      </CardHeader>
-      <form onsubmit={onChangePassword}>
-        <CardContent class="grid gap-3">
-          <div class="grid gap-1">
-            <Label for="cp">Current password</Label>
-            <Input id="cp" class="pixel-border-sm" type="password" bind:value={currentPassword} required autocomplete="current-password" />
-          </div>
-          <div class="grid gap-1">
-            <Label for="np">New password</Label>
-            <Input id="np" class="pixel-border-sm" type="password" bind:value={newPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
-          </div>
-          <div class="grid gap-1">
-            <Label for="cf">Confirm new password</Label>
-            <Input id="cf" class="pixel-border-sm" type="password" bind:value={confirmPassword} required minlength={MIN_PASSWORD_LENGTH} autocomplete="new-password" />
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button type="submit" class="w-full pixel-border-sm">Change Password</Button>
-        </CardFooter>
-      </form>
-    </Card>
-
-    <Card class="pixel-border bg-card">
-      <CardHeader>
-        <CardTitle>Revoke All Sessions</CardTitle>
-      </CardHeader>
-      <form onsubmit={onRevokeAll}>
-        <CardContent class="grid gap-3">
-          <p class="text-sm text-muted-foreground">Log out all other devices. Enter your password to confirm.</p>
-          <div class="grid gap-1">
-            <Label for="rp">Password</Label>
-            <Input id="rp" class="pixel-border-sm" type="password" bind:value={revokePassword} required />
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button type="submit" class="w-full pixel-border-sm">Revoke All Sessions</Button>
-        </CardFooter>
-      </form>
-    </Card>
-  </section>
 </div>

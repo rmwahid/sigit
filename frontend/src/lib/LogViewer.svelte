@@ -52,7 +52,7 @@
 
 <div class="logviewer">
   <div class="toolbar">
-    <button onclick={loadOlder} disabled={loadingOlder}>
+    <button class="pixel-border-sm px-3 py-1 text-sm" onclick={loadOlder} disabled={loadingOlder}>
       {loadingOlder ? "Loading..." : "Load older"}
     </button>
     <span class="count">{entries.length} entries</span>
@@ -65,21 +65,23 @@
 </div>
 
 <style>
-  .logviewer { display: flex; flex-direction: column; gap: 0.5rem; }
+  .logviewer { display: flex; flex-direction: column; gap: 0.75rem; }
   .toolbar { display: flex; align-items: center; gap: 0.75rem; }
-  .count { color: #666; font-size: 0.85rem; }
+  .count { color: var(--muted-foreground); font-size: 0.85rem; }
   .loglist {
-    max-height: 400px;
+    max-height: 450px;
     overflow-y: auto;
-    background: #111;
-    color: #ddd;
+    background: var(--card);
+    color: var(--foreground);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 4px 4px 0 0 var(--border);
     font-family: ui-monospace, monospace;
     font-size: 0.8rem;
     line-height: 1.5;
     padding: 0.75rem;
-    border-radius: 0.5rem;
     white-space: pre-wrap;
   }
-  .err { color: #f88; }
-  .warn { color: #fc3; }
+  .err { color: var(--destructive); }
+  .warn { color: #d29922; }
 </style>

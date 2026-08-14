@@ -127,7 +127,7 @@ git push sigit main                         # username: <token-name>, password: 
 - [x] **Git LFS server** - full batch/upload/download/verify protocol; objects are stored in your storage at `projects/{id}/lfs/{oid}` with SHA-256 verification.
 - [x] **Automatic backups** - every accepted push updates `projects/{id}/backup.bundle` in your storage.
 - [x] **Unique project names** - projects live at `/projects/<name>.git`.
-- [x] **Web UI** - dashboard, commit history, line-by-line diff viewer (diff2html), token management.
+- [x] **Web UI** - neobrutalism-styled: dashboard cards, project pages with Code/History/Activity/Settings tabs, explore page + user profiles for public projects, diff viewer with per-file collapse, token management.
 - [x] **Secrets encrypted at rest** - S3 credentials encrypted with AES-256-GCM; env managed with SOPS.
 - [x] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
 - [x] **Per-project token scopes** - tokens grant read/write per project; no global tokens. Project pages list which tokens can access them.
@@ -138,7 +138,7 @@ git push sigit main                         # username: <token-name>, password: 
 - [x] **Encryption at rest** - transparent server-side encryption (per-project AES-256-GCM keys) for LFS objects and `backup.bundle` in your storage.
 - [ ] **Branch protection and releases** - protected branches, tags, and downloadable release archives.
 - [ ] **SSH authentication** - git and LFS over SSH.
-- [ ] **Web-based file browser** - browse repository files per ref.
+- [x] **Web-based file browser** - browse files per branch (tree + text file viewer), rendered README (marked), ZIP/TAR.GZ downloads, paginated history and a per-project activity feed. Public projects are browsable anonymously (Code + History tabs).
 
 ### License
 
