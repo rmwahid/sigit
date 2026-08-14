@@ -22,6 +22,7 @@ export const API_PATHS = {
   APP_INFO: "/app-info",
   ADMIN_LOGS: "/admin/logs",
   ADMIN_LOGS_STREAM: "/admin/logs/stream",
+  EXPLORE: "/explore",
 } as const;
 
 export const APP_ROUTES = {
@@ -29,6 +30,7 @@ export const APP_ROUTES = {
   LOGS: "/logs",
   SETTINGS: "/settings",
   INVITE: "/invite",
+  EXPLORE: "/explore",
 } as const;
 
 // Git snippet constants.

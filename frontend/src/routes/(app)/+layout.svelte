@@ -151,6 +151,7 @@
       <header class="h-14 border-b border-border flex items-center justify-between px-4 bg-card">
         <div class="flex items-center gap-2 text-sm">
           <a href={APP_ROUTES.ROOT} class="pixel-border-sm px-3 py-1">Projects</a>
+          <a href={APP_ROUTES.EXPLORE} class="pixel-border-sm px-3 py-1 bg-card">Explore</a>
           {#if currentUser.role === ADMIN_ROLE}
             <a href={APP_ROUTES.LOGS} class="pixel-border-sm px-3 py-1">Logs</a>
           {/if}

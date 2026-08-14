@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { apiReference } from "@scalar/hono-api-reference";
 import { env } from "./config/env";
 import { appInfoRoutes } from "./routes/app-info";
+import { exploreRoutes } from "./routes/explore";
 import { authRoutes } from "./routes/auth";
 import { adminRoutes } from "./routes/admin";
 import { userRoutes } from "./routes/users";
@@ -89,6 +90,7 @@ app.get("/", (c) => c.json({ message: "SiGit API" }));
 
 // Public app info (git base url for setup snippets), before the requireAuth block
 app.route("/app-info", appInfoRoutes);
+app.route("/explore", exploreRoutes);
 
 app.route("/auth", authRoutes);
 
