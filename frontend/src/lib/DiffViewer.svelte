@@ -11,7 +11,11 @@
   function wireCollapse() {
     container?.querySelectorAll(".d2h-file-wrapper").forEach((wrapper) => {
       const nameWrap = wrapper.querySelector(".d2h-file-name-wrapper");
-      if (!nameWrap || nameWrap.querySelector(".d2h-chevron")) return;
+      if (!nameWrap) return;
+      // diff2html always renders the "Viewed" checkbox label in file headers;
+      // our chevron replaces it, so drop it from the DOM entirely.
+      nameWrap.querySelector(".d2h-file-collapse")?.remove();
+      if (nameWrap.querySelector(".d2h-chevron")) return;
       const chevron = document.createElement("span");
       chevron.className = "d2h-chevron";
       chevron.setAttribute("aria-hidden", "true");
@@ -74,7 +78,8 @@
     display: inline-block;
     width: 0;
     height: 0;
-    margin-left: 0.4rem;
+    margin-left: auto;
+    margin-right: 0.4rem;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
     border-top: 6px solid var(--foreground);

@@ -202,6 +202,41 @@ h1, h2, h3 {
 .markdown-body pre code { background: transparent; padding: 0; }
 .markdown-body a { text-decoration: underline; }
 
+/* diff2html: follow the app palette instead of its hardcoded white scheme.
+   The row backgrounds must use the card color so the inherited foreground
+   text stays readable in dark mode. */
+.diff2html {
+  color: var(--foreground);
+  --d2h-bg-color: var(--card);
+  --d2h-file-header-bg-color: var(--muted);
+  --d2h-file-header-border-color: var(--border);
+  --d2h-line-border-color: var(--border);
+  --d2h-border-color: var(--border);
+  --d2h-dim-color: var(--muted-foreground);
+  --d2h-empty-placeholder-bg-color: var(--muted);
+  --d2h-empty-placeholder-border-color: var(--border);
+  --d2h-selected-color: color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
+.diff2html .d2h-file-header {
+  font-family: var(--font-sans);
+}
+
+/* Dark mode ins/del tints (mirrors diff2html's own dark scheme values). */
+.dark .diff2html {
+  --d2h-ins-bg-color: rgba(46, 160, 67, 0.18);
+  --d2h-ins-border-color: rgba(46, 160, 67, 0.4);
+  --d2h-ins-highlight-bg-color: rgba(46, 160, 67, 0.4);
+  --d2h-ins-label-color: #3fb950;
+  --d2h-del-bg-color: rgba(248, 81, 73, 0.14);
+  --d2h-del-border-color: rgba(248, 81, 73, 0.4);
+  --d2h-del-highlight-bg-color: rgba(248, 81, 73, 0.4);
+  --d2h-del-label-color: #f85149;
+  --d2h-change-del-color: rgba(210, 153, 34, 0.2);
+  --d2h-change-ins-color: rgba(46, 160, 67, 0.25);
+  --d2h-change-label-color: #d29922;
+}
+
 /* Geometric fills for stickers (checkerboard + diagonal stripes), drawn
    with the border color so they follow light/dark mode automatically. */
 .nb-checker {
