@@ -1,5 +1,5 @@
 import { describe, expect, it, afterAll } from "bun:test";
-import { ADMIN_ROLE, DEFAULT_ROLE } from "../src/constants/roles";
+import { DEFAULT_ROLE } from "../src/constants/roles";
 import { eq } from "drizzle-orm";
 import { db } from "../src/config/db";
 import { invitations, users } from "../src/db/schema/auth";
@@ -43,7 +43,7 @@ afterAll(async () => {
 describe("invitations", () => {
   it("creates a valid invitation and accepts it (user created, auto-used)", async () => {
     const email = `invite-${suffix}@test.local`;
-    const { token, inviteLink } = await createInvitation(email, DEFAULT_ROLE);
+    const { token, inviteLink } = await createInvitation(email);
 
     expect(inviteLink).toContain(`token=${token}`);
     const info = await validateInvitation(token);
@@ -88,7 +88,7 @@ describe("invitations", () => {
 
   it("rejects accepting when the email is already registered", async () => {
     const existing = (await db.select().from(users).limit(1))[0];
-    const { token } = await createInvitation(existing.email, DEFAULT_ROLE);
+    const { token } = await createInvitation(existing.email);
     let error = "";
     try {
       await acceptInvitation(token, "password123");
@@ -98,12 +98,24 @@ describe("invitations", () => {
     expect(error).toBe("EMAIL_TAKEN");
   });
 
+  it("accepting a legacy admin-role invitation still creates a collaborator", async () => {
+    const email = `legacy-${suffix}@test.local`;
+    const { token } = await createInvitation(email);
+    // Simulate an invitation row created before the single-admin rule.
+    await db.update(invitations).set({ role: "admin" }).where(eq(invitations.email, email));
+
+    const accepted = await acceptInvitation(token, "password123");
+    createdUserIds.push(accepted.id);
+    expect(accepted.role).toBe(DEFAULT_ROLE);
+    expect((await getUserByEmail(email))?.role).toBe(DEFAULT_ROLE);
+  });
+
   it("lists and revokes invitations", async () => {
-    const { token } = await createInvitation(`revoke-${suffix}@test.local`, "admin");
+    const { token } = await createInvitation(`revoke-${suffix}@test.local`);
     const list = await listInvitations();
     const created = list.find((i) => i.email === `revoke-${suffix}@test.local`);
     expect(created).toBeDefined();
-    expect(created?.role).toBe(ADMIN_ROLE);
+    expect(created?.role).toBe(DEFAULT_ROLE);
 
     expect(await revokeInvitation(created!.id)).toBe(true);
     expect(await validateInvitation(token)).toBeNull();

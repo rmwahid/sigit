@@ -5,7 +5,7 @@ import { db } from "../src/config/db";
 import { projectCollaborators, users } from "../src/db/schema/auth";
 import { createConnectionFromInput, deleteConnection } from "../src/modules/storage/connections";
 import { createProject, hardDeleteProject } from "../src/modules/projects/projects";
-import { createUser, deleteUser, listUsers, updateUserRole } from "../src/modules/auth/auth";
+import { createAdminUser, createUser, deleteUser, listUsers } from "../src/modules/auth/auth";
 import {
   getProjectAccess,
   hasPermission,
@@ -172,7 +172,7 @@ describe("project access (DB sigit)", () => {
 });
 
 describe("user management (DB sigit)", () => {
-  it("creates, lists, updates role and deletes a user", async () => {
+  it("creates, lists and deletes a user (role is fixed at creation)", async () => {
     const created = await createUser(`mgmt-${suffix}@test.local`, "password123", DEFAULT_ROLE);
     createdUserIds.push(created.id);
 
@@ -180,12 +180,18 @@ describe("user management (DB sigit)", () => {
     expect(listed.some((u) => u.id === created.id && u.role === DEFAULT_ROLE)).toBe(true);
     expect(listed[0]).not.toHaveProperty("passwordHash");
 
-    await updateUserRole(created.id, ADMIN_ROLE);
+    // The only path to an admin account is createAdminUser (single admin
+    // model: regular users can never be promoted).
+    const admin = await createAdminUser(`mgmt-admin-${suffix}@test.local`, "password123");
+    createdUserIds.push(admin.id);
     const after = await listUsers();
-    expect(after.find((u) => u.id === created.id)?.role).toBe(ADMIN_ROLE);
+    expect(after.find((u) => u.id === admin.id)?.role).toBe(ADMIN_ROLE);
+    expect(after.find((u) => u.id === created.id)?.role).toBe(DEFAULT_ROLE);
 
     await deleteUser(created.id);
+    await deleteUser(admin.id);
     const final = await listUsers();
     expect(final.some((u) => u.id === created.id)).toBe(false);
+    expect(final.some((u) => u.id === admin.id)).toBe(false);
   });
 });

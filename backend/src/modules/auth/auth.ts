@@ -69,15 +69,6 @@ export async function createAdminUser(email: string, password: string): Promise<
   return createUser(email, password, ADMIN_ROLE);
 }
 
-export async function updateUserRole(id: string, role: UserRole): Promise<User | undefined> {
-  const rows = await db
-    .update(users)
-    .set({ role, updatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning();
-  return rows[0];
-}
-
 export async function listUsers(): Promise<Array<Pick<User, "id" | "email" | "role" | "createdAt">>> {
   return db
     .select({ id: users.id, email: users.email, role: users.role, createdAt: users.createdAt })

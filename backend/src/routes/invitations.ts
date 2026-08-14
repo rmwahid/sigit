@@ -20,9 +20,10 @@ const invitationSchema = z
   .openapi("Invitation");
 
 const invitationListResponse = z.object({ data: z.array(invitationSchema) });
+// Role is NOT part of the create input: invitees are always collaborators
+// (single admin model), so the role cannot be minted via the API.
 const invitationCreateInput = z.object({
   email: z.string().email(),
-  role: z.enum(ROLE_SLUGS).default(DEFAULT_ROLE),
 });
 const invitationCreatedResponse = z.object({
   data: z.object({
@@ -88,21 +89,21 @@ invitationRoutes.openapi(
   async (c) => {
     const admin = await requireAdmin(c);
     if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
-    const { email, role } = c.req.valid("json");
-    const { inviteLink } = await createInvitation(email, role);
+    const { email } = c.req.valid("json");
+    const { inviteLink } = await createInvitation(email);
     const mail = await sendEmail(
       email,
       "You have been invited to SiGit",
       `<p>Set up your SiGit account here:</p><p><a href="${inviteLink}">${inviteLink}</a></p>`
     );
-    audit(AUDIT_EVENTS.INVITATION_CREATE, { email, role, emailSent: mail.sent, by: admin.email });
+    audit(AUDIT_EVENTS.INVITATION_CREATE, { email, role: DEFAULT_ROLE, emailSent: mail.sent, by: admin.email });
     const invitation = (await listInvitations()).find((i) => i.email === email);
     return c.json(
       {
         data: {
           id: invitation?.id ?? "",
           email,
-          role,
+          role: DEFAULT_ROLE,
           inviteLink,
           emailSent: mail.sent,
         },

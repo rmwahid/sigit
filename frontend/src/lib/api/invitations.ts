@@ -23,10 +23,10 @@ export async function listInvitations() {
   return api<{ data: Invitation[] }>(API_PATHS.INVITATIONS);
 }
 
-export async function createInvitation(email: string, role: UserRole) {
+export async function createInvitation(email: string) {
   return api<{ data: CreatedInvitation }>(API_PATHS.INVITATIONS, {
     method: "POST",
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify({ email }),
   });
 }
 

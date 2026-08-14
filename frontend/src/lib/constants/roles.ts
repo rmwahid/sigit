@@ -5,8 +5,6 @@ export const ROLES = {
   COLLABORATOR: { slug: "collaborator", name: "Collaborator" },
 } as const;
 
-export const ROLE_OPTIONS = Object.values(ROLES);
-
 export const ADMIN_ROLE = ROLES.ADMIN.slug;
 export const DEFAULT_ROLE = ROLES.COLLABORATOR.slug;
 

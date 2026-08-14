@@ -13,13 +13,6 @@ export async function listUsers() {
   return api<{ data: ManagedUser[] }>(API_PATHS.USERS);
 }
 
-export async function updateUserRole(id: string, role: UserRole) {
-  return api<{ data: ManagedUser }>(`${API_PATHS.USERS}/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ role }),
-  });
-}
-
 export async function resetUserPassword(id: string, password: string) {
   return api<{ message: string }>(`${API_PATHS.USERS}/${id}/reset-password`, {
     method: "POST",

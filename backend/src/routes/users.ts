@@ -2,7 +2,7 @@ import { MIN_PASSWORD_LENGTH } from "../constants/limits";
 import { AUDIT_EVENTS } from "../constants/audit-events";
 import { ERROR_CODES } from "../constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { deleteUser, listUsers, setUserPassword, updateUserRole } from "../modules/auth/auth";
+import { deleteUser, listUsers, setUserPassword } from "../modules/auth/auth";
 import { ROLE_SLUGS } from "../constants/roles";
 import { requireAdmin, type AuthEnv } from "../middleware/auth";
 import { audit } from "../lib/logger";
@@ -18,7 +18,6 @@ const userSchema = z
   .openapi("User");
 
 const userListResponse = z.object({ data: z.array(userSchema) });
-const userRoleInput = z.object({ role: z.enum(ROLE_SLUGS) });
 const resetPasswordInput = z.object({ password: z.string().min(MIN_PASSWORD_LENGTH) });
 const messageResponse = z.object({ message: z.string() });
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
@@ -45,39 +44,6 @@ userRoutes.openapi(
     return c.json({
       data: items.map((u) => ({ ...u, createdAt: u.createdAt.toISOString() })),
     });
-  }
-);
-
-userRoutes.openapi(
-  createRoute({
-    method: "patch",
-    path: "/{id}",
-    tags: ["Users"],
-    summary: "Change a user role (admin only)",
-    request: {
-      params: idParamSchema,
-      body: { content: { "application/json": { schema: userRoleInput } } },
-    },
-    responses: {
-      200: {
-        description: "Updated user",
-        content: { "application/json": { schema: userSchema } },
-      },
-      404: {
-        description: "Not found",
-        content: { "application/json": { schema: errorSchema } },
-      },
-    },
-  }),
-  async (c) => {
-    const admin = await requireAdmin(c);
-    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
-    const { id } = c.req.valid("param");
-    const { role } = c.req.valid("json");
-    const user = await updateUserRole(id, role);
-    if (!user) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
-    audit(AUDIT_EVENTS.USER_UPDATE, { userId: id, role, by: admin.email });
-    return c.json({ data: { ...user, createdAt: user.createdAt.toISOString() } });
   }
 );
 

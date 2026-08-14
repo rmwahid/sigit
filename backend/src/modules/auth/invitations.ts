@@ -16,13 +16,12 @@ const INVITE_TTL_DAYS = 7;
 
 export type InvitationInfo = { id: string; email: string; role: UserRole };
 
-export async function createInvitation(
-  email: string,
-  role: UserRole
-): Promise<{ token: string; inviteLink: string; expiresAt: Date }> {
+// Invitees are ALWAYS collaborators: the site admin is a single fixed role,
+// so there is no way to mint a second admin through invitations.
+export async function createInvitation(email: string): Promise<{ token: string; inviteLink: string; expiresAt: Date }> {
   const raw = INVITE_PREFIX + crypto.randomBytes(RANDOM_TOKEN_BYTES).toString("base64url");
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
-  await db.insert(invitations).values({ email, role, tokenHash: sha256(raw), expiresAt });
+  await db.insert(invitations).values({ email, role: DEFAULT_ROLE, tokenHash: sha256(raw), expiresAt });
   return { token: raw, inviteLink: `${env.FRONTEND_URL}/invite?token=${raw}`, expiresAt };
 }
 
@@ -42,7 +41,9 @@ export async function acceptInvitation(
   const inv = await validateInvitation(token);
   if (!inv) throw new Error(ERROR_CODES.INVALID_INVITATION);
   if (await getUserByEmail(inv.email)) throw new Error(ERROR_CODES.EMAIL_TAKEN);
-  const user = await createUser(inv.email, password, inv.role);
+  // Force the collaborator role here too: legacy invitation rows from before
+  // the single-admin rule could still carry role = admin in the DB.
+  const user = await createUser(inv.email, password, DEFAULT_ROLE);
   await db.update(invitations).set({ usedAt: new Date() }).where(eq(invitations.id, inv.id));
   return { id: user.id, email: user.email, role: user.role as UserRole };
 }
