@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { listPublicProjects } from "../modules/auth/access";
+import { listAccessibleProjectIds, listPublicProjects } from "../modules/auth/access";
 import { getUserByEmail } from "../modules/auth/auth";
 
 // Public routes (no auth): explore public projects + user profiles.
@@ -94,5 +94,3 @@ exploreRoutes.openapi(
     });
   }
 );
-
-import { listAccessibleProjectIds } from "../modules/auth/access";
