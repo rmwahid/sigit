@@ -6,13 +6,17 @@
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import ThemeToggle from "$lib/ThemeToggle.svelte";
+  import { createModal } from "$lib/stores/create-modal.svelte";
+  import HangingTag from "$lib/components/decor/HangingTag.svelte";
+  import Starburst from "$lib/components/decor/Starburst.svelte";
+  import Squiggle from "$lib/components/decor/Squiggle.svelte";
+  import { Rocket } from "lucide-svelte";
 
   let { children }: { children?: import("svelte").Snippet } = $props();
 
   let loading = $state(true);
   let currentUser = $state<CurrentUser | null>(null);
   let error = $state("");
-  let showCreate = $state(false);
   let creating = $state(false);
   let connTab = $state<"s3" | "gdrive">("s3");
   let newName = $state("");
@@ -26,14 +30,6 @@
   let s3AccessKeyId = $state("");
   let s3SecretAccessKey = $state("");
   let s3Bucket = $state("");
-
-  let projects = $derived(projectsStore.list);
-
-  const activeId = $derived(
-    typeof window !== "undefined"
-      ? window.location.pathname.match(/^\/projects\/([^/]+)/)?.[1] ?? null
-      : null
-  );
 
   async function load() {
     try {
@@ -66,7 +62,7 @@
   }
 
   function resetForm() {
-    showCreate = false;
+    createModal.open = false;
     creating = false;
     newName = "";
     s3Name = "";
@@ -114,72 +110,55 @@
     <p class="text-muted-foreground">Loading...</p>
   </div>
 {:else if currentUser}
-  <div class="flex min-h-screen bg-background text-foreground">
-    <!-- Sidebar -->
-    <aside class="w-64 shrink-0 border-r border-border flex flex-col bg-card">
-      <div class="p-4 border-b border-border">
-        <a href={APP_ROUTES.ROOT} class="text-xl font-bold tracking-widest pixel-border inline-block px-3 py-1 bg-background">SiGit</a>
-      </div>
-
-      <div class="p-4 text-xs uppercase tracking-wider text-muted-foreground">Projects</div>
-      <nav class="flex-1 overflow-y-auto px-2">
-        {#if projects.length === 0}
-          <div class="p-3 text-sm text-muted-foreground">No projects yet. Create your first project.</div>
-        {:else}
-          {#each projects as p}
-            <a
-              href={`/projects/${p.id}`}
-              class:bg-muted={activeId === p.id}
-              class="block w-full text-left px-3 py-2 rounded-sm mb-1 hover:bg-muted truncate"
-            >
-              {p.name}
-            </a>
-          {/each}
+  <div class="relative flex min-h-screen bg-background text-foreground flex-col">
+    <!-- Topbar -->
+    <header class="h-14 border-b-2 border-border flex items-center justify-between px-4 bg-card">
+      <div class="flex items-center gap-2 text-sm">
+        <a href={APP_ROUTES.ROOT} class="text-xl font-bold tracking-tight pixel-border-sm px-3 py-1 bg-background">
+          <span class="nb-mark">SiGit</span>
+        </a>
+        <a href={APP_ROUTES.ROOT} class="pixel-border-sm px-3 py-1">Projects</a>
+        {#if currentUser.role === ADMIN_ROLE}
+          <a href={APP_ROUTES.LOGS} class="pixel-border-sm px-3 py-1">Logs</a>
         {/if}
-      </nav>
-
-      <div class="p-3 border-t border-border">
-        <button class="pixel-border-sm w-full px-3 py-2 bg-background text-center" onclick={() => (showCreate = true)}>
-          + New Project
-        </button>
+        <a href={APP_ROUTES.SETTINGS} class="pixel-border-sm px-3 py-1">Settings</a>
       </div>
-    </aside>
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-muted-foreground">{currentUser.email}</span>
+        <ThemeToggle />
+        <button class="pixel-border-sm px-3 py-1 text-sm" onclick={onLogout}>Logout</button>
+      </div>
+    </header>
 
-    <!-- Main -->
-    <div class="flex-1 flex flex-col min-w-0">
-      <!-- Topbar -->
-      <header class="h-14 border-b border-border flex items-center justify-between px-4 bg-card">
-        <div class="flex items-center gap-2 text-sm">
-          <a href={APP_ROUTES.ROOT} class="pixel-border-sm px-3 py-1">Projects</a>
-          <a href={APP_ROUTES.EXPLORE} class="pixel-border-sm px-3 py-1 bg-card">Explore</a>
-          {#if currentUser.role === ADMIN_ROLE}
-            <a href={APP_ROUTES.LOGS} class="pixel-border-sm px-3 py-1">Logs</a>
-          {/if}
-          <a href={APP_ROUTES.SETTINGS} class="pixel-border-sm px-3 py-1">Settings</a>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-muted-foreground">{currentUser.email}</span>
-          <ThemeToggle />
-          <button class="pixel-border-sm px-3 py-1 text-sm" onclick={onLogout}>Logout</button>
-        </div>
-      </header>
+    <!-- Hanging create trigger: string starts exactly at the topbar bottom edge -->
+    <HangingTag
+      text="New Project"
+      tilt="-rotate-3"
+      class="absolute top-[54px] right-8 hidden md:flex text-border"
+      onclick={() => (createModal.open = true)}
+    />
 
-      <main class="flex-1 overflow-y-auto p-4">
-        {#if error}<div class="mb-3 p-2 border border-destructive text-destructive text-sm">{error}</div>{/if}
-        {@render children?.()}
-      </main>
-    </div>
+    <main class="flex-1 overflow-y-auto p-4">
+      {#if error}<div class="mb-3 p-2 border border-destructive text-destructive text-sm">{error}</div>{/if}
+      {@render children?.()}
+    </main>
   </div>
 
-  {#if showCreate}
+  {#if createModal.open}
     <div
       class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
       role="presentation"
-      onclick={(e) => { if (!creating && e.target === e.currentTarget) showCreate = false; }}
-      onkeydown={(e) => { if (e.key === "Escape" && !creating) showCreate = false; }}
+      onclick={(e) => { if (!creating && e.target === e.currentTarget) createModal.open = false; }}
+      onkeydown={(e) => { if (e.key === "Escape" && !creating) createModal.open = false; }}
     >
-      <div class="w-full max-w-md bg-card p-5 pixel-border">
-        <h2 class="text-lg font-bold mb-4">New Project</h2>
+      <div class="relative w-full max-w-md bg-card p-5 pixel-border">
+        <Starburst class="absolute -top-3 -right-3 size-8 text-accent" />
+        <div class="mb-4">
+          <h2 class="flex items-center gap-2 text-lg font-bold">
+            <Rocket class="size-5 text-primary" /> New Project
+          </h2>
+          <Squiggle class="h-2 w-24 text-accent mt-1" />
+        </div>
         <div class="flex flex-col gap-3">
           <input class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newName} placeholder="Project name (e.g. my-project)" disabled={creating} />
           {#if newName && !nameValid}<p class="text-xs text-destructive">Letters, numbers, dashes, or underscores (no spaces, e.g. my-project or NotesApp)</p>{/if}
@@ -205,7 +184,7 @@
 
           {#if error}<p class="text-sm text-destructive mt-2">{error}</p>{/if}
           <button
-            class="pixel-border px-4 py-2 text-sm mt-4"
+            class="pixel-border px-4 py-2 text-sm mt-4 font-bold bg-primary text-primary-foreground"
             disabled={creating || !nameValid || connTab !== "s3" || !s3Name.trim() || !s3AccessKeyId.trim() || !s3SecretAccessKey.trim() || !s3Bucket.trim()}
             onclick={onCreateProject}
           >

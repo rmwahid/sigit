@@ -1,53 +1,59 @@
 <script lang="ts">
   import { projectsStore } from "$lib/stores/projects.svelte";
+  import { GitBranch, Landmark } from "lucide-svelte";
+  import Squiggle from "$lib/components/decor/Squiggle.svelte";
 
-  let projectCount = $derived(projectsStore.list.length);
+  let projects = $derived(projectsStore.list);
 </script>
 
-<div class="max-w-3xl mx-auto py-10 flex flex-col gap-8">
-  <!-- Hero card -->
-  <div class="pixel-border bg-card p-8">
-    <h1 class="text-3xl font-bold tracking-widest mb-2">SiGit</h1>
-    <p class="text-muted-foreground mb-4">Storage Integration for Git</p>
-    <p class="text-base leading-relaxed">
-      A self-hosted Git-based project management platform. Manage your source code and commit
-      history in Git, while large assets live in your own storage. Your project, your storage,
-      your history.
-    </p>
+<svelte:head>
+  <title>Projects - SiGit</title>
+</svelte:head>
+
+<div class="max-w-4xl mx-auto py-8 flex flex-col gap-6">
+  <div>
+    <h1 class="flex items-center gap-2 text-3xl font-extrabold mb-2">
+      <span class="nb-mark">Projects</span>
+      {#if projects.length > 0}
+        <span class="text-sm font-bold text-muted-foreground">({projects.length})</span>
+      {/if}
+    </h1>
+    <Squiggle class="h-2.5 w-36 text-accent" />
   </div>
 
-  <!-- Feature cards -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div class="pixel-border-sm bg-card p-5">
-      <h3 class="font-bold mb-1">Git-native</h3>
-      <p class="text-sm text-muted-foreground">Commit, branch, history, and diff handled by real Git on your server.</p>
+  {#if projects.length === 0}
+    <div class="flex flex-col items-center py-14 text-center">
+      <div class="relative">
+        <div class="h-3.5 w-44 bg-card nb-checker border-2 border-b-0 border-border absolute -top-3.5 left-1/2 -translate-x-1/2" aria-hidden="true"></div>
+        <div class="pixel-border nb-dashed bg-card px-8 py-10 flex flex-col items-center gap-3">
+          <Landmark class="size-9 text-primary" />
+          <p class="text-lg font-bold">No projects yet</p>
+          <p class="text-sm text-muted-foreground max-w-xs">
+            Create one to get started: pick a unique name and connect your own storage. Click the
+            "New Project" tag above.
+          </p>
+        </div>
+      </div>
     </div>
-    <div class="pixel-border-sm bg-card p-5">
-      <h3 class="font-bold mb-1">Your storage</h3>
-      <p class="text-sm text-muted-foreground">Large files go to S3-compatible storage or GDrive. You own the data.</p>
+  {:else}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {#each projects as p}
+        <a
+          href={`/projects/${p.id}`}
+          class="pixel-border bg-card p-4 flex flex-col gap-2 transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_0_var(--border)]"
+        >
+          <div class="flex items-center gap-2">
+            <GitBranch class="size-4 shrink-0" />
+            <span class="font-bold truncate">{p.name}</span>
+            {#if p.isPublic}
+              <span class="ml-auto text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm bg-accent text-accent-foreground">public</span>
+            {:else}
+              <span class="ml-auto text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm bg-muted">private</span>
+            {/if}
+          </div>
+          <p class="text-sm text-muted-foreground truncate">{p.description ?? "No description"}</p>
+        </a>
+      {/each}
     </div>
-    <div class="pixel-border-sm bg-card p-5">
-      <h3 class="font-bold mb-1">Project timeline</h3>
-      <p class="text-sm text-muted-foreground">Every push records a commit. Compare changes line by line with the diff viewer.</p>
-    </div>
-    <div class="pixel-border-sm bg-card p-5">
-      <h3 class="font-bold mb-1">Self-hosted</h3>
-      <p class="text-sm text-muted-foreground">Run it on your own VPS. No lock-in, full control over your infrastructure.</p>
-    </div>
-  </div>
-
-  <!-- Getting started -->
-  <div class="pixel-border bg-card p-6">
-    <h2 class="font-bold mb-2">Getting started</h2>
-    {#if projectCount === 0}
-      <p class="text-sm text-muted-foreground mb-3">
-        You have no projects yet. Create your first project from the sidebar to get started.
-      </p>
-    {:else}
-      <p class="text-sm text-muted-foreground mb-3">
-        You have {projectCount} project{projectCount > 1 ? "s" : ""}. Select one from the sidebar to open it.
-      </p>
-    {/if}
-    <p class="text-xs text-muted-foreground">Tip: click the SiGit logo anytime to return here.</p>
-  </div>
+  {/if}
 </div>
