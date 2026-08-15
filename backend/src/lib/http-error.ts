@@ -1,5 +1,5 @@
-import { ERROR_CODES } from "../constants/errors";
-import { env } from "../config/env";
+import { ERROR_CODES } from "@/constants/errors";
+import { env } from "@/config/env";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 

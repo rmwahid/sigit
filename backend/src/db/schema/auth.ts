@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
-import { DEFAULT_ROLE } from "../../constants/roles";
-import { TOKEN_SCOPE_SLUGS } from "../../constants/scopes";
-import { DEFAULT_ENCRYPTION_KEY_ID } from "../../constants/protocol";
-import { TOKEN_NAME_MAX_LENGTH } from "../../constants/limits";
+import { DEFAULT_ROLE } from "@/constants/roles";
+import { TOKEN_SCOPE_SLUGS } from "@/constants/scopes";
+import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
+import { TOKEN_NAME_MAX_LENGTH } from "@/constants/limits";
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),

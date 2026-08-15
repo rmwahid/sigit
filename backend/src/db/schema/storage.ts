@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
-import { DEFAULT_ENCRYPTION_KEY_ID } from "../../constants/protocol";
+import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
 
 export const storageConnections = pgTable("storage_connections", {
   id: uuid("id").defaultRandom().primaryKey(),

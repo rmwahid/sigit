@@ -1,13 +1,13 @@
 import { createMiddleware } from "hono/factory";
-import { resolveTokenScope, type TokenScope, validateToken } from "../modules/auth/tokens";
-import { classifyAction, scopeAllows, scopeForAction } from "../modules/auth/scopes";
-import { getProjectAccess, hasPermission, type ProjectPermission } from "../modules/auth/access";
-import { getProjectByName, projectNameFromRouteParam } from "../modules/projects/projects";
-import { ACTION_PERMISSION, GIT_ACTIONS } from "../constants/permissions";
-import { BASIC_AUTH_PREFIX } from "../constants/protocol";
-import { TOKEN_SCOPES } from "../constants/scopes";
-import { ERROR_CODES } from "../constants/errors";
-import type { Token, User } from "../db/schema/auth";
+import { resolveTokenScope, type TokenScope, validateToken } from "@/modules/auth/tokens";
+import { classifyAction, scopeAllows, scopeForAction } from "@/modules/auth/scopes";
+import { getProjectAccess, hasPermission, type ProjectPermission } from "@/modules/auth/access";
+import { getProjectByName, projectNameFromRouteParam } from "@/modules/projects/projects";
+import { ACTION_PERMISSION, GIT_ACTIONS } from "@/constants/permissions";
+import { BASIC_AUTH_PREFIX } from "@/constants/protocol";
+import { TOKEN_SCOPES } from "@/constants/scopes";
+import { ERROR_CODES } from "@/constants/errors";
+import type { Token, User } from "@/db/schema/auth";
 
 export type GitAuthEnv = {
   Variables: {

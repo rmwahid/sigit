@@ -5,7 +5,7 @@ import {
   generateMigrationName,
   validateMigrationDescription,
   validateExistingMigrations,
-} from "../utils/migration-helpers.js";
+} from "@/db/utils/migration-helpers.js";
 
 const MIGRATIONS_DIR = join(process.cwd(), "src", "db", "migrations");
 

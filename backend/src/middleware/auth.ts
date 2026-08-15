@@ -1,8 +1,8 @@
-import { ERROR_CODES } from "../constants/errors";
+import { ERROR_CODES } from "@/constants/errors";
 import { createMiddleware } from "hono/factory";
-import { type User } from "../db/schema/auth";
-import { ADMIN_ROLE } from "../constants/roles";
-import { getSessionTokenFromCookie, validateSessionToken } from "../modules/auth/auth";
+import { type User } from "@/db/schema/auth";
+import { ADMIN_ROLE } from "@/constants/roles";
+import { getSessionTokenFromCookie, validateSessionToken } from "@/modules/auth/auth";
 import type { Context } from "hono";
 
 export type AuthEnv = {

@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { env } from "../config/env";
+import { env } from "@/config/env";
 
 const LOG_DIR = env.LOG_DIR;
 const AUDIT_FILE = join(LOG_DIR, "audit.log");

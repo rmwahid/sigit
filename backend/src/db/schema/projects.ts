@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
-import { DEFAULT_ENCRYPTION_KEY_ID } from "../../constants/protocol";
+import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
 
 // Default LFS file threshold (10 MB). Single source of truth - also used by
 // routes/schemas/projects.ts, modules/projects/git.ts, and cli/e2e-lfs.ts.
