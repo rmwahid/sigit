@@ -12,13 +12,12 @@ import {
   revokeToken,
   setTokenProjectScopes,
   TOKEN_MAX_EXPIRY_DAYS,
-  TOKEN_SCOPES,
 } from "@/modules/auth/tokens";
-import type { TokenScope } from "@/constants/scopes";
+import { TOKEN_SCOPE_SLUGS, type TokenScope } from "@/constants/scopes";
 
-const tokenProjectSchema = z.object({
+export const tokenProjectSchema = z.object({
   projectId: z.string().uuid(),
-  scope: z.enum(TOKEN_SCOPES),
+  scope: z.enum(TOKEN_SCOPE_SLUGS),
 });
 
 const tokenSchema = z

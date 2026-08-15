@@ -1,6 +1,8 @@
 import { describe, expect, it, afterAll } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
+import { tokenProjectSchema } from "@/routes/tokens";
 import {
   createToken,
   listTokenProjectScopes,
@@ -81,6 +83,24 @@ async function cleanup() {
 afterAll(async () => {
   await cleanup();
 }, TEST_TIMEOUT);
+
+// Pure schema regression: the UI sends scope SLUGS ("read"/"write"), not the
+// { slug, name } constant objects. z.enum(TOKEN_SCOPES) rejected slugs, which
+// broke token creation with a 400 (caught by the bundle E2E suite).
+describe("token create schema", () => {
+  it("accepts slug scopes sent by the UI", () => {
+    expect(tokenProjectSchema.parse({ projectId: randomUUID(), scope: "write" })).toEqual({
+      projectId: expect.any(String),
+      scope: "write",
+    });
+    expect(tokenProjectSchema.parse({ projectId: randomUUID(), scope: "read" }).scope).toBe("read");
+  });
+
+  it("rejects unknown scopes and malformed ids", () => {
+    expect(() => tokenProjectSchema.parse({ projectId: randomUUID(), scope: "admin" })).toThrow();
+    expect(() => tokenProjectSchema.parse({ projectId: "nope", scope: "read" })).toThrow();
+  });
+});
 
 describe("token project scopes", () => {
   it("resolves the granted scope for a project", async () => {
