@@ -5,6 +5,9 @@ export const DEFAULT_LOG_LIMIT = 200;
 export const DEFAULT_HISTORY_LIMIT = 50;
 export const MAX_HISTORY_LIMIT = 100;
 
+// Invitation links stay valid for 24 hours.
+export const INVITATION_TTL_HOURS = 24;
+
 // File browser: max bytes served as text via the blob endpoint (1 MB).
 export const MAX_FILE_BROWSER_BYTES = 1024 * 1024;
 

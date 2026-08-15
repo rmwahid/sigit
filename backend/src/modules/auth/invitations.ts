@@ -5,14 +5,12 @@ import { invitations } from "@/db/schema/auth";
 import { INVITE_PREFIX } from "@/constants/protocol";
 import { DEFAULT_ROLE, type UserRole } from "@/constants/roles";
 import { ERROR_CODES } from "@/constants/errors";
-import { RANDOM_TOKEN_BYTES } from "@/constants/limits";
+import { INVITATION_TTL_HOURS, RANDOM_TOKEN_BYTES } from "@/constants/limits";
 import { sha256 } from "@/lib/hash";
 import { createUser, getUserByEmail } from "./auth";
 // Onboarding invitations: admin invites an email, the user sets their own
 // password via the invite link. Token is hashed (SHA-256) like sessions/tokens.
 import crypto from "node:crypto";
-
-const INVITE_TTL_DAYS = 7;
 
 export type InvitationInfo = { id: string; email: string; role: UserRole };
 
@@ -20,7 +18,7 @@ export type InvitationInfo = { id: string; email: string; role: UserRole };
 // so there is no way to mint a second admin through invitations.
 export async function createInvitation(email: string): Promise<{ token: string; inviteLink: string; expiresAt: Date }> {
   const raw = INVITE_PREFIX + crypto.randomBytes(RANDOM_TOKEN_BYTES).toString("base64url");
-  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + INVITATION_TTL_HOURS * 60 * 60 * 1000);
   await db.insert(invitations).values({ email, role: DEFAULT_ROLE, tokenHash: sha256(raw), expiresAt });
   return { token: raw, inviteLink: `${env.FRONTEND_URL}/invite?token=${raw}`, expiresAt };
 }
