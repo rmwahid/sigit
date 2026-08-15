@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "build": "bun run src/cli/custom-build.ts",
     "test": "bun test",
+    "test:build": "bun run src/cli/build-smoke.ts",
     "db:generate": "bun run src/db/migrations/migration-generator.ts",
     "db:validate": "bun run src/db/migrations/migration-generator.ts --validate",
     "db:migrate": "drizzle-kit migrate",
