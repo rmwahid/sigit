@@ -1,4 +1,4 @@
-import type { UserRole } from "../constants/roles";
+import type { UserRole } from "$lib/constants/roles";
 
 export type Connection = {
   id: string;

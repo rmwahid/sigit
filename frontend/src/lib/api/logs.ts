@@ -1,6 +1,6 @@
 import { api } from "./client";
 import type { LogEntry } from "./types";
-import { API_BASE, API_PATHS } from "../constants/paths";
+import { API_BASE, API_PATHS } from "$lib/constants/paths";
 
 export async function getLogs(limit?: number, before?: string) {
   const qs = new URLSearchParams();

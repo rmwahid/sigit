@@ -7,7 +7,7 @@ import {
   joinPath,
   sortEntries,
   splitPath,
-} from "../src/lib/project-page";
+} from "$lib/project-page";
 
 describe("joinPath / splitPath", () => {
   it("joins and splits directory paths", () => {

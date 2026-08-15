@@ -1,4 +1,4 @@
-import { API_BASE } from "../constants/paths";
+import { API_BASE } from "$lib/constants/paths";
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

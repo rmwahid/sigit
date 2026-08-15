@@ -1,5 +1,5 @@
 import { api } from "./client";
-import { API_BASE } from "../constants/paths";
+import { API_BASE } from "$lib/constants/paths";
 
 // File browser API (routes/browser.ts): tree, blob, refs, archive, history
 // pagination and the activity feed. Access is per request: session user with

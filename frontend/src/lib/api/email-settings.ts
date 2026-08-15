@@ -1,5 +1,5 @@
 import { api } from "./client";
-import { API_PATHS } from "../constants/paths";
+import { API_PATHS } from "$lib/constants/paths";
 
 export type EmailSettings = {
   apiKeyMasked: string | null;

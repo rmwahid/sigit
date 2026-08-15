@@ -4,11 +4,11 @@ import {
   scopeLabel,
   TOKEN_SCOPE_OPTIONS,
   TOKEN_SCOPES,
-} from "../src/lib/constants/scopes";
+} from "$lib/constants/scopes";
 import {
   TOKEN_DEFAULT_EXPIRY_DAYS,
   TOKEN_MAX_EXPIRY_DAYS,
-} from "../src/lib/constants/validation";
+} from "$lib/constants/validation";
 
 describe("token scopes", () => {
   it("maps write to its display name (write implies read)", () => {

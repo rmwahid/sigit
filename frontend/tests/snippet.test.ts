@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gitRemoteCommands, lfsCommands, parseLfsPatterns } from "../src/lib/snippet";
+import { gitRemoteCommands, lfsCommands, parseLfsPatterns } from "$lib/snippet";
 
 describe("parseLfsPatterns", () => {
   it("splits comma separated patterns and trims whitespace", () => {

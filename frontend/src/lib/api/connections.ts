@@ -1,6 +1,6 @@
 import { api } from "./client";
 import type { Connection, NewConnection } from "./types";
-import { API_PATHS } from "../constants/paths";
+import { API_PATHS } from "$lib/constants/paths";
 
 export async function listConnections() {
   return api<{ data: Connection[] }>(API_PATHS.STORAGE_CONNECTIONS);

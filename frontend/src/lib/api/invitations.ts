@@ -1,6 +1,6 @@
 import { api } from "./client";
-import type { UserRole } from "../constants/roles";
-import { API_PATHS } from "../constants/paths";
+import type { UserRole } from "$lib/constants/roles";
+import { API_PATHS } from "$lib/constants/paths";
 
 export type Invitation = {
   id: string;

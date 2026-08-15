@@ -5,7 +5,7 @@ import {
   PERMISSION_GROUPS,
   PROJECT_PERMISSIONS,
   permissionName,
-} from "../src/lib/constants/permissions";
+} from "$lib/constants/permissions";
 
 describe("project permissions", () => {
   it("covers the 7 granular permissions (matches backend)", () => {

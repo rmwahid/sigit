@@ -6,7 +6,7 @@ import type {
   Project,
   ProjectUpdate,
 } from "./types";
-import { API_PATHS } from "../constants/paths";
+import { API_PATHS } from "$lib/constants/paths";
 
 export async function listProjects() {
   return api<{ data: Project[] }>(API_PATHS.PROJECTS);

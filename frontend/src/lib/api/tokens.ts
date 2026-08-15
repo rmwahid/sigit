@@ -1,6 +1,6 @@
 import { api } from "./client";
-import type { TokenScope } from "../constants/scopes";
-import { API_PATHS } from "../constants/paths";
+import type { TokenScope } from "$lib/constants/scopes";
+import { API_PATHS } from "$lib/constants/paths";
 
 export type TokenProjectScope = {
   projectId: string;
