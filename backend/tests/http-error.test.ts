@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
-import { HttpError, errorResponse } from "../src/lib/http-error";
+import { HttpError, errorResponse } from "@/lib/http-error";
 
 const app = new Hono();
 app.get("/http-error", (c) => errorResponse(c, new HttpError(404, "NOT_FOUND", "Not found")));

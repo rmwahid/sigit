@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { sha256 } from "../src/modules/lfs";
+import { sha256 } from "@/modules/lfs";
 import {
   buildBatchResponse,
   isValidOid,
   lfsObjectKey,
   verifyLfsContent,
-} from "../src/modules/lfs/server";
+} from "@/modules/lfs/server";
 
 describe("lfs server (batch, oid verification, storage keys)", () => {
   it("builds storage key projects/{id}/lfs/{oid}", () => {

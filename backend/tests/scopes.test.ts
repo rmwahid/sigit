@@ -4,7 +4,7 @@ import {
   scopeAllows,
   scopeForAction,
   scopeForLfsOperation,
-} from "../src/modules/auth/scopes";
+} from "@/modules/auth/scopes";
 
 describe("classifyAction", () => {
   it("classifies git paths", () => {

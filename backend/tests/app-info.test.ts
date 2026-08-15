@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { env } from "../src/config/env";
-import app from "../src/index";
+import { env } from "@/config/env";
+import app from "@/index";
 
 describe("app info endpoint", () => {
   it("serves git base url publicly without auth", async () => {

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
-import { createConnectionFromInput, deleteConnection, getConnection } from "../src/modules/storage/connections";
-import { listAllObjects } from "../src/modules/storage/objects";
+import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
+import { listAllObjects } from "@/modules/storage/objects";
 import {
   createProject,
   createProjectWithConnection,
@@ -13,7 +13,7 @@ import {
   projectHistory,
   projectNameFromRouteParam,
   projectRepoPath,
-} from "../src/modules/projects/projects";
+} from "@/modules/projects/projects";
 
 // Integration test: runs against dev DB `sigit` + local MinIO (bucket sigit-test).
 // Push flow uses the real git CLI against the server bare repo (replaces the removed web push).

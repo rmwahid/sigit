@@ -4,11 +4,11 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { projects } from "../src/db/schema/projects";
-import { projectCollaborators, users } from "../src/db/schema/auth";
-import { MAX_FILE_BROWSER_BYTES } from "../src/constants/limits";
-import { SESSION_COOKIE } from "../src/constants/protocol";
+import { db } from "@/config/db";
+import { projects } from "@/db/schema/projects";
+import { projectCollaborators, users } from "@/db/schema/auth";
+import { MAX_FILE_BROWSER_BYTES } from "@/constants/limits";
+import { SESSION_COOKIE } from "@/constants/protocol";
 import {
   archive,
   initRepo,
@@ -18,10 +18,10 @@ import {
   listTree,
   readFileAtRef,
   resolveDefaultBranch,
-} from "../src/modules/projects/git";
-import { projectRepoPath } from "../src/modules/projects/projects";
-import { createSession } from "../src/modules/auth/auth";
-import { browserRoutes } from "../src/routes/browser";
+} from "@/modules/projects/git";
+import { projectRepoPath } from "@/modules/projects/projects";
+import { createSession } from "@/modules/auth/auth";
+import { browserRoutes } from "@/routes/browser";
 
 // Integration test: temp bare repos for the git plumbing helpers + DB rows
 // for the HTTP access rules (public vs private vs collaborator permissions).

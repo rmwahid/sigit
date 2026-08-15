@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { users } from "../src/db/schema/auth";
+import { db } from "@/config/db";
+import { users } from "@/db/schema/auth";
 import {
   createSession,
   deleteSession,
@@ -12,7 +12,7 @@ import {
   sessionCookie,
   validateSessionToken,
   verifyPassword,
-} from "../src/modules/auth/auth";
+} from "@/modules/auth/auth";
 
 const TEST_TIMEOUT = 30000;
 

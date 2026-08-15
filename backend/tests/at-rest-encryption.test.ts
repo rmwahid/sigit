@@ -1,15 +1,15 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import crypto from "node:crypto";
-import { createConnectionFromInput, deleteConnection } from "../src/modules/storage/connections";
-import { createProject, hardDeleteProject } from "../src/modules/projects/projects";
+import { createConnectionFromInput, deleteConnection } from "@/modules/storage/connections";
+import { createProject, hardDeleteProject } from "@/modules/projects/projects";
 import {
   decryptProjectBuffer,
   encryptProjectBuffer,
   getDecrypted,
   putEncrypted,
-} from "../src/modules/encryption/at-rest";
-import { decryptSecret } from "../src/lib/secret-encryption";
-import { getObject, objectSize } from "../src/modules/storage/objects";
+} from "@/modules/encryption/at-rest";
+import { decryptSecret } from "@/lib/secret-encryption";
+import { getObject, objectSize } from "@/modules/storage/objects";
 
 // At-rest encryption: dev DB `sigit` + local MinIO (bucket sigit-test).
 const TEST_TIMEOUT = 30000;

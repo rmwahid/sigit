@@ -1,10 +1,10 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { inArray } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { projects } from "../src/db/schema/projects";
-import { projectCollaborators, users } from "../src/db/schema/auth";
-import { DEFAULT_ROLE } from "../src/constants/roles";
-import { exploreRoutes } from "../src/routes/explore";
+import { db } from "@/config/db";
+import { projects } from "@/db/schema/projects";
+import { projectCollaborators, users } from "@/db/schema/auth";
+import { DEFAULT_ROLE } from "@/constants/roles";
+import { exploreRoutes } from "@/routes/explore";
 
 // Integration test for the public explore endpoints (no auth required).
 // Runs against the same DB as the rest of the suite. Every row created here

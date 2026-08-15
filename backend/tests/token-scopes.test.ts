@@ -1,6 +1,6 @@
 import { describe, expect, it, afterAll } from "bun:test";
-import { db } from "../src/config/db";
-import { users } from "../src/db/schema/auth";
+import { db } from "@/config/db";
+import { users } from "@/db/schema/auth";
 import {
   createToken,
   listTokenProjectScopes,
@@ -8,9 +8,9 @@ import {
   revokeToken,
   setTokenProjectScopes,
   validateToken,
-} from "../src/modules/auth/tokens";
-import { createConnectionFromInput, deleteConnection } from "../src/modules/storage/connections";
-import { createProject, hardDeleteProject } from "../src/modules/projects/projects";
+} from "@/modules/auth/tokens";
+import { createConnectionFromInput, deleteConnection } from "@/modules/storage/connections";
+import { createProject, hardDeleteProject } from "@/modules/projects/projects";
 
 // Per-project token scopes: dev DB `sigit` (no MinIO, no S3 operations here).
 const TEST_TIMEOUT = 30000;

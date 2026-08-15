@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
-import { getCommitFiles, getDiff, getLog, initRepo, resolveHead } from "../src/modules/projects/git";
+import { getCommitFiles, getDiff, getLog, initRepo, resolveHead } from "@/modules/projects/git";
 
 const barePath = path.join(tmpdir(), `sigit-git-test-${Date.now()}`);
 const workPath = path.join(tmpdir(), `sigit-git-work-${Date.now()}`);

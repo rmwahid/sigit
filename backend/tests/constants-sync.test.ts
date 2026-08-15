@@ -7,12 +7,12 @@
 //   limits       -> lib/constants/validation.ts
 //   protocol     -> lib/constants/protocol.ts
 import { describe, expect, it } from "bun:test";
-import { ADMIN_ROLE, DEFAULT_ROLE, ROLES } from "../src/constants/roles";
-import { ALL_PROJECT_PERMISSIONS, PROJECT_PERMISSIONS } from "../src/constants/permissions";
-import { TOKEN_SCOPES } from "../src/constants/scopes";
-import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH } from "../src/constants/limits";
-import { ARCHIVE_FORMATS } from "../src/constants/protocol";
-import { TOKEN_MAX_EXPIRY_DAYS } from "../src/modules/auth/tokens";
+import { ADMIN_ROLE, DEFAULT_ROLE, ROLES } from "@/constants/roles";
+import { ALL_PROJECT_PERMISSIONS, PROJECT_PERMISSIONS } from "@/constants/permissions";
+import { TOKEN_SCOPES } from "@/constants/scopes";
+import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH } from "@/constants/limits";
+import { ARCHIVE_FORMATS } from "@/constants/protocol";
+import { TOKEN_MAX_EXPIRY_DAYS } from "@/modules/auth/tokens";
 import {
   ADMIN_ROLE as FE_ADMIN_ROLE,
   DEFAULT_ROLE as FE_DEFAULT_ROLE,

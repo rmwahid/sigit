@@ -1,16 +1,16 @@
 import { describe, expect, it, afterAll } from "bun:test";
-import { DEFAULT_ROLE } from "../src/constants/roles";
+import { DEFAULT_ROLE } from "@/constants/roles";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { invitations, users } from "../src/db/schema/auth";
+import { db } from "@/config/db";
+import { invitations, users } from "@/db/schema/auth";
 import {
   acceptInvitation,
   createInvitation,
   listInvitations,
   revokeInvitation,
   validateInvitation,
-} from "../src/modules/auth/invitations";
-import { deleteUser, getUserByEmail } from "../src/modules/auth/auth";
+} from "@/modules/auth/invitations";
+import { deleteUser, getUserByEmail } from "@/modules/auth/auth";
 
 // Invitation flow: dev DB `sigit` (no email delivery - only token logic here).
 const TEST_TIMEOUT = 30000;

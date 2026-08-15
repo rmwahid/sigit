@@ -1,9 +1,9 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { emailSettings } from "../src/db/schema/auth";
-import { getEmailSettings, saveEmailSettings, sendEmail } from "../src/modules/email/resend";
-import { maskSecret } from "../src/lib/secret-encryption";
+import { db } from "@/config/db";
+import { emailSettings } from "@/db/schema/auth";
+import { getEmailSettings, saveEmailSettings, sendEmail } from "@/modules/email/resend";
+import { maskSecret } from "@/lib/secret-encryption";
 
 // Email delivery: dev DB `sigit` (fetch is mocked - no external calls).
 const TEST_TIMEOUT = 30000;

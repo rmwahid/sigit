@@ -1,11 +1,11 @@
 import { describe, expect, it, afterAll } from "bun:test";
-import { ADMIN_ROLE, DEFAULT_ROLE } from "../src/constants/roles";
+import { ADMIN_ROLE, DEFAULT_ROLE } from "@/constants/roles";
 import { eq } from "drizzle-orm";
-import { db } from "../src/config/db";
-import { projectCollaborators, users } from "../src/db/schema/auth";
-import { createConnectionFromInput, deleteConnection } from "../src/modules/storage/connections";
-import { createProject, hardDeleteProject } from "../src/modules/projects/projects";
-import { createAdminUser, createUser, deleteUser, listUsers } from "../src/modules/auth/auth";
+import { db } from "@/config/db";
+import { projectCollaborators, users } from "@/db/schema/auth";
+import { createConnectionFromInput, deleteConnection } from "@/modules/storage/connections";
+import { createProject, hardDeleteProject } from "@/modules/projects/projects";
+import { createAdminUser, createUser, deleteUser, listUsers } from "@/modules/auth/auth";
 import {
   getProjectAccess,
   hasPermission,
@@ -14,7 +14,7 @@ import {
   normalizePermissions,
   tokenScopeForUser,
   userCan,
-} from "../src/modules/auth/access";
+} from "@/modules/auth/access";
 
 // Access rules: dev DB `sigit` (no MinIO needed - no S3 ops in this file).
 const TEST_TIMEOUT = 30000;

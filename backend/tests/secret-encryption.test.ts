@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { decryptSecret, encryptSecret, maskSecret } from "../src/lib/secret-encryption";
+import { decryptSecret, encryptSecret, maskSecret } from "@/lib/secret-encryption";
 
 describe("secret encryption", () => {
   it("round-trips a secret using v1 key", () => {

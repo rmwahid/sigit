@@ -1,6 +1,6 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import crypto from "node:crypto";
-import { createConnectionFromInput, deleteConnection, getConnection } from "../src/modules/storage/connections";
+import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
 import {
   deleteObject,
   deleteObjectsByPrefix,
@@ -9,7 +9,7 @@ import {
   listObjects,
   putObject,
   testConnection,
-} from "../src/modules/storage/objects";
+} from "@/modules/storage/objects";
 
 // Local MinIO (via FlyEnv). Connection is created inline like user input.
 const TEST_TIMEOUT = 30000;
