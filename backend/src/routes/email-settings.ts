@@ -14,9 +14,23 @@ const emailSettingsResponse = z.object({
     fromEmail: z.string().nullable(),
   }),
 });
+
+// Accepts a bare address ("a@b.c") or the display format ("Name <a@b.c>"),
+// matching the Resend API and the EMAIL_FROM_DEFAULT constant. The settings
+// UI placeholder also suggests the display format, so both must pass.
+export const fromEmailSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value: string) => {
+    const match = /^(.*)<([^<>]+)>$/.exec(value);
+    const candidate = match ? match[2].trim() : value;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate);
+  }, "Invalid email address");
+
 const emailSettingsInput = z.object({
   apiKey: z.string().min(1).optional(),
-  fromEmail: z.string().email().optional(),
+  fromEmail: fromEmailSchema.optional(),
 });
 const messageResponse = z.object({ message: z.string() });
 const errorSchema = z.object({ error: z.string() }).openapi("Error");
