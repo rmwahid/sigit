@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { MIN_PASSWORD_LENGTH } from "../constants/limits";
+import { MIN_PASSWORD_LENGTH } from "@/constants/limits";
 
 export async function promptEmail(message: string): Promise<string> {
   const value = (await p.text({

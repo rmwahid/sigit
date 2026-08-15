@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { createAdminUser, countUsers, getUserByEmail } from "../modules/auth/auth";
+import { createAdminUser, countUsers, getUserByEmail } from "@/modules/auth/auth";
 import { promptEmail, promptPassword, promptConfirmPassword, runWithSpinner } from "./helpers";
 
 async function main() {

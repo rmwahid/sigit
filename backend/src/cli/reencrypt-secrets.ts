@@ -1,9 +1,9 @@
 import * as p from "@clack/prompts";
 import { eq } from "drizzle-orm";
-import { db } from "../config/db";
-import { storageConnections } from "../db/schema/storage";
-import { decryptSecret, encryptSecret, currentKeyId } from "../lib/secret-encryption";
-import { env } from "../config/env";
+import { db } from "@/config/db";
+import { storageConnections } from "@/db/schema/storage";
+import { decryptSecret, encryptSecret, currentKeyId } from "@/lib/secret-encryption";
+import { env } from "@/config/env";
 
 async function main() {
   console.clear();

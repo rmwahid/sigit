@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { deleteAllSessions, getUserByEmail, updateUserPassword } from "../modules/auth/auth";
+import { deleteAllSessions, getUserByEmail, updateUserPassword } from "@/modules/auth/auth";
 import { promptEmail, promptPassword, promptConfirmPassword, runWithSpinner } from "./helpers";
 
 async function main() {
