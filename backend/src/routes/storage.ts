@@ -1,8 +1,8 @@
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
-import { decryptSecret, encryptSecret, maskSecret } from "../lib/secret-encryption";
-import { audit } from "../lib/logger";
+import { decryptSecret, encryptSecret, maskSecret } from "@/lib/secret-encryption";
+import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
 import {
   createConnection,
@@ -11,13 +11,13 @@ import {
   getConnection,
   listConnections,
   updateConnection,
-} from "../modules/storage/connections";
+} from "@/modules/storage/connections";
 import {
   deleteObject,
   listObjects,
   testConnection,
-} from "../modules/storage/objects";
-import type { StorageConnection } from "../db/schema/storage";
+} from "@/modules/storage/objects";
+import type { StorageConnection } from "@/db/schema/storage";
 import {
   connectionSchema,
   connectionInputSchema,

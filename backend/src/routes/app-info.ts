@@ -1,5 +1,5 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { env } from "../config/env";
+import { env } from "@/config/env";
 
 export const appInfoRoutes = new OpenAPIHono();
 

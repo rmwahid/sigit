@@ -1,10 +1,10 @@
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { getProject } from "../modules/projects/projects";
-import { getProjectAccess, tokenScopeForUser } from "../modules/auth/access";
-import { requireUser, type AuthEnv } from "../middleware/auth";
-import { audit } from "../lib/logger";
+import { getProject } from "@/modules/projects/projects";
+import { getProjectAccess, tokenScopeForUser } from "@/modules/auth/access";
+import { requireUser, type AuthEnv } from "@/middleware/auth";
+import { audit } from "@/lib/logger";
 import { idParamSchema } from "./schemas/common";
 import {
   createToken,
@@ -13,8 +13,8 @@ import {
   setTokenProjectScopes,
   TOKEN_MAX_EXPIRY_DAYS,
   TOKEN_SCOPES,
-} from "../modules/auth/tokens";
-import type { TokenScope } from "../constants/scopes";
+} from "@/modules/auth/tokens";
+import type { TokenScope } from "@/constants/scopes";
 
 const tokenProjectSchema = z.object({
   projectId: z.string().uuid(),

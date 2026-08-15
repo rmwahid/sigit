@@ -1,11 +1,11 @@
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { getEmailSettings, saveEmailSettings, sendEmail } from "../modules/email/resend";
-import { maskSecret } from "../lib/secret-encryption";
-import { requireAdmin, type AuthEnv } from "../middleware/auth";
-import { audit } from "../lib/logger";
-import { decryptSecret } from "../lib/secret-encryption";
+import { getEmailSettings, saveEmailSettings, sendEmail } from "@/modules/email/resend";
+import { maskSecret } from "@/lib/secret-encryption";
+import { requireAdmin, type AuthEnv } from "@/middleware/auth";
+import { audit } from "@/lib/logger";
+import { decryptSecret } from "@/lib/secret-encryption";
 
 const emailSettingsResponse = z.object({
   data: z.object({

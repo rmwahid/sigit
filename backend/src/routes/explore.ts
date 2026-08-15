@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { listAccessibleProjectIds, listPublicProjects } from "../modules/auth/access";
-import { getUserByEmail } from "../modules/auth/auth";
+import { listAccessibleProjectIds, listPublicProjects } from "@/modules/auth/access";
+import { getUserByEmail } from "@/modules/auth/auth";
 
 // Public routes (no auth): explore public projects + user profiles.
 // Mounted OUTSIDE the requireAuth block in index.ts.

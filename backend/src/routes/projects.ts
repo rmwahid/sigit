@@ -1,16 +1,16 @@
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
-import { DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from "../constants/limits";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
+import { DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from "@/constants/limits";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
-import { db } from "../config/db";
-import { getCommitFiles, getDiff } from "../modules/projects/git";
-import { backupProject, restoreProject } from "../modules/projects/backup";
-import { getConnection } from "../modules/storage/connections";
-import { requireAdmin, requireUser, type AuthEnv } from "../middleware/auth";
-import { projectCollaborators, users } from "../db/schema/auth";
-import { ADMIN_ROLE } from "../constants/roles";
-import { audit } from "../lib/logger";
+import { db } from "@/config/db";
+import { getCommitFiles, getDiff } from "@/modules/projects/git";
+import { backupProject, restoreProject } from "@/modules/projects/backup";
+import { getConnection } from "@/modules/storage/connections";
+import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
+import { projectCollaborators, users } from "@/db/schema/auth";
+import { ADMIN_ROLE } from "@/constants/roles";
+import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 import {
   createProject,
@@ -20,7 +20,7 @@ import {
   updateProject,
   projectRepoPath,
   hardDeleteProject,
-} from "../modules/projects/projects";
+} from "@/modules/projects/projects";
 import {
   ALL_PROJECT_PERMISSIONS,
   getProjectAccess,
@@ -29,7 +29,7 @@ import {
   listAccessibleProjects,
   normalizePermissions,
   type ProjectPermission,
-} from "../modules/auth/access";
+} from "@/modules/auth/access";
 import {
   projectSchema,
   projectInputSchema,
@@ -43,7 +43,7 @@ import {
   historyQuerySchema,
   diffParamSchema,
 } from "./schemas/projects";
-import type { Project } from "../db/schema/projects";
+import type { Project } from "@/db/schema/projects";
 
 export const projectRoutes = new OpenAPIHono<AuthEnv>();
 

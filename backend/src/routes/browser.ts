@@ -1,12 +1,12 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { optionalAuth, type AuthEnv } from "../middleware/auth";
-import { ERROR_CODES } from "../constants/errors";
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, MAX_HISTORY_LIMIT } from "../constants/limits";
-import { ARCHIVE_FORMAT_SLUGS, type ArchiveFormatSlug } from "../constants/protocol";
-import { PROJECT_PERMISSIONS, type ProjectPermission } from "../constants/permissions";
-import { getProjectAccess, hasPermission } from "../modules/auth/access";
-import { getProject, projectHistory, projectRepoPath } from "../modules/projects/projects";
+import { optionalAuth, type AuthEnv } from "@/middleware/auth";
+import { ERROR_CODES } from "@/constants/errors";
+import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, MAX_HISTORY_LIMIT } from "@/constants/limits";
+import { ARCHIVE_FORMAT_SLUGS, type ArchiveFormatSlug } from "@/constants/protocol";
+import { PROJECT_PERMISSIONS, type ProjectPermission } from "@/constants/permissions";
+import { getProjectAccess, hasPermission } from "@/modules/auth/access";
+import { getProject, projectHistory, projectRepoPath } from "@/modules/projects/projects";
 import {
   archive,
   getLog,
@@ -17,9 +17,9 @@ import {
   readFileAtRef,
   resolveDefaultBranch,
   resolveHead,
-} from "../modules/projects/git";
-import { readAuditLog } from "../lib/logger";
-import type { Project } from "../db/schema/projects";
+} from "@/modules/projects/git";
+import { readAuditLog } from "@/lib/logger";
+import type { Project } from "@/db/schema/projects";
 
 // Public file browser powering the project page Code tab (tree, blob, refs,
 // archive) plus the Activity feed. Mounted BEFORE the requireAuth block in

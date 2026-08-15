@@ -1,10 +1,10 @@
-import { CONTENT_TYPE_LFS_JSON, CONTENT_TYPE_OCTET_STREAM } from "../constants/protocol";
+import { CONTENT_TYPE_LFS_JSON, CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 import { Hono } from "hono";
-import { requireGitToken } from "../middleware/git-auth";
-import { getProjectByName, projectNameFromRouteParam } from "../modules/projects/projects";
-import { getConnection } from "../modules/storage/connections";
-import { scopeAllows, scopeForLfsOperation } from "../modules/auth/scopes";
-import { log } from "../lib/logger";
+import { requireGitToken } from "@/middleware/git-auth";
+import { getProjectByName, projectNameFromRouteParam } from "@/modules/projects/projects";
+import { getConnection } from "@/modules/storage/connections";
+import { scopeAllows, scopeForLfsOperation } from "@/modules/auth/scopes";
+import { log } from "@/lib/logger";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -16,9 +16,9 @@ import {
   uploadObject,
   verifyObject,
   type LfsObject,
-} from "../modules/lfs/server";
-import type { Project } from "../db/schema/projects";
-import type { StorageConnection } from "../db/schema/storage";
+} from "@/modules/lfs/server";
+import type { Project } from "@/db/schema/projects";
+import type { StorageConnection } from "@/db/schema/storage";
 
 // Git LFS server API (spec v1, basic transfer):
 //   POST /projects/<name>.git/info/lfs/objects/batch   -> action hrefs

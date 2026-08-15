@@ -1,11 +1,11 @@
-import { DEFAULT_ROLE, ROLE_SLUGS } from "../constants/roles";
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { DEFAULT_ROLE, ROLE_SLUGS } from "@/constants/roles";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { createInvitation, listInvitations, revokeInvitation } from "../modules/auth/invitations";
-import { sendEmail } from "../modules/email/resend";
-import { requireAdmin, type AuthEnv } from "../middleware/auth";
-import { audit } from "../lib/logger";
+import { createInvitation, listInvitations, revokeInvitation } from "@/modules/auth/invitations";
+import { sendEmail } from "@/modules/email/resend";
+import { requireAdmin, type AuthEnv } from "@/middleware/auth";
+import { audit } from "@/lib/logger";
 import { idParamSchema } from "./schemas/common";
 
 const invitationSchema = z

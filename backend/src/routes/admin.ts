@@ -1,10 +1,10 @@
-import { DEFAULT_LOG_LIMIT } from "../constants/limits";
-import { ERROR_CODES } from "../constants/errors";
+import { DEFAULT_LOG_LIMIT } from "@/constants/limits";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
-import { requireAdmin } from "../middleware/auth";
-import { getRingBuffer, log, readAuditLog, subscribe } from "../lib/logger";
-import type { AuthEnv } from "../middleware/auth";
+import { requireAdmin } from "@/middleware/auth";
+import { getRingBuffer, log, readAuditLog, subscribe } from "@/lib/logger";
+import type { AuthEnv } from "@/middleware/auth";
 
 const logEntrySchema = z
   .object({

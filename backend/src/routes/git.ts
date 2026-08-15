@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { handleGitRequest } from "../modules/git/server";
-import { requireGitToken } from "../middleware/git-auth";
-import { projectNameFromRouteParam } from "../modules/projects/projects";
+import { handleGitRequest } from "@/modules/git/server";
+import { requireGitToken } from "@/middleware/git-auth";
+import { projectNameFromRouteParam } from "@/modules/projects/projects";
 
 // Git smart HTTP: /projects/<name>.git/<path>
 // the git client calls: info/refs?service=git-upload-pack|git-receive-pack,

@@ -1,15 +1,15 @@
-import { MIN_PASSWORD_LENGTH } from "../constants/limits";
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { MIN_PASSWORD_LENGTH } from "@/constants/limits";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
-import { db } from "../config/db";
-import { users } from "../db/schema/auth";
-import { ROLE_SLUGS } from "../constants/roles";
-import { requireUser, type AuthEnv } from "../middleware/auth";
-import { env } from "../config/env";
-import { acceptInvitation, validateInvitation } from "../modules/auth/invitations";
-import { audit } from "../lib/logger";
+import { db } from "@/config/db";
+import { users } from "@/db/schema/auth";
+import { ROLE_SLUGS } from "@/constants/roles";
+import { requireUser, type AuthEnv } from "@/middleware/auth";
+import { env } from "@/config/env";
+import { acceptInvitation, validateInvitation } from "@/modules/auth/invitations";
+import { audit } from "@/lib/logger";
 import {
   createSession,
   deleteAllSessions,
@@ -20,7 +20,7 @@ import {
   updateUserPassword,
   verifyPassword,
   SESSION_MAX_AGE_SECONDS,
-} from "../modules/auth/auth";
+} from "@/modules/auth/auth";
 
 const SECURE_COOKIE = env.NODE_ENV === "production";
 

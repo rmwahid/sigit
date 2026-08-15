@@ -1,11 +1,11 @@
-import { MIN_PASSWORD_LENGTH } from "../constants/limits";
-import { AUDIT_EVENTS } from "../constants/audit-events";
-import { ERROR_CODES } from "../constants/errors";
+import { MIN_PASSWORD_LENGTH } from "@/constants/limits";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { deleteUser, listUsers, setUserPassword } from "../modules/auth/auth";
-import { ROLE_SLUGS } from "../constants/roles";
-import { requireAdmin, type AuthEnv } from "../middleware/auth";
-import { audit } from "../lib/logger";
+import { deleteUser, listUsers, setUserPassword } from "@/modules/auth/auth";
+import { ROLE_SLUGS } from "@/constants/roles";
+import { requireAdmin, type AuthEnv } from "@/middleware/auth";
+import { audit } from "@/lib/logger";
 import { idParamSchema } from "./schemas/common";
 
 const userSchema = z
