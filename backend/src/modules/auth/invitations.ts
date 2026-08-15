@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
-import { db } from "../../config/db";
-import { env } from "../../config/env";
-import { invitations } from "../../db/schema/auth";
-import { INVITE_PREFIX } from "../../constants/protocol";
-import { DEFAULT_ROLE, type UserRole } from "../../constants/roles";
-import { ERROR_CODES } from "../../constants/errors";
-import { RANDOM_TOKEN_BYTES } from "../../constants/limits";
-import { sha256 } from "../../lib/hash";
+import { db } from "@/config/db";
+import { env } from "@/config/env";
+import { invitations } from "@/db/schema/auth";
+import { INVITE_PREFIX } from "@/constants/protocol";
+import { DEFAULT_ROLE, type UserRole } from "@/constants/roles";
+import { ERROR_CODES } from "@/constants/errors";
+import { RANDOM_TOKEN_BYTES } from "@/constants/limits";
+import { sha256 } from "@/lib/hash";
 import { createUser, getUserByEmail } from "./auth";
 // Onboarding invitations: admin invites an email, the user sets their own
 // password via the invite link. Token is hashed (SHA-256) like sessions/tokens.

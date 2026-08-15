@@ -1,10 +1,10 @@
-import { AUDIT_EVENTS } from "../../constants/audit-events";
-import { deleteObject, objectMeta, objectSize } from "../storage/objects";
-import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "../encryption/at-rest";
-import { audit, log } from "../../lib/logger";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { deleteObject, objectMeta, objectSize } from "@/modules/storage/objects";
+import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
+import { audit, log } from "@/lib/logger";
 import { sha256 } from "./index";
-import type { Project } from "../../db/schema/projects";
-import type { StorageConnection } from "../../db/schema/storage";
+import type { Project } from "@/db/schema/projects";
+import type { StorageConnection } from "@/db/schema/storage";
 
 export type LfsOperation = "download" | "upload";
 export type LfsObject = { oid: string; size: number };

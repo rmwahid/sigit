@@ -1,16 +1,16 @@
 import { and, eq, gt, ne } from "drizzle-orm";
-import { db } from "../../config/db";
-import { env } from "../../config/env";
-import { sessions, type User, users } from "../../db/schema/auth";
-import { ADMIN_ROLE, DEFAULT_ROLE, type UserRole } from "../../constants/roles";
-import { COOKIE_ATTRIBUTES, SESSION_COOKIE } from "../../constants/protocol";
-import { sha256 } from "../../lib/hash";
+import { db } from "@/config/db";
+import { env } from "@/config/env";
+import { sessions, type User, users } from "@/db/schema/auth";
+import { ADMIN_ROLE, DEFAULT_ROLE, type UserRole } from "@/constants/roles";
+import { COOKIE_ATTRIBUTES, SESSION_COOKIE } from "@/constants/protocol";
+import { sha256 } from "@/lib/hash";
 import crypto from "node:crypto";
 import {
   PASSWORD_HASH_MEMORY_COST,
   PASSWORD_HASH_TIME_COST,
   RANDOM_KEY_BYTES,
-} from "../../constants/limits";
+} from "@/constants/limits";
 
 const SESSION_TTL_DAYS = Number(env.SESSION_TTL_DAYS);
 

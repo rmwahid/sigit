@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Project } from "../../db/schema/projects";
+import type { Project } from "@/db/schema/projects";
 
 export function sha256(buffer: Buffer): string {
   return crypto.createHash("sha256").update(buffer).digest("hex");

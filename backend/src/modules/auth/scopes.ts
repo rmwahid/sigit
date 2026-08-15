@@ -1,4 +1,4 @@
-import { GIT_RECEIVE_PACK } from "../../constants/protocol";
+import { GIT_RECEIVE_PACK } from "@/constants/protocol";
 // Path classification for the git/LFS protocol. The data lives in
 // constants/scopes.ts and constants/permissions.ts (single source of truth);
 // this module only maps request method+path -> action and re-exports helpers.
@@ -8,8 +8,8 @@ import {
   scopeAllows,
   type LfsOperation,
   type TokenScope,
-} from "../../constants/scopes";
-import { GIT_ACTIONS, type GitAction } from "../../constants/permissions";
+} from "@/constants/scopes";
+import { GIT_ACTIONS, type GitAction } from "@/constants/permissions";
 
 const LFS_BATCH_PATH = "/info/lfs/objects/batch";
 const LFS_OBJECTS_PATH = "/info/lfs/objects/";

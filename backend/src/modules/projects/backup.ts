@@ -1,14 +1,14 @@
-import { CONTENT_TYPE_OCTET_STREAM } from "../../constants/protocol";
+import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import { getConnection } from "../storage/connections";
-import { getDecrypted, putEncrypted } from "../encryption/at-rest";
+import { getConnection } from "@/modules/storage/connections";
+import { getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { projectRepoPath } from "./projects";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { Project } from "../../db/schema/projects";
-import type { StorageConnection } from "../../db/schema/storage";
+import type { Project } from "@/db/schema/projects";
+import type { StorageConnection } from "@/db/schema/storage";
 
 const execAsync = promisify(exec);
 

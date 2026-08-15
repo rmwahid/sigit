@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import { db } from "../../config/db";
-import { storageConnections, type NewStorageConnection, type StorageConnection } from "../../db/schema/storage";
-import { encryptSecret } from "../../lib/secret-encryption";
+import { db } from "@/config/db";
+import { storageConnections, type NewStorageConnection, type StorageConnection } from "@/db/schema/storage";
+import { encryptSecret } from "@/lib/secret-encryption";
 
 export type StorageConnectionInput = {
   name: string;

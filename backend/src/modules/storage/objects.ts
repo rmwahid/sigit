@@ -1,6 +1,6 @@
-import { S3_DELETE_BATCH } from "../../constants/limits";
-import { CONTENT_TYPE_OCTET_STREAM } from "../../constants/protocol";
-import { createS3Client } from "../../config/s3";
+import { S3_DELETE_BATCH } from "@/constants/limits";
+import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
+import { createS3Client } from "@/config/s3";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -11,7 +11,7 @@ import {
   HeadBucketCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
-import type { StorageConnection } from "../../db/schema/storage";
+import type { StorageConnection } from "@/db/schema/storage";
 
 export async function testConnection(connection: StorageConnection): Promise<{ ok: boolean; error?: string }> {
   const client = createS3Client(connection);

@@ -1,12 +1,12 @@
-import { REMOTE_USER } from "../../constants/protocol";
-import { AUDIT_EVENTS } from "../../constants/audit-events";
-import { ERROR_CODES } from "../../constants/errors";
+import { REMOTE_USER } from "@/constants/protocol";
+import { AUDIT_EVENTS } from "@/constants/audit-events";
+import { ERROR_CODES } from "@/constants/errors";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
-import { env } from "../../config/env";
-import { getProjectByName } from "../projects/projects";
-import { backupProject } from "../projects/backup";
-import { audit, log } from "../../lib/logger";
+import { env } from "@/config/env";
+import { getProjectByName } from "@/modules/projects/projects";
+import { backupProject } from "@/modules/projects/backup";
+import { audit, log } from "@/lib/logger";
 import path from "node:path";
 import type { Context } from "hono";
 

@@ -1,10 +1,10 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "../../config/db";
-import { tokenProjectScopes, tokens, type Token } from "../../db/schema/auth";
-import { TOKEN_SCOPES, type TokenScope } from "../../constants/scopes";
-import { TOKEN_PREFIX } from "../../constants/protocol";
-import { RANDOM_TOKEN_BYTES } from "../../constants/limits";
-import { sha256 } from "../../lib/hash";
+import { db } from "@/config/db";
+import { tokenProjectScopes, tokens, type Token } from "@/db/schema/auth";
+import { TOKEN_SCOPES, type TokenScope } from "@/constants/scopes";
+import { TOKEN_PREFIX } from "@/constants/protocol";
+import { RANDOM_TOKEN_BYTES } from "@/constants/limits";
+import { sha256 } from "@/lib/hash";
 import crypto from "node:crypto";
 
 // Maximum token lifetime in days. Single source of truth - used by the route

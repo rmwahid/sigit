@@ -1,8 +1,8 @@
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES } from "../../constants/limits";
-import { GIT_ZERO_HASH } from "../../constants/protocol";
+import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES } from "@/constants/limits";
+import { GIT_ZERO_HASH } from "@/constants/protocol";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { DEFAULT_LFS_SIZE_THRESHOLD } from "../../db/schema/projects";
+import { DEFAULT_LFS_SIZE_THRESHOLD } from "@/db/schema/projects";
 import fs from "node:fs/promises";
 import path from "node:path";
 

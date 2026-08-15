@@ -1,9 +1,9 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { db } from "../../config/db";
-import { projectCollaborators, users } from "../../db/schema/auth";
-import { ADMIN_ROLE } from "../../constants/roles";
-import { TOKEN_SCOPES } from "../../constants/scopes";
-import { projects, type Project } from "../../db/schema/projects";
+import { db } from "@/config/db";
+import { projectCollaborators, users } from "@/db/schema/auth";
+import { ADMIN_ROLE } from "@/constants/roles";
+import { TOKEN_SCOPES } from "@/constants/scopes";
+import { projects, type Project } from "@/db/schema/projects";
 // Project access rules (multi-user). Admin (site owner) bypasses everything;
 // regular users get access through project_collaborators with a granular
 // permission set. Permission DATA lives in constants/permissions.ts.
@@ -12,7 +12,7 @@ import {
   IMPLIED_PERMISSIONS,
   PROJECT_PERMISSIONS,
   type ProjectPermission,
-} from "../../constants/permissions";
+} from "@/constants/permissions";
 
 export { ALL_PROJECT_PERMISSIONS, type ProjectPermission };
 

@@ -1,5 +1,5 @@
-import { AES_ALGORITHM, AES_AUTH_TAG_LENGTH, AES_IV_LENGTH, decryptSecret } from "../../lib/secret-encryption";
-import { getObject, putObject } from "../storage/objects";
+import { AES_ALGORITHM, AES_AUTH_TAG_LENGTH, AES_IV_LENGTH, decryptSecret } from "@/lib/secret-encryption";
+import { getObject, putObject } from "@/modules/storage/objects";
 // At-rest encryption for user storage objects (LFS objects + backup bundle).
 // Transparent server-side: call sites encrypt before putObject and decrypt after
 // getObject. Each project has its own 32-byte AES-256-GCM key, wrapped with
@@ -8,8 +8,8 @@ import { getObject, putObject } from "../storage/objects";
 // Ciphertext format (same as secret-encryption.ts):
 //   iv(12B) || authTag(16B) || ciphertext
 import crypto from "node:crypto";
-import type { Project } from "../../db/schema/projects";
-import type { StorageConnection } from "../../db/schema/storage";
+import type { Project } from "@/db/schema/projects";
+import type { StorageConnection } from "@/db/schema/storage";
 
 
 
