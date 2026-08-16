@@ -91,6 +91,38 @@ git lfs install && git lfs track "*.mp4"    # optional, only for large files
 git push sigit main                         # username: <token-name>, password: <token>
 ```
 
+### Deployment (Podman / Docker Compose)
+
+Self-contained stack: backend (Bun bundle, no node_modules), frontend (static SPA + Caddy), Postgres, and an optional MinIO profile. Only Caddy faces the internet on ports 80/443; everything else stays on the internal network. The backend auto-migrates on boot and can bootstrap the first admin from env.
+
+Prerequisites: Podman + `podman-compose` (or Docker with Compose v2), Git CLI on the host is not needed (bundled in the image), and for a public domain: a DNS record + firewall ports 80/443.
+
+```bash
+# 1. Prepare the environment (one time)
+cd backend
+bun run env:decrypt                # SOPS decrypt -> backend/.env (if you use SOPS)
+# Edit backend/.env (see .env.example for the compose keys):
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB   -> database credentials
+#   SITE_ADDRESS    = localhost | git.example.com      -> public address (Caddy)
+#   GIT_BASE_URL    = https://git.example.com          -> shown in the clone URL box
+#   ADMIN_EMAIL / ADMIN_PASSWORD                      -> optional first-run admin bootstrap
+cd ..
+
+# 2. Start everything (builds images on first run)
+podman-compose --env-file backend/.env up -d --build
+# Docker: docker compose --env-file backend/.env up -d --build
+
+# 3. Optional local storage (MinIO + auto-created bucket, default name "sigit")
+podman-compose --env-file backend/.env --profile minio up -d
+
+# 4. If you skipped ADMIN_EMAIL/ADMIN_PASSWORD, create the admin manually:
+podman-compose exec backend bun dist/create-admin.js
+```
+
+Open `http://<server-ip>` (or `https://git.example.com` once `SITE_ADDRESS` is a domain - Caddy requests the Let's Encrypt certificate automatically and renews it forever). Switching from localhost to a domain later = edit `SITE_ADDRESS` + `GIT_BASE_URL` in `backend/.env` and run `up -d` again.
+
+Updates: `git pull && podman-compose --env-file backend/.env up -d --build` - compose recreates only the changed containers, data lives in named volumes, and migrations run automatically at boot.
+
 ### Tech Stack
 
 | Layer        | Tech                                    |
@@ -132,7 +164,7 @@ git push sigit main                         # username: <token-name>, password: 
 - [x] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
 - [x] **Per-project token scopes** - tokens grant read/write per project; no global tokens. Project pages list which tokens can access them.
 - [x] **Multi-user and permissions** - admin invites users by email (Resend); collaborators get granular per-project permissions (clone, push, LFS, view, history, diff); public projects support anonymous read-only clone.
-- [ ] **Docker Compose deployment** - one-command self-hosting: backend, frontend, Postgres, and optional MinIO.
+- [x] **Docker Compose deployment** - one-command self-hosting: backend, frontend, Postgres, and optional MinIO.
 - [x] **UI restore from backup** - restore a project from its `backup.bundle` in the web UI.
 - [ ] **Webhooks** - push and project events for CI integrations.
 - [x] **Encryption at rest** - transparent server-side encryption (per-project AES-256-GCM keys) for LFS objects and `backup.bundle` in your storage.
