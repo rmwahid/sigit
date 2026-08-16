@@ -1,0 +1,115 @@
+# SiGit self-hosted stack (Podman Compose / Docker Compose).
+#
+#   podman-compose --env-file backend/.env up -d --build     (Docker: docker compose --env-file backend/.env up -d --build)
+#   podman-compose --env-file backend/.env --profile minio up -d --build
+#
+# All user-editable values live in backend/.env (see backend/.env.example).
+# Only the frontend container is reachable from outside (ports 80/443).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-sigit}:${POSTGRES_PASSWORD:-sigit}@postgres:5432/${POSTGRES_DB:-sigit}
+      NODE_ENV: production
+      SIGIT_PROJECTS_ROOT: /data/projects
+      LOG_DIR: /data/logs
+    volumes:
+      - sigit_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sigit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sigit}
+      POSTGRES_DB: ${POSTGRES_DB:-sigit}
+    volumes:
+      - sigit_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  # Optional local storage (profile "minio"). Production users usually point
+  # SiGit at their own S3/MinIO/R2 storage instead.
+  minio:
+    profiles: ["minio"]
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  minio-init:
+    profiles: ["minio"]
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-sigit}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}
+        mc mb -p local/$${MINIO_BUCKET}
+    restart: "no"
+
+volumes:
+  sigit_data:
+  sigit_postgres:
+  minio_data:

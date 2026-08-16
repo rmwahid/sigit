@@ -1,0 +1,18 @@
+{
+	admin off
+}
+
+# SITE_ADDRESS comes from the environment (compose interpolation):
+#   localhost        -> plain HTTP on port 80 (development/testing)
+#   git.example.com  -> automatic Let's Encrypt HTTPS + HTTP redirect + renew
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+	root * /usr/share/caddy
+	try_files {path} /index.html
+	file_server
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:3000
+	}
+}

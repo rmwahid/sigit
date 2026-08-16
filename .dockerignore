@@ -1,0 +1,16 @@
+# Build context hygiene: only source + manifests enter the Docker build.
+.git
+.repowise
+node_modules
+**/node_modules
+backend/dist
+backend/data
+backend/.env
+backend/.env.sops
+backend/tests
+frontend/.svelte-kit
+frontend/build
+frontend/.env
+frontend/tests
+*.log
+.sops.yaml
