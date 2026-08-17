@@ -12,6 +12,11 @@ export const COPY = {
   PASSWORD_MIN_ERROR: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
   INVITE_LINK_COPIED: "Invite link copied",
   EMAIL_NOT_CONFIGURED: "Email is not configured - share this invite link manually:",
+  ACTIVITY_SUMMARY: "{count} commits in {year}",
+  ACTIVITY_COMMITS_ON_DAY: "{count} commits on {date}",
+  ACTIVITY_NO_COMMITS: "No commits on {date}",
+  ACTIVITY_LESS: "Less",
+  ACTIVITY_MORE: "More",
 } as const;
 
 export const PLACEHOLDERS = {

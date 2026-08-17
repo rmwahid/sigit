@@ -33,6 +33,11 @@ export const APP_ROUTES = {
   EXPLORE: "/explore",
 } as const;
 
+// Public profile page URL (email is the route param).
+export function userProfileHref(email: string): string {
+  return `/users/${encodeURIComponent(email)}`;
+}
+
 // Git snippet constants.
 export const GIT_REMOTE_NAME = "sigit";
 export const DEFAULT_BRANCH = "main";

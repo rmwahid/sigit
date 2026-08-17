@@ -65,6 +65,13 @@
   --sidebar-border: #141414;
   --radius: 0.25rem;
   --nb-mark: var(--primary);
+  /* Activity graph heat ramp (purple, light mode) */
+  --activity-0: #f3edda;
+  --activity-1: #e9d5ff;
+  --activity-2: #d8b4fe;
+  --activity-3: #a855f7;
+  --activity-4: #7e22ce;
+  --activity-future: #faf6e9;
 }
 
 .dark {
@@ -95,6 +102,13 @@
   --sidebar-border: #f5f5f0;
   /* Deep amber mark: bright yellow behind light text is unreadable in dark mode */
   --nb-mark: #a16207;
+  /* Activity graph heat ramp (purple, dark mode: darkest first, vivid last) */
+  --activity-0: #38345c;
+  --activity-1: #581c87;
+  --activity-2: #7e22ce;
+  --activity-3: #a855f7;
+  --activity-4: #d8b4fe;
+  --activity-future: #312e53;
 }
 
 @layer base {
