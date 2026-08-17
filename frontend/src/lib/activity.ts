@@ -10,8 +10,8 @@ export type ActivityGrid = {
   total: number;
 };
 
-export const ACTIVITY_WEEK_COLUMNS = 53;
-export const ACTIVITY_DAYS_PER_WEEK = 7;
+const ACTIVITY_WEEK_COLUMNS = 53;
+const ACTIVITY_DAYS_PER_WEEK = 7;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

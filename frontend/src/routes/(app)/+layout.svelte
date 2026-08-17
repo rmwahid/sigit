@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createProjectWithConnection, getMe, logout, type CurrentUser } from "$lib/api";
   import { ADMIN_ROLE } from "$lib/constants/roles";
-  import { APP_ROUTES } from "$lib/constants/paths";
+  import { APP_ROUTES, userProfileHref } from "$lib/constants/paths";
   import { projectsStore } from "$lib/stores/projects.svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
@@ -134,7 +134,9 @@
         <a href={APP_ROUTES.SETTINGS} class="pixel-border-sm px-3 py-1">Settings</a>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-sm text-muted-foreground">{currentUser.email}</span>
+        <a href={userProfileHref(currentUser.email)} class="text-sm text-muted-foreground pixel-border-sm px-3 py-1 hover:bg-muted">
+          {currentUser.email}
+        </a>
         <ThemeToggle />
         <button class="pixel-border-sm px-3 py-1 text-sm" onclick={onLogout}>Logout</button>
       </div>
