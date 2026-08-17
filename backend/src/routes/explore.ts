@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { getUserActivity } from "@/modules/activity/activity";
 import { listAccessibleProjectIds, listPublicProjects } from "@/modules/auth/access";
 import { getUserByEmail } from "@/modules/auth/auth";
 
@@ -92,5 +93,44 @@ exploreRoutes.openapi(
           .map((p) => ({ id: p.id, name: p.name, description: p.description, isPublic: p.isPublic })),
       },
     });
+  }
+);
+
+exploreRoutes.openapi(
+  createRoute({
+    method: "get",
+    path: "/users/:email/activity",
+    tags: ["Explore"],
+    summary: "Per-day commit counts for a user across public projects (no auth)",
+    request: { params: z.object({ email: z.string() }) },
+    responses: {
+      200: {
+        description: "Daily commit activity",
+        content: {
+          "application/json": {
+            schema: z.object({
+              data: z.object({ days: z.array(z.object({ date: z.string(), count: z.number().int().nonnegative() })) }),
+            }),
+          },
+        },
+      },
+      404: {
+        description: "Not found",
+        content: {
+          "application/json": {
+            schema: z.object({ error: z.object({ code: z.string(), message: z.string() }) }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const { email } = c.req.valid("param");
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return c.json({ error: { code: "NOT_FOUND", message: "Not found" } }, 404);
+    }
+    const days = await getUserActivity(email);
+    return c.json({ data: { days } });
   }
 );
