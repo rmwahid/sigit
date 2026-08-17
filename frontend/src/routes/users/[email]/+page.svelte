@@ -1,12 +1,15 @@
 <script lang="ts">
   import { page } from "$app/stores";
-  import { getUserProfile, type PublicUserProfile } from "$lib/api/explore";
+  import type { ActivityDay } from "$lib/activity";
+  import { getUserActivity, getUserProfile, type PublicUserProfile } from "$lib/api/explore";
   import { ADMIN_ROLE, roleName } from "$lib/constants/roles";
-  import { GitBranch, Mail, Medal } from "lucide-svelte";
+  import { Flame, GitBranch, Mail, Medal } from "lucide-svelte";
+  import ActivityGraph from "$lib/components/activity/ActivityGraph.svelte";
   import PublicShell from "$lib/components/PublicShell.svelte";
   import Squiggle from "$lib/components/decor/Squiggle.svelte";
 
   let profile = $state<PublicUserProfile | null>(null);
+  let activity = $state<ActivityDay[]>([]);
   let error = $state("");
 
   async function init() {
@@ -16,8 +19,12 @@
       return;
     }
     try {
-      const res = await getUserProfile(email);
-      profile = res.data;
+      const [profileRes, activityRes] = await Promise.all([
+        getUserProfile(email),
+        getUserActivity(email).catch(() => null),
+      ]);
+      profile = profileRes.data;
+      activity = activityRes?.data.days ?? [];
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -54,6 +61,15 @@
           </span>
         </div>
       </div>
+    </div>
+
+    <h2 class="flex items-center gap-2 text-xl font-extrabold mb-2">
+      <Flame class="size-5 text-primary" aria-hidden="true" />
+      Activity
+    </h2>
+    <Squiggle class="h-2 w-32 mb-4 text-accent" />
+    <div class="mb-6">
+      <ActivityGraph days={activity} />
     </div>
 
     <h2 class="flex items-center gap-2 text-xl font-extrabold mb-2">
