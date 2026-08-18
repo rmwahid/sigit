@@ -3,13 +3,24 @@ set -e
 
 # Wait for postgres and bring the schema up to date. migrate.js is the bundled
 # drizzle-compatible runner and is idempotent, so this mirrors Gitea's
-# migrate-on-boot behavior on every container start.
+# migrate-on-boot behavior on every container start. Only connection failures
+# are retried; anything else fails fast so real errors are not masked.
 echo "[entrypoint] waiting for postgres..."
 attempt=0
-until bun dist/migrate.js; do
+while :; do
+  if output=$(bun dist/migrate.js 2>&1); then
+    echo "$output"
+    break
+  fi
   attempt=$((attempt + 1))
+  if ! printf '%s' "$output" | grep -qiE "connect|ECONNREFUSED|terminated unexpectedly|getaddrinfo|Connection refused"; then
+    echo "$output" >&2
+    echo "[entrypoint] migration failed for a non-connection reason" >&2
+    exit 1
+  fi
   if [ "$attempt" -ge 60 ]; then
     echo "[entrypoint] database still not ready after 2 minutes" >&2
+    echo "$output" >&2
     exit 1
   fi
   echo "[entrypoint] postgres not ready (attempt $attempt), retrying in 2s..."

@@ -93,9 +93,9 @@ git push sigit main                         # username: <token-name>, password: 
 
 ### Deployment (Podman / Docker Compose)
 
-Self-contained stack: backend (Bun bundle, no node_modules), frontend (static SPA + Caddy), Postgres, and an optional MinIO profile. Only Caddy faces the internet on ports 80/443; everything else stays on the internal network. The backend auto-migrates on boot and can bootstrap the first admin from env.
+Self-contained stack: backend (Bun bundle, no node_modules), frontend (static SPA + Caddy), Postgres, and an optional MinIO profile. Only Caddy faces the outside world; everything else stays on the internal network. The backend auto-migrates on boot and can bootstrap the first admin from env.
 
-Prerequisites: Podman + `podman-compose` (or Docker with Compose v2), Git CLI on the host is not needed (bundled in the image), and for a public domain: a DNS record + firewall ports 80/443.
+Prerequisites: Podman + `podman-compose` (or Docker with Compose v2); Git is bundled in the image. For a public domain: a DNS record + open firewall ports.
 
 ```bash
 # 1. Prepare the environment (one time)
@@ -103,8 +103,9 @@ cd backend
 bun run env:decrypt                # SOPS decrypt -> backend/.env (if you use SOPS)
 # Edit backend/.env (see .env.example for the compose keys):
 #   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB   -> database credentials
-#   SITE_ADDRESS    = localhost | git.example.com      -> public address (Caddy)
-#   GIT_BASE_URL    = https://git.example.com          -> shown in the clone URL box
+#   SITE_ADDRESS = localhost | git.example.com        -> public address
+#   SITE_SCHEME  = http (plain) | https (auto Let's Encrypt)
+#   GIT_BASE_URL = http://localhost:8080 | https://git.example.com -> clone URL box
 #   ADMIN_EMAIL / ADMIN_PASSWORD                      -> optional first-run admin bootstrap
 cd ..
 
@@ -119,7 +120,7 @@ podman-compose --env-file backend/.env --profile minio up -d
 podman-compose exec backend bun dist/create-admin.js
 ```
 
-Open `http://<server-ip>` (or `https://git.example.com` once `SITE_ADDRESS` is a domain - Caddy requests the Let's Encrypt certificate automatically and renews it forever). Switching from localhost to a domain later = edit `SITE_ADDRESS` + `GIT_BASE_URL` in `backend/.env` and run `up -d` again.
+The app is then available at `http://<server-ip>:8080` (rootless containers cannot bind the privileged ports 80/443; use `HTTP_PORT`/`HTTPS_PORT` in `.env` to change, or run rootful Docker). Going public later = set `SITE_SCHEME=https` + `SITE_ADDRESS=git.example.com` + `GIT_BASE_URL=https://git.example.com` in `backend/.env`, point DNS to the server, open ports 80/443, and run `up -d` again - Caddy requests and renews the Let's Encrypt certificate automatically. Behind an existing host proxy: keep `SITE_SCHEME=http` and point that proxy at the `HTTP_PORT`.
 
 Updates: `git pull && podman-compose --env-file backend/.env up -d --build` - compose recreates only the changed containers, data lives in named volumes, and migrations run automatically at boot.
 

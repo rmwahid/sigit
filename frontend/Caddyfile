@@ -1,18 +1,24 @@
-{
-	admin off
-}
-
-# SITE_ADDRESS comes from the environment (compose interpolation):
-#   localhost        -> plain HTTP on port 80 (development/testing)
-#   git.example.com  -> automatic Let's Encrypt HTTPS + HTTP redirect + renew
-{$SITE_ADDRESS:localhost} {
+# SITE_ADDRESS + SITE_SCHEME come from the environment (compose interpolation):
+#   SITE_SCHEME=http (default)  -> plain HTTP on port 80 (localhost/testing)
+#   SITE_SCHEME=https + domain  -> automatic Let's Encrypt HTTPS + redirect + renew
+{$SITE_SCHEME:http}://{$SITE_ADDRESS:localhost} {
 	encode zstd gzip
-	root * /usr/share/caddy
-	try_files {path} /index.html
-	file_server
+
+	# git smart HTTP + LFS: /projects/<name>.git/... goes straight to the backend
+	# (the SPA only owns /projects/<uuid> UI pages, which have no .git suffix).
+	@git path_regexp git ^/projects/[^/]+\.git(?:/|$)
+	handle @git {
+		reverse_proxy backend:3000
+	}
 
 	handle /api/* {
 		uri strip_prefix /api
 		reverse_proxy backend:3000
+	}
+
+	handle {
+		root * /usr/share/caddy
+		try_files {path} /index.html
+		file_server
 	}
 }
