@@ -26,6 +26,7 @@ async function main() {
     "Password updated",
     "All existing sessions have been revoked. Please log in again."
   );
+  process.exit(0);
 }
 
 main();

@@ -58,6 +58,7 @@ async function main() {
     if (targetKeyId !== currentKeyId()) {
       p.note(`"${targetKeyId}" is not the current key. New writes still use "${currentKeyId()}".`);
     }
+    process.exit(0);
   } catch (error) {
     spinner.stop("Failed");
     p.cancel(`Error: ${error instanceof Error ? error.message : String(error)}`);

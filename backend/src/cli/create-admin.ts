@@ -43,7 +43,9 @@ async function main() {
       console.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     }
-    return;
+    // The postgres pool keeps the event loop alive; exit explicitly so the
+    // container entrypoint can proceed to the server.
+    process.exit(0);
   }
 
   console.clear();
@@ -72,6 +74,7 @@ async function main() {
     "Admin user created",
     "Setup complete. You can now log in."
   );
+  process.exit(0);
 }
 
 main();
