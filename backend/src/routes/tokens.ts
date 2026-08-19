@@ -5,15 +5,15 @@ import { getProject } from "@/modules/projects/projects";
 import { getProjectAccess, tokenScopeForUser } from "@/modules/auth/access";
 import { requireUser, type AuthEnv } from "@/middleware/auth";
 import { audit } from "@/lib/logger";
-import { idParamSchema } from "./schemas/common";
+import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 import {
   createToken,
   listTokensWithProjectScopes,
   revokeToken,
   setTokenProjectScopes,
-  TOKEN_MAX_EXPIRY_DAYS,
 } from "@/modules/auth/tokens";
 import { TOKEN_SCOPE_SLUGS, type TokenScope } from "@/constants/scopes";
+import { TOKEN_MAX_EXPIRY_DAYS, TOKEN_MIN_EXPIRY_DAYS, TOKEN_NAME_MAX_LENGTH } from "@/constants/limits";
 
 export const tokenProjectSchema = z.object({
   projectId: z.string().uuid(),
@@ -33,11 +33,11 @@ const tokenSchema = z
 
 const tokenListResponse = z.object({ data: z.array(tokenSchema) });
 const tokenCreateInput = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().min(1).max(TOKEN_NAME_MAX_LENGTH),
   // Per-project access: the token only works for the selected projects ("write" includes "read").
   projects: z.array(tokenProjectSchema).min(1),
   // Flexible (1-30 days), capped at 30 days for token security.
-  expiresInDays: z.coerce.number().int().min(1).max(TOKEN_MAX_EXPIRY_DAYS),
+  expiresInDays: z.coerce.number().int().min(TOKEN_MIN_EXPIRY_DAYS).max(TOKEN_MAX_EXPIRY_DAYS),
 });
 const tokenCreatedResponse = z.object({
   data: z.object({
@@ -48,8 +48,6 @@ const tokenCreatedResponse = z.object({
     expiresAt: z.string().datetime(),
   }),
 });
-const messageResponse = z.object({ message: z.string() });
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const tokenRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -150,7 +148,7 @@ tokenRoutes.openapi(
     responses: {
       200: {
         description: "Revoked",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       404: {
         description: "Not found",

@@ -2,10 +2,10 @@ import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { getEmailSettings, saveEmailSettings, sendEmail } from "@/modules/email/resend";
-import { maskSecret } from "@/lib/secret-encryption";
 import { requireAdmin, type AuthEnv } from "@/middleware/auth";
 import { audit } from "@/lib/logger";
-import { decryptSecret } from "@/lib/secret-encryption";
+import { decryptSecret, maskSecret } from "@/lib/secret-encryption";
+import { messageSchema } from "./schemas/common";
 
 const emailSettingsResponse = z.object({
   data: z.object({
@@ -32,8 +32,6 @@ const emailSettingsInput = z.object({
   apiKey: z.string().min(1).optional(),
   fromEmail: fromEmailSchema.optional(),
 });
-const messageResponse = z.object({ message: z.string() });
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const emailSettingsRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -84,7 +82,7 @@ emailSettingsRoutes.openapi(
     responses: {
       200: {
         description: "Updated",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
     },
   }),
@@ -107,7 +105,7 @@ emailSettingsRoutes.openapi(
     responses: {
       200: {
         description: "Test result",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
     },
   }),

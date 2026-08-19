@@ -6,7 +6,7 @@ import { createInvitation, listInvitations, revokeInvitation } from "@/modules/a
 import { sendEmail } from "@/modules/email/resend";
 import { requireAdmin, type AuthEnv } from "@/middleware/auth";
 import { audit } from "@/lib/logger";
-import { idParamSchema } from "./schemas/common";
+import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 
 const invitationSchema = z
   .object({
@@ -35,8 +35,6 @@ const invitationCreatedResponse = z.object({
     emailSent: z.boolean(),
   }),
 });
-const messageResponse = z.object({ message: z.string() });
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const invitationRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -123,7 +121,7 @@ invitationRoutes.openapi(
     responses: {
       200: {
         description: "Revoked",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       404: {
         description: "Not found",

@@ -7,6 +7,7 @@ import { DEFAULT_ROLE, type UserRole } from "@/constants/roles";
 import { ERROR_CODES } from "@/constants/errors";
 import { INVITATION_TTL_HOURS, RANDOM_TOKEN_BYTES } from "@/constants/limits";
 import { sha256 } from "@/lib/hash";
+import { deleteRowById } from "@/lib/db";
 import { createUser, getUserByEmail } from "./auth";
 // Onboarding invitations: admin invites an email, the user sets their own
 // password via the invite link. Token is hashed (SHA-256) like sessions/tokens.
@@ -51,6 +52,5 @@ export async function listInvitations() {
 }
 
 export async function revokeInvitation(id: string): Promise<boolean> {
-  const rows = await db.delete(invitations).where(eq(invitations.id, id)).returning();
-  return rows.length > 0;
+  return deleteRowById(invitations, id);
 }

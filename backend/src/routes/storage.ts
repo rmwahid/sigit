@@ -3,9 +3,8 @@ import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { decryptSecret, encryptSecret, maskSecret } from "@/lib/secret-encryption";
 import { audit } from "@/lib/logger";
-import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./schemas/common";
+import { errorSchema, idParamSchema, idResponse } from "./schemas/common";
 import {
-  createConnection,
   createConnectionFromInput,
   deleteConnection,
   getConnection,
@@ -19,11 +18,9 @@ import {
 } from "@/modules/storage/objects";
 import type { StorageConnection } from "@/db/schema/storage";
 import {
-  connectionSchema,
   connectionInputSchema,
   connectionUpdateSchema,
   keyParamSchema,
-  objectSummarySchema,
   connectionListResponse,
   connectionResponse,
   testResponse,

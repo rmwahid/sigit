@@ -28,4 +28,6 @@ export const AUDIT_EVENTS = {
   STORAGE_DELETE_OBJECT: "storage.delete_object",
   EMAIL_UPDATE: "email.update",
   EMAIL_TEST: "email.test",
+  BRANCH_CREATE: "branch.create",
+  BRANCH_DELETE: "branch.delete",
 } as const;

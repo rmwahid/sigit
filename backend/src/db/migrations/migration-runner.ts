@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@/lib/hash";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,7 @@ export function loadMigrations(migrationsDir: string): MigrationFile[] {
     return {
       tag: entry.tag,
       when: entry.when,
-      hash: createHash("sha256").update(query).digest("hex"),
+      hash: sha256(query),
       statements: query.split("--> statement-breakpoint"),
     };
   });

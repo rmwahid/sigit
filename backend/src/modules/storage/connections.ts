@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { storageConnections, type NewStorageConnection, type StorageConnection } from "@/db/schema/storage";
 import { encryptSecret } from "@/lib/secret-encryption";
+import { deleteRowById } from "@/lib/db";
 
 export type StorageConnectionInput = {
   name: string;
@@ -63,6 +64,5 @@ export async function updateConnection(id: string, data: Partial<NewStorageConne
 }
 
 export async function deleteConnection(id: string): Promise<boolean> {
-  const rows = await db.delete(storageConnections).where(eq(storageConnections.id, id)).returning();
-  return rows.length > 0;
+  return deleteRowById(storageConnections, id);
 }

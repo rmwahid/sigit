@@ -106,11 +106,20 @@
         lfsThresholdMb={ctrl.lfsThresholdMb}
         copiedClone={ctrl.copiedClone}
         pathSegments={ctrl.pathSegments}
+        showBranchModal={ctrl.showBranchModal}
+        newBranchName={ctrl.newBranchName}
+        newBranchFrom={ctrl.newBranchFrom}
+        branchActionError={ctrl.branchActionError}
+        creatingBranch={ctrl.creatingBranch}
         onRefChange={() => void ctrl.onRefChange()}
         openDir={(name) => void ctrl.openDir(name)}
         goToDir={(i) => void ctrl.goToDir(i)}
         openFile={(name) => void ctrl.openFile(name)}
         copyCloneUrl={() => void ctrl.copyCloneUrl()}
+        openBranchModal={() => ctrl.openBranchModal()}
+        closeBranchModal={() => ctrl.closeBranchModal()}
+        onCreateBranch={() => void ctrl.onCreateBranch()}
+        onDeleteBranch={(branch) => void ctrl.onDeleteBranch(branch)}
       />
     {:else if ctrl.tab === "history"}
       <HistoryTab

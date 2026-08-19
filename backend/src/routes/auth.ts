@@ -2,7 +2,6 @@ import { MIN_PASSWORD_LENGTH } from "@/constants/limits";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
 import { ROLE_SLUGS } from "@/constants/roles";
@@ -10,6 +9,7 @@ import { requireUser, type AuthEnv } from "@/middleware/auth";
 import { env } from "@/config/env";
 import { acceptInvitation, validateInvitation } from "@/modules/auth/invitations";
 import { audit } from "@/lib/logger";
+import { errorSchema, messageSchema } from "./schemas/common";
 import {
   createSession,
   deleteAllSessions,
@@ -45,9 +45,6 @@ const meResponse = z.object({
     role: z.string(),
   }),
 });
-
-const messageResponse = z.object({ message: z.string() }).openapi("Message");
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const authRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -118,7 +115,7 @@ authRoutes.openapi(
     responses: {
       200: {
         description: "Logged out",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
     },
   }),
@@ -143,7 +140,7 @@ authRoutes.openapi(
     responses: {
       200: {
         description: "All other sessions revoked",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       401: {
         description: "Invalid password",
@@ -177,7 +174,7 @@ authRoutes.openapi(
     responses: {
       200: {
         description: "Password changed",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       401: {
         description: "Invalid current password",

@@ -5,13 +5,14 @@ import { getProjectByName, projectNameFromRouteParam } from "@/modules/projects/
 import { getConnection } from "@/modules/storage/connections";
 import { scopeAllows, scopeForLfsOperation } from "@/modules/auth/scopes";
 import { log } from "@/lib/logger";
+import { MAX_LFS_BATCH_OBJECTS, MAX_LFS_OBJECT_BYTES } from "@/constants/limits";
+import { LFS_MESSAGES } from "@/constants/lfs-messages";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   buildBatchResponse,
   downloadObject,
   isValidOid,
-  MAX_LFS_OBJECT_BYTES,
   objectExists,
   uploadObject,
   verifyObject,
@@ -26,11 +27,8 @@ import type { StorageConnection } from "@/db/schema/storage";
 //   POST /projects/<name>.git/info/lfs/objects/:oid/verify -> verify size
 //   GET  /projects/<name>.git/info/lfs/objects/:oid    -> download content
 // Objects are stored in USER STORAGE (not server disk): projects/{id}/lfs/{oid}.
-// Wajib dipasang SEBELUM gitRoutes (catch-all .git) di index.ts.
+// Must be mounted BEFORE gitRoutes (catch-all .git) in index.ts.
 export const lfsRoutes = new Hono();
-
-const LFS_JSON = CONTENT_TYPE_LFS_JSON;
-const MAX_BATCH_OBJECTS = 1000;
 
 // LFS errors follow the spec: JSON { message } - NOT the { error: { code } } format.
 // Built directly (not HttpError) so the global onError does not wrap them.
@@ -44,7 +42,7 @@ class LfsError extends Error {
 }
 
 function lfsError(c: Context, status: ContentfulStatusCode, message: string): Response {
-  return c.json({ message }, status, { "Content-Type": LFS_JSON });
+  return c.json({ message }, status, { "Content-Type": CONTENT_TYPE_LFS_JSON });
 }
 
 async function loadProject(name: string): Promise<Project> {
@@ -79,7 +77,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
       throw new LfsError(422, "Invalid batch request");
     }
     const objects: LfsObject[] = body.objects;
-    if (objects.length === 0 || objects.length > MAX_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
+    if (objects.length === 0 || objects.length > MAX_LFS_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
       throw new LfsError(422, "Invalid batch objects");
     }
     if (Array.isArray(body.transfers) && body.transfers.length > 0 && !body.transfers.includes("basic")) {
@@ -102,7 +100,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
       exists: async (oid) => (await objectExists(connection, project.id, oid)) !== false,
       maxObjectBytes: MAX_LFS_OBJECT_BYTES,
     });
-    return c.json(payload, 200, { "Content-Type": LFS_JSON });
+    return c.json(payload, 200, { "Content-Type": CONTENT_TYPE_LFS_JSON });
   });
 });
 
@@ -155,7 +153,7 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/:oid/verify", requireGitToken, 
     const connection = await loadConnection(project);
     const result = await verifyObject(project, connection, oid, size);
     if (!result.ok) {
-      throw new LfsError(result.error === "object does not exist" ? 404 : 422, result.error ?? "Verify failed");
+      throw new LfsError(result.error === LFS_MESSAGES.OBJECT_DOES_NOT_EXIST ? 404 : 422, result.error ?? "Verify failed");
     }
     return new Response(null, { status: 200 });
   });

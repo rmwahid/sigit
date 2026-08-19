@@ -1,4 +1,5 @@
 import type { ProjectPermission } from "./constants/permissions";
+import { BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "./constants/validation";
 import type { ActivityItem, TreeEntry } from "./api/browser";
 
 // Pure helpers for the project page (Code/History/Activity tabs), extracted
@@ -59,4 +60,12 @@ export function groupActivityByDate(items: ActivityItem[]): [string, ActivityIte
 // which would not match any option), then the first branch, then HEAD.
 export function defaultRef(defaultBranch: string | null, branches: string[]): string {
   return defaultBranch ?? branches[0] ?? "HEAD";
+}
+
+// Mirror of the backend branch name rule (routes/branches.ts): non-empty,
+// only [A-Za-z0-9._/-], no "..". The server re-checks with git
+// check-ref-format, which is stricter about trailing dots/slashes.
+export function isValidBranchName(name: string): boolean {
+  if (!name || name.length > BRANCH_NAME_MAX_LENGTH || name.includes("..")) return false;
+  return new RegExp(BRANCH_NAME_PATTERN).test(name);
 }

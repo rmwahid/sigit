@@ -380,7 +380,7 @@
     <!-- Create form -->
     <div class="pixel-border bg-card p-5 flex flex-col gap-4">
       <div class="flex gap-3">
-        <Input class="pixel-border-sm flex-1" bind:value={tokenName} placeholder="Token name (e.g. laptop-kerja)" disabled={creatingToken} />
+        <Input class="pixel-border-sm flex-1" bind:value={tokenName} placeholder={PLACEHOLDERS.TOKEN_NAME} disabled={creatingToken} />
         <Button class="pixel-border-sm shrink-0" onclick={onCreateToken} disabled={creatingToken || !canCreate}>
           {creatingToken ? "Creating..." : "Create Token"}
         </Button>

@@ -14,7 +14,7 @@ import {
 } from "./api";
 import { listPublicProjects } from "./api/explore";
 import { listTokens, type GitToken } from "./api/tokens";
-import { scopeLabel, type TokenScope } from "./constants/scopes";
+import type { TokenScope } from "./constants/scopes";
 import { COPY_FEEDBACK_MS } from "./constants/validation";
 import { DEFAULT_GIT_BASE_URL } from "./constants/paths";
 import { DEFAULT_COLLAB_PERMISSIONS, type ProjectPermission } from "./constants/permissions";
@@ -40,10 +40,15 @@ import { lfsCommands, parseLfsPatterns } from "./snippet";
 import { renderMarkdown } from "./markdown";
 import { projectsStore } from "./stores/projects.svelte";
 import {
+  createProjectBranch,
+  deleteProjectBranch,
+} from "./api/branches";
+import {
   defaultRef,
   deriveTabKeys,
   groupActivityByDate,
   hasProjectPerm,
+  isValidBranchName,
   joinPath,
   splitPath,
   type ProjectTabKey,
@@ -70,6 +75,13 @@ export class ProjectPageController {
   readme = $state<{ name: string; html: string } | null>(null);
   viewing = $state<{ path: string; content: string; encoding: "text" | "base64"; size: number } | null>(null);
   blobError = $state("");
+
+  // Branch modal (new branch + delete)
+  showBranchModal = $state(false);
+  newBranchName = $state("");
+  newBranchFrom = $state("");
+  branchActionError = $state("");
+  creatingBranch = $state(false);
 
   // History tab
   history = $state<CommitInfo[]>([]);
@@ -292,6 +304,55 @@ export class ProjectPageController {
     this.dirPath = "";
     this.viewing = null;
     await this.loadTree();
+  }
+
+  openBranchModal() {
+    this.showBranchModal = true;
+    this.newBranchName = "";
+    this.newBranchFrom = this.branches.includes(this.ref) ? this.ref : "";
+    this.branchActionError = "";
+  }
+
+  closeBranchModal() {
+    if (this.creatingBranch) return;
+    this.showBranchModal = false;
+    this.branchActionError = "";
+  }
+
+  async onCreateBranch() {
+    if (!this.project) return;
+    const name = this.newBranchName.trim();
+    if (!isValidBranchName(name)) {
+      this.branchActionError = "Invalid branch name: use letters, numbers, . _ - / (no leading/trailing symbols).";
+      return;
+    }
+    this.creatingBranch = true;
+    this.branchActionError = "";
+    try {
+      await createProjectBranch(this.project.id, name, this.newBranchFrom || undefined);
+      this.showBranchModal = false;
+      this.ref = name;
+      await this.loadRefs();
+      await this.onRefChange();
+    } catch (e) {
+      this.branchActionError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.creatingBranch = false;
+    }
+  }
+
+  async onDeleteBranch(branch: string) {
+    if (!this.project) return;
+    if (!confirm(`Delete branch "${branch}"? This cannot be undone.`)) return;
+    this.branchActionError = "";
+    try {
+      await deleteProjectBranch(this.project.id, branch);
+      if (this.ref === branch) this.ref = "HEAD";
+      await this.loadRefs();
+      await this.onRefChange();
+    } catch (e) {
+      this.branchActionError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async openDir(name: string) {

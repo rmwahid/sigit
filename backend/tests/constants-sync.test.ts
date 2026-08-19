@@ -10,9 +10,10 @@ import { describe, expect, it } from "bun:test";
 import { ADMIN_ROLE, DEFAULT_ROLE, ROLES } from "@/constants/roles";
 import { ALL_PROJECT_PERMISSIONS, PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { TOKEN_SCOPES } from "@/constants/scopes";
-import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH } from "@/constants/limits";
+import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH, BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "@/constants/limits";
 import { ARCHIVE_FORMATS } from "@/constants/protocol";
 import { TOKEN_MAX_EXPIRY_DAYS } from "@/modules/auth/tokens";
+import { PR_STATUSES, MERGE_METHODS, REVIEW_STATES, PR_TERMINAL_STATUSES } from "@/constants/pull-requests";
 import {
   ADMIN_ROLE as FE_ADMIN_ROLE,
   DEFAULT_ROLE as FE_DEFAULT_ROLE,
@@ -27,8 +28,16 @@ import {
   MAX_FILE_BROWSER_BYTES as FE_MAX_FILE_BROWSER_BYTES,
   MIN_PASSWORD_LENGTH as FE_MIN_PASSWORD_LENGTH,
   TOKEN_MAX_EXPIRY_DAYS as FE_TOKEN_MAX_EXPIRY_DAYS,
+  BRANCH_NAME_MAX_LENGTH as FE_BRANCH_NAME_MAX_LENGTH,
+  BRANCH_NAME_PATTERN as FE_BRANCH_NAME_PATTERN,
 } from "../../frontend/src/lib/constants/validation";
 import { ARCHIVE_FORMATS as FE_ARCHIVE_FORMATS } from "../../frontend/src/lib/constants/protocol";
+import {
+  PR_STATUSES as FE_PR_STATUSES,
+  MERGE_METHODS as FE_MERGE_METHODS,
+  REVIEW_STATES as FE_REVIEW_STATES,
+  PR_TERMINAL_STATUSES as FE_PR_TERMINAL_STATUSES,
+} from "../../frontend/src/lib/constants/pull-requests";
 
 describe("frontend/backend constants sync", () => {
   it("roles match exactly (slug + name)", () => {
@@ -50,9 +59,18 @@ describe("frontend/backend constants sync", () => {
     expect(FE_MIN_PASSWORD_LENGTH).toEqual(MIN_PASSWORD_LENGTH);
     expect(FE_TOKEN_MAX_EXPIRY_DAYS).toEqual(TOKEN_MAX_EXPIRY_DAYS);
     expect(FE_MAX_FILE_BROWSER_BYTES).toEqual(MAX_FILE_BROWSER_BYTES);
+    expect(FE_BRANCH_NAME_MAX_LENGTH).toEqual(BRANCH_NAME_MAX_LENGTH);
+    expect(FE_BRANCH_NAME_PATTERN).toEqual(BRANCH_NAME_PATTERN);
   });
 
   it("archive formats match exactly (slug + name)", () => {
     expect(FE_ARCHIVE_FORMATS).toEqual(ARCHIVE_FORMATS);
+  });
+
+  it("pull request constants match exactly (slug + name)", () => {
+    expect(FE_PR_STATUSES).toEqual(PR_STATUSES);
+    expect(FE_PR_TERMINAL_STATUSES).toEqual(PR_TERMINAL_STATUSES);
+    expect(FE_MERGE_METHODS).toEqual(MERGE_METHODS);
+    expect(FE_REVIEW_STATES).toEqual(REVIEW_STATES);
   });
 });

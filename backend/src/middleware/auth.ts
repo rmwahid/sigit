@@ -3,6 +3,8 @@ import { createMiddleware } from "hono/factory";
 import { type User } from "@/db/schema/auth";
 import { ADMIN_ROLE } from "@/constants/roles";
 import { getSessionTokenFromCookie, validateSessionToken } from "@/modules/auth/auth";
+import { getProjectAccess, hasPermission } from "@/modules/auth/access";
+import type { ProjectPermission } from "@/constants/permissions";
 import type { Context } from "hono";
 
 export type AuthEnv = {
@@ -49,4 +51,20 @@ export async function requireAdmin(c: Context<AuthEnv>): Promise<User | null> {
   const user = await requireUser(c);
   if (!user || user.role !== ADMIN_ROLE) return null;
   return user;
+}
+
+// Session + per-project permission guard for authed project actions (admin
+// bypasses). Returns the user + access on success, or a JSON error response.
+export async function requireProjectAccess(
+  c: Context<AuthEnv>,
+  projectId: string,
+  perm: ProjectPermission
+): Promise<{ user: User; access: ProjectPermission[] | null } | Response> {
+  const user = await requireUser(c);
+  if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401);
+  const access = await getProjectAccess(user.id, projectId);
+  if (!hasPermission(access, perm)) {
+    return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "No access to this project" } }, 403);
+  }
+  return { user, access };
 }

@@ -57,6 +57,22 @@ export function activityLevel(count: number): number {
   return 4;
 }
 
+// First week column of each month of the year (trailing days of the previous
+// year are skipped): "January" -> 0, "February" -> 5, ...
+function monthStartColumns(year: number, firstSunday: number): { label: string; col: number }[] {
+  const months: { label: string; col: number }[] = [];
+  let prevMonth = -1;
+  for (let col = 0; col < ACTIVITY_WEEK_COLUMNS; col++) {
+    const sundayDate = new Date(firstSunday + col * ACTIVITY_DAYS_PER_WEEK * DAY_MS);
+    const month = sundayDate.getUTCMonth();
+    if (sundayDate.getUTCFullYear() === year && month !== prevMonth) {
+      months.push({ label: MONTH_NAMES[month].slice(0, 3), col });
+    }
+    prevMonth = month;
+  }
+  return months;
+}
+
 // Grid of the current calendar year (Jan 1 to Dec 31) in 53 columns
 // (Sunday..Saturday). Cells before Jan 1, after Dec 31, or after today are
 // null. Month labels mark the column where the month of the column's Sunday
@@ -78,8 +94,6 @@ export function buildActivityGrid(days: ActivityDay[], today = new Date()): Acti
   const firstSunday = yearStartMs - new Date(yearStartMs).getUTCDay() * DAY_MS;
 
   const weeks: ActivityCell[][] = [];
-  const months: { label: string; col: number }[] = [];
-  let prevMonth = -1;
   for (let col = 0; col < ACTIVITY_WEEK_COLUMNS; col++) {
     const sunday = firstSunday + col * ACTIVITY_DAYS_PER_WEEK * DAY_MS;
     const week: ActivityCell[] = [];
@@ -93,12 +107,7 @@ export function buildActivityGrid(days: ActivityDay[], today = new Date()): Acti
       week.push({ date: key, count: counts.get(key) ?? 0 });
     }
     weeks.push(week);
-    const sundayDate = new Date(sunday);
-    const month = sundayDate.getUTCMonth();
-    if (sundayDate.getUTCFullYear() === year && month !== prevMonth) {
-      months.push({ label: MONTH_NAMES[month].slice(0, 3), col });
-    }
-    prevMonth = month;
   }
+  const months = monthStartColumns(year, firstSunday);
   return { weeks, months, total };
 }

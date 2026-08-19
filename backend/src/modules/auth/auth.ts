@@ -5,6 +5,7 @@ import { sessions, type User, users } from "@/db/schema/auth";
 import { ADMIN_ROLE, DEFAULT_ROLE, type UserRole } from "@/constants/roles";
 import { COOKIE_ATTRIBUTES, SESSION_COOKIE } from "@/constants/protocol";
 import { sha256 } from "@/lib/hash";
+import { deleteRowById } from "@/lib/db";
 import crypto from "node:crypto";
 import {
   PASSWORD_HASH_MEMORY_COST,
@@ -84,8 +85,7 @@ export async function setUserPassword(id: string, newPassword: string): Promise<
 
 // FK cascade removes sessions, git tokens, and collaborator rows.
 export async function deleteUser(id: string): Promise<boolean> {
-  const rows = await db.delete(users).where(eq(users.id, id)).returning();
-  return rows.length > 0;
+  return deleteRowById(users, id);
 }
 
 export async function updateUserPassword(userId: string, newPassword: string): Promise<void> {

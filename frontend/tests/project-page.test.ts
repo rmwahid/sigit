@@ -4,6 +4,7 @@ import {
   deriveTabKeys,
   groupActivityByDate,
   hasProjectPerm,
+  isValidBranchName,
   joinPath,
   sortEntries,
   splitPath,
@@ -85,5 +86,22 @@ describe("defaultRef", () => {
     expect(defaultRef("main", ["main", "dev"])).toBe("main");
     expect(defaultRef(null, ["dev"])).toBe("dev");
     expect(defaultRef(null, [])).toBe("HEAD");
+  });
+});
+
+describe("isValidBranchName", () => {
+  it("accepts names with letters, numbers, . _ - /", () => {
+    expect(isValidBranchName("main")).toBe(true);
+    expect(isValidBranchName("feature/x")).toBe(true);
+    expect(isValidBranchName("release-2.0_rc")).toBe(true);
+    expect(isValidBranchName("trailing-")).toBe(true);
+  });
+
+  it("rejects invalid branch names", () => {
+    expect(isValidBranchName("")).toBe(false);
+    expect(isValidBranchName("bad name!")).toBe(false);
+    expect(isValidBranchName("-leading")).toBe(false);
+    expect(isValidBranchName("a..b")).toBe(false);
+    expect(isValidBranchName("x".repeat(201))).toBe(false);
   });
 });

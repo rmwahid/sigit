@@ -5,6 +5,7 @@ import { projects, type NewProject, type Project } from "@/db/schema/projects";
 import { createConnectionFromInput, getConnection } from "@/modules/storage/connections";
 import { deleteObjectsByPrefix } from "@/modules/storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
+import { deleteRowById } from "@/lib/db";
 import { HttpError } from "@/lib/http-error";
 import { encryptSecret } from "@/lib/secret-encryption";
 import path from "node:path";
@@ -12,6 +13,12 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 
 const PROJECTS_ROOT = env.SIGIT_PROJECTS_ROOT;
+
+// Regenerates the pre-receive hook when a threshold change lands in the DB.
+async function refreshPreReceiveHook(projectId: string, lfsSizeThreshold: number | undefined): Promise<void> {
+  if (lfsSizeThreshold === undefined) return;
+  await installPreReceiveHook(projectRepoPath(projectId), lfsSizeThreshold);
+}
 
 // Generates the per-project 32-byte key, wrapped with ENCRYPTION_KEYS (the
 // at-rest layer). Only the encrypted ciphertext + key id reach the DB; the raw
@@ -128,16 +135,14 @@ export async function updateProject(id: string, data: Partial<NewProject>): Prom
     .where(eq(projects.id, id))
     .returning();
   const project = rows[0];
-  // Threshold changed -> regenerate the pre-receive hook
-  if (project && safe.lfsSizeThreshold) {
-    await installPreReceiveHook(projectRepoPath(project.id), project.lfsSizeThreshold);
+  if (project) {
+    await refreshPreReceiveHook(project.id, safe.lfsSizeThreshold);
   }
   return project;
 }
 
 export async function deleteProject(id: string): Promise<boolean> {
-  const rows = await db.delete(projects).where(eq(projects.id, id)).returning();
-  return rows.length > 0;
+  return deleteRowById(projects, id);
 }
 
 export type DeleteProjectResult = {

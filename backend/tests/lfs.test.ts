@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Project } from "@/db/schema/projects";
-import { createLfsPointer, parseLfsPointer, sha256, shouldUseLfs } from "@/modules/lfs";
+import { createLfsPointer, parseLfsPointer, shouldUseLfs } from "@/modules/lfs";
+import { sha256 } from "@/lib/hash";
 
 function makeProject(overrides: Partial<Pick<Project, "lfsSizeThreshold" | "lfsPatterns">> = {}): Project {
   return { lfsSizeThreshold: 10, lfsPatterns: null, ...overrides } as Project;

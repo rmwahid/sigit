@@ -77,4 +77,5 @@ async function main() {
   process.exit(0);
 }
 
-main();
+// Guarded entrypoint: importing this module (tests do) must not run main().
+if (import.meta.main) main();

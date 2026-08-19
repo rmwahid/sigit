@@ -1,9 +1,4 @@
-import crypto from "node:crypto";
 import type { Project } from "@/db/schema/projects";
-
-export function sha256(buffer: Buffer): string {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
-}
 
 export function createLfsPointer(oid: string, size: number): string {
   return `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${size}\n`;

@@ -2,7 +2,6 @@ import { S3_DELETE_BATCH } from "@/constants/limits";
 import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 import { createS3Client } from "@/config/s3";
 import {
-  S3Client,
   ListObjectsV2Command,
   GetObjectCommand,
   PutObjectCommand,

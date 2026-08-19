@@ -6,7 +6,7 @@ import { deleteUser, listUsers, setUserPassword } from "@/modules/auth/auth";
 import { ROLE_SLUGS } from "@/constants/roles";
 import { requireAdmin, type AuthEnv } from "@/middleware/auth";
 import { audit } from "@/lib/logger";
-import { idParamSchema } from "./schemas/common";
+import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 
 const userSchema = z
   .object({
@@ -19,8 +19,6 @@ const userSchema = z
 
 const userListResponse = z.object({ data: z.array(userSchema) });
 const resetPasswordInput = z.object({ password: z.string().min(MIN_PASSWORD_LENGTH) });
-const messageResponse = z.object({ message: z.string() });
-const errorSchema = z.object({ error: z.string() }).openapi("Error");
 
 export const userRoutes = new OpenAPIHono<AuthEnv>();
 
@@ -60,7 +58,7 @@ userRoutes.openapi(
     responses: {
       200: {
         description: "Password reset",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       404: {
         description: "Not found",
@@ -93,7 +91,7 @@ userRoutes.openapi(
     responses: {
       200: {
         description: "Deleted",
-        content: { "application/json": { schema: messageResponse } },
+        content: { "application/json": { schema: messageSchema } },
       },
       404: {
         description: "Not found",

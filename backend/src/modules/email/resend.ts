@@ -2,7 +2,7 @@ import { EMAIL_FROM_DEFAULT } from "@/constants/protocol";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { emailSettings } from "@/db/schema/auth";
-import { decryptSecret, encryptSecret, maskSecret } from "@/lib/secret-encryption";
+import { decryptSecret, encryptSecret } from "@/lib/secret-encryption";
 // Email delivery via Resend (https://resend.com). The API key is stored in the
 // email_settings row, wrapped with ENCRYPTION_KEYS like storage secrets.
 // Without a configured key, sendEmail returns { sent: false } (callers fall

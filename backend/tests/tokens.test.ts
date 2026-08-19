@@ -5,7 +5,8 @@ import { users } from "@/db/schema/auth";
 import { tokenProjectSchema } from "@/routes/tokens";
 import {
   createToken,
-  listTokenProjectScopes,
+  listTokens,
+  listTokensWithProjectScopes,
   resolveTokenScope,
   revokeToken,
   setTokenProjectScopes,
@@ -110,8 +111,6 @@ describe("token project scopes", () => {
 
     const scope = await resolveTokenScope(tokenId, projectId);
     expect(scope).toBe("write");
-    const projects = await listTokenProjectScopes(tokenId);
-    expect(projects).toEqual([{ projectId, scope: "write" }]);
   });
 
   it("returns undefined for a project without a scope row", async () => {
@@ -120,7 +119,6 @@ describe("token project scopes", () => {
 
     const scope = await resolveTokenScope(tokenId, projectId);
     expect(scope).toBeUndefined();
-    expect(await listTokenProjectScopes(tokenId)).toEqual([]);
   });
 
   it("ignores tokens with no scope rows for other projects", async () => {
@@ -137,5 +135,20 @@ describe("token project scopes", () => {
     const { tokenId, raw } = await makeToken(`test-validate-${suffix}`);
     const validated = await validateToken(raw);
     expect(validated?.id).toBe(tokenId);
+  });
+
+  it("lists tokens with their per-project scopes in one query", async () => {
+    const admin = await adminUser();
+    if (!admin) throw new Error("no admin user in DB");
+    const { projectId } = await makeProject(`tok-list-${suffix}`);
+    const { tokenId } = await makeToken(`test-list-${suffix}`);
+    await setTokenProjectScopes(tokenId, [{ projectId, scope: "read" }]);
+
+    const withScopes = await listTokensWithProjectScopes(admin.id);
+    const entry = withScopes.find((item) => item.token.id === tokenId);
+    expect(entry?.projects).toEqual([{ projectId, scope: "read" }]);
+
+    const plain = await listTokens(admin.id);
+    expect(plain.some((t) => t.id === tokenId)).toBe(true);
   });
 });

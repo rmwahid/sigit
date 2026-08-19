@@ -1,5 +1,6 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, jsonb } from "drizzle-orm/pg-core";
 import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
+import { createdAt, updatedAt } from "@/db/utils/timestamps";
 
 export const storageConnections = pgTable("storage_connections", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -13,8 +14,8 @@ export const storageConnections = pgTable("storage_connections", {
   bucket: varchar("bucket", { length: 255 }).notNull(),
   forcePathStyle: boolean("force_path_style").notNull().default(true),
   metadata: jsonb("metadata"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
 
 export type StorageConnection = typeof storageConnections.$inferSelect;

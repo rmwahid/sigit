@@ -3,14 +3,11 @@ import { db } from "@/config/db";
 import { tokenProjectScopes, tokens, type Token } from "@/db/schema/auth";
 import { TOKEN_SCOPES, type TokenScope } from "@/constants/scopes";
 import { TOKEN_PREFIX } from "@/constants/protocol";
-import { RANDOM_TOKEN_BYTES } from "@/constants/limits";
+import { RANDOM_TOKEN_BYTES, TOKEN_MAX_EXPIRY_DAYS } from "@/constants/limits";
 import { sha256 } from "@/lib/hash";
 import crypto from "node:crypto";
 
-// Maximum token lifetime in days. Single source of truth - used by the route
-// (zod max) and mirrored in the frontend validation constants.
-export const TOKEN_MAX_EXPIRY_DAYS = 30;
-
+export { TOKEN_MAX_EXPIRY_DAYS };
 export { TOKEN_SCOPES, type TokenScope };
 
 export type TokenProjectScopeInput = {
@@ -61,14 +58,6 @@ export async function resolveTokenScope(
 
 export async function listTokens(userId: string): Promise<Token[]> {
   return db.select().from(tokens).where(eq(tokens.userId, userId)).orderBy(tokens.createdAt);
-}
-
-export async function listTokenProjectScopes(tokenId: string): Promise<{ projectId: string; scope: TokenScope }[]> {
-  const rows = await db
-    .select({ projectId: tokenProjectScopes.projectId, scope: tokenProjectScopes.scope })
-    .from(tokenProjectScopes)
-    .where(eq(tokenProjectScopes.tokenId, tokenId));
-  return rows;
 }
 
 // Lists tokens + per-project scopes in ONE query (avoids N+1).

@@ -6,7 +6,7 @@
   import { sortEntries } from "$lib/project-page";
   import BranchSelect from "$lib/components/BranchSelect.svelte";
   import type { Project } from "$lib/api";
-  import { Copy, CornerUpLeft, Download, FileText, FolderOpen } from "lucide-svelte";
+  import { Copy, CornerUpLeft, Download, FileText, FolderOpen, Plus, Trash2, X } from "lucide-svelte";
 
   // Code tab: clone URL + branch selector + ZIP/TAR + file list + README.
   // State and loaders live in the project page; this component renders only.
@@ -25,11 +25,20 @@
     lfsThresholdMb,
     copiedClone,
     pathSegments,
+    showBranchModal,
+    newBranchName,
+    newBranchFrom,
+    branchActionError,
+    creatingBranch,
     onRefChange,
     openDir,
     goToDir,
     openFile,
     copyCloneUrl,
+    openBranchModal,
+    closeBranchModal,
+    onCreateBranch,
+    onDeleteBranch,
   }: {
     project: Project;
     isAnon: boolean;
@@ -45,11 +54,20 @@
     lfsThresholdMb: number;
     copiedClone: boolean;
     pathSegments: string[];
+    showBranchModal: boolean;
+    newBranchName: string;
+    newBranchFrom: string;
+    branchActionError: string;
+    creatingBranch: boolean;
     onRefChange: () => void;
     openDir: (name: string) => void;
     goToDir: (index: number) => void;
     openFile: (name: string) => void;
     copyCloneUrl: () => void;
+    openBranchModal: () => void;
+    closeBranchModal: () => void;
+    onCreateBranch: () => void;
+    onDeleteBranch: (branch: string) => void;
   } = $props();
 
   const sorted = $derived(sortEntries(entries));
@@ -66,6 +84,16 @@
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <BranchSelect items={branches.length ? branches : ["HEAD"]} bind:value={ref} onselect={onRefChange} />
+      {#if !isAnon}
+        <button class="pixel-border-sm px-3 py-1.5 text-sm flex items-center gap-1.5" onclick={openBranchModal}>
+          <Plus class="size-3.5" /> New branch
+        </button>
+      {/if}
+      {#if !isAnon && ref !== "HEAD" && branches.includes(ref)}
+        <button class="pixel-border-sm px-3 py-1.5 text-sm flex items-center gap-1.5 text-destructive" onclick={() => onDeleteBranch(ref)}>
+          <Trash2 class="size-3.5" /> Delete
+        </button>
+      {/if}
       <a class="pixel-border-sm px-3 py-1.5 text-sm flex items-center gap-1.5 bg-card" href={archiveUrl(project.id, ref, ARCHIVE_FORMATS.ZIP.slug)}>
         <Download class="size-3.5" /> {ARCHIVE_FORMATS.ZIP.name}
       </a>
@@ -142,4 +170,55 @@
       {@html readme.html}
     </div>
   {/if}
+
+  {#if branchActionError}
+    <div class="pixel-border-sm bg-background p-3 text-sm text-destructive">{branchActionError}</div>
+  {/if}
 </div>
+
+{#if showBranchModal}
+  <div
+    class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+    role="presentation"
+    onclick={(e) => { if (!creatingBranch && e.target === e.currentTarget) closeBranchModal(); }}
+    onkeydown={(e) => { if (e.key === "Escape" && !creatingBranch) closeBranchModal(); }}
+  >
+    <div class="w-full max-w-sm bg-card p-5 pixel-border flex flex-col gap-3">
+      <div class="flex items-center gap-2">
+        <h2 class="text-lg font-bold flex-1">New branch</h2>
+        <button class="pixel-border-sm px-2 py-1" onclick={closeBranchModal} disabled={creatingBranch}><X class="size-4" /></button>
+      </div>
+      <label class="flex flex-col gap-1 text-sm">
+        Branch name
+        <input
+          class="pixel-border-sm bg-background px-3 py-2 text-sm font-mono"
+          bind:value={newBranchName}
+          placeholder="feature/my-change"
+          disabled={creatingBranch}
+          onkeydown={(e) => { if (e.key === "Enter") onCreateBranch(); }}
+        />
+      </label>
+      <label class="flex flex-col gap-1 text-sm">
+        From branch
+        <select class="pixel-border-sm bg-background px-3 py-2 text-sm" bind:value={newBranchFrom} disabled={creatingBranch}>
+          {#each branches as b}
+            <option value={b}>{b}</option>
+          {/each}
+        </select>
+      </label>
+      {#if branchActionError}
+        <p class="text-sm text-destructive">{branchActionError}</p>
+      {/if}
+      <div class="flex gap-2 justify-end">
+        <button class="pixel-border-sm px-4 py-2 text-sm" onclick={closeBranchModal} disabled={creatingBranch}>Cancel</button>
+        <button
+          class="pixel-border-sm px-4 py-2 text-sm bg-primary text-primary-foreground"
+          disabled={creatingBranch || !newBranchName.trim()}
+          onclick={onCreateBranch}
+        >
+          {creatingBranch ? "Creating..." : "Create branch"}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

@@ -4,6 +4,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import { requireAdmin } from "@/middleware/auth";
 import { getRingBuffer, log, readAuditLog, subscribe } from "@/lib/logger";
+import { errorSchema } from "./schemas/common";
 import type { AuthEnv } from "@/middleware/auth";
 
 const logEntrySchema = z
@@ -18,7 +19,6 @@ const logEntrySchema = z
   .openapi("LogEntry");
 
 const logsResponse = z.object({ data: z.array(logEntrySchema) }).openapi("LogsResponse");
-const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }) }).openapi("Error");
 
 export const adminRoutes = new OpenAPIHono<AuthEnv>();
 

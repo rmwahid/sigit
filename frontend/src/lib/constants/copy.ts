@@ -20,7 +20,7 @@ export const COPY = {
 } as const;
 
 export const PLACEHOLDERS = {
-  TOKEN_NAME: "Token name (e.g. laptop-kerja)",
+  TOKEN_NAME: "Token name (e.g. work-laptop)",
   INVITE_EMAIL: "teammate@example.com",
   RESEND_API_KEY: "re_...",
   EMAIL_FROM: "SiGit <no-reply@example.com>",

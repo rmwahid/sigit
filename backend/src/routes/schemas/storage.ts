@@ -1,5 +1,4 @@
 import { z } from "@hono/zod-openapi";
-import { errorSchema, idParamSchema, idResponse, idResponseSchema } from "./common";
 
 export const connectionSchema = z
   .object({

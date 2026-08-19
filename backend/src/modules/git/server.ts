@@ -14,7 +14,7 @@ const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
 
 // git http-backend uses CGI conventions: header lines like
 // "Status: 200 OK" + "Content-Type: ..." then \r\n\r\n and the body.
-async function parseCgiHeaders(
+export async function parseCgiHeaders(
   bodyStream: ReadableStream<Uint8Array>
 ): Promise<{ status: number; headers: Headers; body: ReadableStream<Uint8Array> }> {
   const reader = bodyStream.getReader();
@@ -75,7 +75,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
     QUERY_STRING: url.search.slice(1),
     REQUEST_METHOD: c.req.method,
     CONTENT_TYPE: c.req.header("Content-Type") ?? "",
-    REMOTE_USER: "sigit",
+    REMOTE_USER,
   };
 
   const child = spawn("git", ["http-backend"], { env });

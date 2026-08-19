@@ -1,8 +1,8 @@
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES } from "@/constants/limits";
+import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
 import { GIT_ZERO_HASH } from "@/constants/protocol";
+import { HOOK_MESSAGES } from "@/constants/lfs-messages";
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { DEFAULT_LFS_SIZE_THRESHOLD } from "@/db/schema/projects";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -53,8 +53,8 @@ while read oldrev newrev ref; do
     [ "$type" != "blob" ] && continue
     size=$(git cat-file -s "$sha" 2>/dev/null)
     if [ "$size" -gt "$THRESHOLD" ]; then
-      echo "SiGit: file '$path' ($size bytes) exceeds the $THRESHOLD bytes limit." >&2
-      echo "SiGit: use 'git lfs track' for large files, or raise the project lfsSizeThreshold." >&2
+      echo "${HOOK_MESSAGES.FILE_EXCEEDS_THRESHOLD}" >&2
+      echo "${HOOK_MESSAGES.USE_LFS_TRACK}" >&2
       fail=1
     fi
   done < "$tmp"
@@ -209,6 +209,40 @@ export async function listBranches(repoPath: string): Promise<string[]> {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+// Full ref name of a branch (null when the branch does not exist).
+export async function resolveBranchRef(repoPath: string, name: string): Promise<string | null> {
+  try {
+    const { stdout } = await execGit(repoPath, ["show-ref", "--verify", "--hash", `refs/heads/${name}`]);
+    const sha = stdout.toString("utf8").trim();
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+
+// git child-process failures carry the real message in stderr (the Error
+// message is only "Command failed: ..."). Routes classify errors with this.
+export function gitErrorMessage(err: unknown): string {
+  const e = err as { message?: string; stderr?: string | Buffer };
+  const stderr = e?.stderr ? (typeof e.stderr === "string" ? e.stderr : e.stderr.toString("utf8")) : "";
+  return (stderr || e?.message || String(err)).trim();
+}
+
+// Create a branch pointing at fromRef (default HEAD). Fails when the branch
+// exists, the name is not a valid git ref name, or the repo has no commits.
+export async function createBranch(repoPath: string, name: string, fromRef = "HEAD"): Promise<void> {
+  // check-ref-format exits non-zero (stderr message) for invalid names.
+  await execGit(repoPath, ["check-ref-format", "--branch", name]);
+  const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", `${fromRef}^{commit}`]);
+  const sha = stdout.toString("utf8").trim();
+  // Atomic create: the old value must be the all-zero hash (branch must not exist).
+  await execGit(repoPath, ["update-ref", `refs/heads/${name}`, sha, "0000000000000000000000000000000000000000"]);
+}
+
+export async function deleteBranch(repoPath: string, name: string): Promise<void> {
+  await execGit(repoPath, ["update-ref", "-d", `refs/heads/${name}`]);
 }
 
 // Short name of the branch HEAD points at ("main"), or null when unborn.

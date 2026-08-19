@@ -31,7 +31,6 @@ import {
   type ProjectPermission,
 } from "@/modules/auth/access";
 import {
-  projectSchema,
   projectInputSchema,
   projectUpdateSchema,
   projectWithConnectionSchema,

@@ -12,3 +12,8 @@ export const TOKEN_DEFAULT_EXPIRY_DAYS = 30;
 
 // Copy button feedback timeout (ms).
 export const COPY_FEEDBACK_MS = 1500;
+
+// Branch names (mirrors backend limits.ts; routes/branches.ts enforces them,
+// git check-ref-format remains the final authority at create time).
+export const BRANCH_NAME_MAX_LENGTH = 200;
+export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";

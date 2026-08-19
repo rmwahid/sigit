@@ -1,5 +1,6 @@
-export type Theme = "dark" | "light";
 import { THEME_STORAGE_KEY } from "./constants/paths";
+
+export type Theme = "dark" | "light";
 
 const KEY = THEME_STORAGE_KEY;
 

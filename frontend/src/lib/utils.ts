@@ -13,6 +13,6 @@ export function formatDate(iso: string): string {
 
 // Type helper for forwarding element refs (shadcn-svelte pattern used by the
 // ui components: `ref = $bindable(null)` + `bind:this={ref}`)
-export type WithElementRef<T, R extends string = string> = T & {
+export type WithElementRef<T> = T & {
   ref?: Element | null;
 };

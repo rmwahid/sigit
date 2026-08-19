@@ -1,6 +1,7 @@
 import { GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { spawn, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { sha256 } from "@/lib/hash";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -202,7 +203,7 @@ async function runSuite(sql: postgres.Sql): Promise<void> {
   r = await call("GET", `/projects/deploy-e2e.git/info/refs?service=git-upload-pack`, undefined, { authorization: readBasic });
   ok("GET .git/info/refs (read token)", r.status === 200, String(r.status));
 
-  const lfsOid = createHash("sha256").update("e2e").digest("hex");
+  const lfsOid = sha256("e2e");
   r = await call("POST", "/projects/deploy-e2e.git/info/lfs/objects/batch", { operation: "upload", transfers: ["basic"], objects: [{ oid: lfsOid, size: 3 }] }, { authorization: readBasic });
   ok("read token: LFS upload batch -> 403", r.status === 403, String(r.status));
   r = await call("POST", "/projects/deploy-e2e.git/info/lfs/objects/batch", { operation: "download", transfers: ["basic"], objects: [{ oid: lfsOid, size: 3 }] }, { authorization: readBasic });
@@ -238,7 +239,7 @@ async function runSuite(sql: postgres.Sql): Promise<void> {
 
   // --- LFS object round-trip + encryption at rest ---
   const lfsContent = randomBytes(2048);
-  const lfsOid2 = createHash("sha256").update(lfsContent).digest("hex");
+  const lfsOid2 = sha256(lfsContent);
   r = await call("POST", "/projects/deploy-e2e.git/info/lfs/objects/batch", { operation: "upload", transfers: ["basic"], objects: [{ oid: lfsOid2, size: lfsContent.length }] }, { authorization: basic });
   const uploadHref: string = r.json?.objects?.[0]?.actions?.upload?.href ?? "";
   const verifyHref: string = r.json?.objects?.[0]?.actions?.verify?.href ?? "";

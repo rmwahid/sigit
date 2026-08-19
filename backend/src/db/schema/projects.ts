@@ -1,9 +1,7 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, boolean } from "drizzle-orm/pg-core";
 import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
-
-// Default LFS file threshold (10 MB). Single source of truth - also used by
-// routes/schemas/projects.ts, modules/projects/git.ts, and cli/e2e-lfs.ts.
-export const DEFAULT_LFS_SIZE_THRESHOLD = 10 * 1024 * 1024;
+import { DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
+import { createdAt, updatedAt } from "@/db/utils/timestamps";
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -19,8 +17,8 @@ export const projects = pgTable("projects", {
   encryptionKeyId: varchar("encryption_key_id", { length: 50 }).notNull().default(DEFAULT_ENCRYPTION_KEY_ID),
   // Public projects allow anonymous read-only clone (git + LFS download).
   isPublic: boolean("is_public").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
 });
 
 export type Project = typeof projects.$inferSelect;

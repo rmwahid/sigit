@@ -2,7 +2,8 @@ import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { deleteObject, objectMeta, objectSize } from "@/modules/storage/objects";
 import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { audit, log } from "@/lib/logger";
-import { sha256 } from "./index";
+import { sha256 } from "@/lib/hash";
+import { LFS_MESSAGES } from "@/constants/lfs-messages";
 import type { Project } from "@/db/schema/projects";
 import type { StorageConnection } from "@/db/schema/storage";
 
@@ -10,10 +11,6 @@ export type LfsOperation = "download" | "upload";
 export type LfsObject = { oid: string; size: number };
 
 export const OID_RE = /^[a-f0-9]{64}$/;
-
-// Batas ukuran objek LFS (2 GiB). Satu sumber kebenaran - dipakai route PUT
-// (penolakan body) dan batch builder (action upload tidak ditawarkan).
-export const MAX_LFS_OBJECT_BYTES = 2 * 1024 * 1024 * 1024;
 
 // Object path in user storage: projects/{id}/lfs/{oid} (AGENTS.md contract).
 export function lfsObjectKey(projectId: string, oid: string): string {
@@ -110,7 +107,7 @@ export async function uploadObject(
   content: Buffer
 ): Promise<{ ok: boolean; error?: string }> {
   if (!verifyLfsContent(content, oid)) {
-    return { ok: false, error: "oid mismatch: sha256(content) != oid" };
+    return { ok: false, error: LFS_MESSAGES.OID_MISMATCH };
   }
   await putEncrypted(project, connection, lfsObjectKey(project.id, oid), content);
   audit(AUDIT_EVENTS.LFS_UPLOAD, { projectId: project.id, oid, size: content.length });
@@ -130,7 +127,7 @@ export async function verifyObject(
   const key = lfsObjectKey(project.id, oid);
   const meta = await objectMeta(connection, key);
   if (!meta) {
-    return { ok: false, error: "object does not exist" };
+    return { ok: false, error: LFS_MESSAGES.OBJECT_DOES_NOT_EXIST };
   }
   const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
   if (plaintextSize !== size) {
@@ -140,7 +137,7 @@ export async function verifyObject(
       // a wrong object may stay in storage; not a fatal condition
       log.error("lfs", `failed to delete mismatched object ${key}: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return { ok: false, error: "size mismatch: stored size != declared size" };
+    return { ok: false, error: LFS_MESSAGES.SIZE_MISMATCH };
   }
   return { ok: true };
 }
