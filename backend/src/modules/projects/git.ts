@@ -14,7 +14,7 @@ function repoCwd(repoPath: string) {
 }
 
 // Run git WITHOUT a shell: refs and paths are argv, never interpolated strings.
-function execGit(repoPath: string, args: string[], maxBuffer = 32 * 1024 * 1024) {
+export function execGit(repoPath: string, args: string[], maxBuffer = 32 * 1024 * 1024) {
   return execFileAsync("git", args, { cwd: repoPath, encoding: "buffer", maxBuffer });
 }
 

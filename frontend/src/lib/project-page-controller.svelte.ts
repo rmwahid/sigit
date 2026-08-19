@@ -44,6 +44,15 @@ import {
   deleteProjectBranch,
 } from "./api/branches";
 import {
+  createProjectPullRequest,
+  deleteProjectPullRequest,
+  getProjectPullRequest,
+  getProjectPullRequestDiff,
+  listProjectPullRequests,
+  updateProjectPullRequest,
+  type PullRequest,
+} from "./api/pull-requests";
+import {
   defaultRef,
   deriveTabKeys,
   groupActivityByDate,
@@ -82,6 +91,22 @@ export class ProjectPageController {
   newBranchFrom = $state("");
   branchActionError = $state("");
   creatingBranch = $state(false);
+
+  // Pull requests tab
+  pullRequests = $state<PullRequest[]>([]);
+  prLoading = $state(false);
+  prError = $state("");
+  activePr = $state<PullRequest | null>(null);
+  activePrDiff = $state("");
+  prDiffLoading = $state(false);
+  prDiffError = $state("");
+  showPrModal = $state(false);
+  newPrTitle = $state("");
+  newPrDescription = $state("");
+  newPrBase = $state("");
+  newPrHead = $state("");
+  prActionError = $state("");
+  creatingPr = $state(false);
 
   // History tab
   history = $state<CommitInfo[]>([]);
@@ -165,6 +190,11 @@ export class ProjectPageController {
     this.activity = [];
     this.activityOffset = 0;
     this.activityMore = false;
+    this.pullRequests = [];
+    this.activePr = null;
+    this.activePrDiff = "";
+    this.prError = "";
+    this.prDiffError = "";
     this.connTab = "s3";
     this.selectedConnId = "";
     this.showDeleteConfirm = false;
@@ -565,6 +595,133 @@ export class ProjectPageController {
     } finally {
       this.deleting = false;
       this.deleteStep = "";
+    }
+  }
+
+  // --- Pull requests tab ---
+
+  async loadPullRequests() {
+    const id = this.currentId();
+    if (!id) return;
+    this.prLoading = true;
+    this.prError = "";
+    try {
+      const res = await listProjectPullRequests(id);
+      if (this.currentId() !== id) return;
+      this.pullRequests = res.data;
+    } catch (e) {
+      if (this.currentId() === id) this.prError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (this.currentId() === id) this.prLoading = false;
+    }
+  }
+
+  async openPullRequest(number: number) {
+    const id = this.currentId();
+    if (!id) return;
+    this.prError = "";
+    this.prDiffError = "";
+    this.activePrDiff = "";
+    try {
+      const res = await getProjectPullRequest(id, number);
+      if (this.currentId() !== id) return;
+      this.activePr = res.data;
+      void this.loadPrDiff(number);
+    } catch (e) {
+      if (this.currentId() === id) this.prError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  closePullRequest() {
+    this.activePr = null;
+    this.activePrDiff = "";
+    this.prDiffError = "";
+  }
+
+  async loadPrDiff(number: number) {
+    const id = this.currentId();
+    if (!id) return;
+    this.prDiffLoading = true;
+    this.prDiffError = "";
+    try {
+      const res = await getProjectPullRequestDiff(id, number);
+      if (this.currentId() !== id || this.activePr?.number !== number) return;
+      this.activePrDiff = res.diff;
+    } catch (e) {
+      if (this.currentId() === id) this.prDiffError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (this.currentId() === id) this.prDiffLoading = false;
+    }
+  }
+
+  openPrModal() {
+    this.showPrModal = true;
+    this.newPrTitle = "";
+    this.newPrDescription = "";
+    this.newPrBase = this.branches.includes(this.ref) ? this.ref : this.branches[0] ?? "";
+    this.newPrHead = this.branches.find((b) => b !== this.newPrBase) ?? "";
+    this.prActionError = "";
+  }
+
+  closePrModal() {
+    if (this.creatingPr) return;
+    this.showPrModal = false;
+    this.prActionError = "";
+  }
+
+  async onCreatePr() {
+    if (!this.project) return;
+    const title = this.newPrTitle.trim();
+    if (!title) {
+      this.prActionError = "Title is required.";
+      return;
+    }
+    if (!this.newPrBase || !this.newPrHead || this.newPrBase === this.newPrHead) {
+      this.prActionError = "Choose two different branches (base and head).";
+      return;
+    }
+    this.creatingPr = true;
+    this.prActionError = "";
+    try {
+      await createProjectPullRequest(this.project.id, {
+        title,
+        description: this.newPrDescription.trim() || undefined,
+        baseBranch: this.newPrBase,
+        headBranch: this.newPrHead,
+      });
+      this.showPrModal = false;
+      await this.loadPullRequests();
+    } catch (e) {
+      this.prActionError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.creatingPr = false;
+    }
+  }
+
+  async onUpdatePrStatus(number: number, status: PullRequest["status"]) {
+    const id = this.currentId();
+    if (!id) return;
+    this.prError = "";
+    try {
+      await updateProjectPullRequest(id, number, { status });
+      await this.loadPullRequests();
+      await this.openPullRequest(number);
+    } catch (e) {
+      this.prError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async onDeletePr(number: number) {
+    const id = this.currentId();
+    if (!id) return;
+    if (!confirm(`Delete pull request #${number}? This cannot be undone.`)) return;
+    this.prError = "";
+    try {
+      await deleteProjectPullRequest(id, number);
+      this.closePullRequest();
+      await this.loadPullRequests();
+    } catch (e) {
+      this.prError = e instanceof Error ? e.message : String(e);
     }
   }
 }

@@ -30,4 +30,7 @@ export const AUDIT_EVENTS = {
   EMAIL_TEST: "email.test",
   BRANCH_CREATE: "branch.create",
   BRANCH_DELETE: "branch.delete",
+  PULL_REQUEST_CREATE: "pull_request.create",
+  PULL_REQUEST_UPDATE: "pull_request.update",
+  PULL_REQUEST_DELETE: "pull_request.delete",
 } as const;

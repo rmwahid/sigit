@@ -25,12 +25,15 @@ export function hasProjectPerm(
   return access === null || access.includes(perm);
 }
 
-export type ProjectTabKey = "code" | "history" | "activity" | "settings";
+export type ProjectTabKey = "code" | "history" | "activity" | "pull-requests" | "settings";
 
 export function deriveTabKeys(access: ProjectPermission[] | null, isAnon: boolean): ProjectTabKey[] {
   const keys: ProjectTabKey[] = ["code"];
   if (hasProjectPerm(access, isAnon, "history")) keys.push("history");
   if (hasProjectPerm(access, isAnon, "history") && !isAnon) keys.push("activity");
+  // Pull requests need the diff permission for the preview; anonymous
+  // visitors on public projects get view+history only, so no PR tab.
+  if (hasProjectPerm(access, isAnon, "diff") && !isAnon) keys.push("pull-requests");
   // Settings is admin-only: anonymous visitors never get it, even though
   // their access value is also null (no session).
   if (access === null && !isAnon) keys.push("settings");

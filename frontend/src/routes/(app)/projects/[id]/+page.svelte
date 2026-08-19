@@ -8,12 +8,14 @@
   import CodeTab from "$lib/components/project/CodeTab.svelte";
   import HistoryTab from "$lib/components/project/HistoryTab.svelte";
   import ActivityTab from "$lib/components/project/ActivityTab.svelte";
+  import PullRequestsTab from "$lib/components/project/PullRequestsTab.svelte";
   import SettingsTab from "$lib/components/project/SettingsTab.svelte";
   import {
     Activity as ActivityIcon,
     FileText,
     Folder,
     GitBranch,
+    GitPullRequest,
     History as HistoryIcon,
     Settings as SettingsIcon,
     X,
@@ -27,6 +29,7 @@
     code: { label: "Code", icon: Folder },
     history: { label: "History", icon: HistoryIcon },
     activity: { label: "Activity", icon: ActivityIcon },
+    "pull-requests": { label: "Pull Requests", icon: GitPullRequest },
     settings: { label: "Settings", icon: SettingsIcon },
   };
   const tabs = $derived(ctrl.tabKeys.map((key) => ({ key, ...TAB_META[key] })));
@@ -134,6 +137,33 @@
       />
     {:else if ctrl.tab === "activity"}
       <ActivityTab activityByDate={ctrl.activityByDate} activityMore={ctrl.activityMore} loadMore={() => void ctrl.loadActivity(true)} />
+    {:else if ctrl.tab === "pull-requests"}
+      <PullRequestsTab
+        pullRequests={ctrl.pullRequests}
+        prLoading={ctrl.prLoading}
+        prError={ctrl.prError}
+        activePr={ctrl.activePr}
+        activePrDiff={ctrl.activePrDiff}
+        prDiffLoading={ctrl.prDiffLoading}
+        prDiffError={ctrl.prDiffError}
+        branches={ctrl.branches}
+        bind:showPrModal={ctrl.showPrModal}
+        bind:newPrTitle={ctrl.newPrTitle}
+        bind:newPrDescription={ctrl.newPrDescription}
+        bind:newPrBase={ctrl.newPrBase}
+        bind:newPrHead={ctrl.newPrHead}
+        prActionError={ctrl.prActionError}
+        creatingPr={ctrl.creatingPr}
+        canPush={ctrl.hasPerm("push")}
+        loadPullRequests={() => void ctrl.loadPullRequests()}
+        openPullRequest={(number) => void ctrl.openPullRequest(number)}
+        closePullRequest={() => ctrl.closePullRequest()}
+        openPrModal={() => ctrl.openPrModal()}
+        closePrModal={() => ctrl.closePrModal()}
+        onCreatePr={() => void ctrl.onCreatePr()}
+        onUpdatePrStatus={(number, status) => void ctrl.onUpdatePrStatus(number, status)}
+        onDeletePr={(number) => void ctrl.onDeletePr(number)}
+      />
     {:else if ctrl.tab === "settings"}
       <SettingsTab
         project={ctrl.project}

@@ -40,19 +40,23 @@ describe("hasProjectPerm", () => {
 });
 
 describe("deriveTabKeys", () => {
-  it("admin sees all four tabs", () => {
-    expect(deriveTabKeys(null, false)).toEqual(["code", "history", "activity", "settings"]);
+  it("admin sees all five tabs", () => {
+    expect(deriveTabKeys(null, false)).toEqual(["code", "history", "activity", "pull-requests", "settings"]);
   });
 
   it("collaborator with history sees code/history/activity", () => {
     expect(deriveTabKeys(["view", "history"], false)).toEqual(["code", "history", "activity"]);
   });
 
+  it("collaborator with diff permission gets the pull requests tab", () => {
+    expect(deriveTabKeys(["view", "history", "diff"], false)).toEqual(["code", "history", "activity", "pull-requests"]);
+  });
+
   it("collaborator without history sees code only", () => {
     expect(deriveTabKeys(["view"], false)).toEqual(["code"]);
   });
 
-  it("anonymous sees code + history (no activity, no settings)", () => {
+  it("anonymous sees code + history (no activity, no PR, no settings)", () => {
     expect(deriveTabKeys(null, true)).toEqual(["code", "history"]);
   });
 });
