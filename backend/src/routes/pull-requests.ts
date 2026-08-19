@@ -13,14 +13,21 @@ import {
   type NewPullRequest,
   type PullRequest,
 } from "@/db/schema/auth";
-import { PR_STATUSES, PR_STATUS_SLUGS, type PrStatus } from "@/constants/pull-requests";
+import {
+  PR_STATUSES,
+  PR_STATUS_SLUGS,
+  PR_MERGEABLE_STATUS_SLUGS,
+  MERGE_METHOD_SLUGS,
+  type PrStatus,
+} from "@/constants/pull-requests";
 import { ERROR_CODES } from "@/constants/errors";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { requireProjectAccess, type AuthEnv } from "@/middleware/auth";
 import { getProject, projectRepoPath } from "@/modules/projects/projects";
-import { execGit, gitErrorMessage } from "@/modules/projects/git";
-import { prDiff, validatePrBranches } from "@/modules/pull-requests/pr";
+import { gitErrorMessage } from "@/modules/projects/git";
+import { prDiff, resolveRef, validatePrBranches } from "@/modules/pull-requests/pr";
+import { mergePullRequest, refreshOpenPrMergeability, type MergeMethod } from "@/modules/pull-requests/merge";
 import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 
@@ -35,6 +42,10 @@ const prUpdateSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().max(10000).optional(),
   status: z.enum(PR_STATUS_SLUGS).optional(),
+});
+
+const prMergeInputSchema = z.object({
+  method: z.enum(MERGE_METHOD_SLUGS).default("merge"),
 });
 
 const prAuthorSchema = z.object({ id: z.string().uuid(), email: z.string() });
@@ -62,6 +73,7 @@ const prSchema = z.object({
   headSha: z.string(),
   author: prAuthorSchema,
   status: z.enum(PR_STATUS_SLUGS),
+  mergeableStatus: z.enum(PR_MERGEABLE_STATUS_SLUGS),
   mergeMethod: z.string().nullable(),
   mergeCommitSha: z.string().nullable(),
   mergedById: z.string().uuid().nullable(),
@@ -102,6 +114,7 @@ function toPr(row: PrRow) {
     headSha: row.headSha,
     author: { id: row.authorId, email: row.authorEmail },
     status: row.status,
+    mergeableStatus: row.mergeableStatus,
     mergeMethod: row.mergeMethod,
     mergeCommitSha: row.mergeCommitSha,
     mergedById: row.mergedById,
@@ -115,11 +128,6 @@ function toPr(row: PrRow) {
 async function nextPrNumber(projectId: string): Promise<number> {
   const rows = await db.select({ n: max(pullRequests.number) }).from(pullRequests).where(eq(pullRequests.projectId, projectId));
   return (rows[0]?.n ?? 0) + 1;
-}
-
-async function resolveRef(repoPath: string, ref: string): Promise<string> {
-  const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`]);
-  return stdout.toString("utf8").trim();
 }
 
 async function loadPrDetail(projectId: string, number: number) {
@@ -237,6 +245,14 @@ pullRequestRoutes.openapi(
     };
     const rows = await db.insert(pullRequests).values(input).returning();
     const pr = rows[0];
+    // Trial merge right away so the create response already carries the badge.
+    try {
+      await refreshOpenPrMergeability(id, repo.repoPath);
+    } catch {
+      // stored status stays "unknown"; creation still succeeds
+    }
+    // The insert row predates the refresh, so re-read before responding.
+    const refreshed = await db.select().from(pullRequests).where(eq(pullRequests.id, pr.id));
     audit(AUDIT_EVENTS.PULL_REQUEST_CREATE, {
       projectId: id,
       projectName: repo.project.name,
@@ -245,7 +261,7 @@ pullRequestRoutes.openapi(
       headBranch: body.headBranch,
       by: access.user.email,
     });
-    return c.json({ data: toPr({ ...pr, authorEmail: access.user.email }) }, 201);
+    return c.json({ data: toPr({ ...(refreshed[0] ?? pr), authorEmail: access.user.email }) }, 201);
   }
 );
 
@@ -356,12 +372,87 @@ pullRequestRoutes.openapi(
       .where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)))
       .returning();
     const changed = updated[0];
+    // Reopening is the only transition that invalidates the stored trial
+    // result, so refresh it.
+    if (body.status === PR_STATUSES.OPEN.slug) {
+      try {
+        await refreshOpenPrMergeability(id, repo.repoPath);
+      } catch {
+        // stored status stays as-is; the refresh is best effort
+      }
+    }
     audit(AUDIT_EVENTS.PULL_REQUEST_UPDATE, {
       projectId: id,
       projectName: repo.project.name,
       prNumber: number,
       by: access.user.email,
       changes: body,
+    });
+    const author = await db.select({ email: users.email }).from(users).where(eq(users.id, changed.authorId));
+    return c.json({ data: toPr({ ...changed, authorEmail: author[0]?.email ?? "" }) });
+  }
+);
+
+pullRequestRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/:id/pull-requests/:number/merge",
+    tags: ["Pull requests"],
+    summary: "Merge a pull request (push permission)",
+    request: {
+      params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
+      body: { content: { "application/json": { schema: prMergeInputSchema } } },
+    },
+    responses: {
+      200: { description: "Merged PR", content: { "application/json": { schema: prCreatedResponse } } },
+      400: { description: "Invalid PR", content: { "application/json": { schema: errorSchema } } },
+      404: { description: "Not found", content: { "application/json": { schema: errorSchema } } },
+      409: { description: "Merge conflict", content: { "application/json": { schema: errorSchema } } },
+    },
+  }),
+  async (c) => {
+    const { id, number } = c.req.valid("param");
+    const { method } = c.req.valid("json");
+    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
+    if (access instanceof Response) return access as never;
+    const repo = await loadProject(c, id);
+    if ("response" in repo) return repo.response as never;
+
+    const rows = await db.select().from(pullRequests).where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)));
+    const pr = rows[0];
+    if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+    if (pr.status !== PR_STATUSES.OPEN.slug) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests can be merged" } }, 400) as never;
+    }
+
+    const result = await mergePullRequest(repo.repoPath, pr.baseBranch, pr.headBranch, method as MergeMethod);
+    if (!result.ok) {
+      if (result.conflict) {
+        return c.json({ error: { code: ERROR_CODES.CONFLICT, message: result.error } }, 409) as never;
+      }
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: result.error } }, 400) as never;
+    }
+
+    const updated = await db
+      .update(pullRequests)
+      .set({
+        status: PR_STATUSES.MERGED.slug,
+        mergeMethod: method,
+        mergeCommitSha: result.mergeCommitSha,
+        mergedById: access.user.id,
+        mergedAt: new Date(),
+        closedAt: new Date(),
+      })
+      .where(eq(pullRequests.id, pr.id))
+      .returning();
+    const changed = updated[0];
+    audit(AUDIT_EVENTS.PULL_REQUEST_MERGE, {
+      projectId: id,
+      projectName: repo.project.name,
+      prNumber: number,
+      method,
+      mergeCommitSha: result.mergeCommitSha,
+      by: access.user.email,
     });
     const author = await db.select({ email: users.email }).from(users).where(eq(users.id, changed.authorId));
     return c.json({ data: toPr({ ...changed, authorEmail: author[0]?.email ?? "" }) });

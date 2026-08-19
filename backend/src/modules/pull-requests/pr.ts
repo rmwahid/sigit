@@ -35,3 +35,9 @@ export async function validatePrBranches(repoPath: string, base: string, head: s
 export async function prDiff(repoPath: string, base: string, head: string): Promise<string> {
   return getDiff(repoPath, `refs/heads/${base}`, `refs/heads/${head}`);
 }
+
+// Resolves a branch name to its commit sha (or throws when missing).
+export async function resolveRef(repoPath: string, ref: string): Promise<string> {
+  const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`]);
+  return stdout.toString("utf8").trim();
+}

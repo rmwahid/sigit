@@ -152,6 +152,7 @@
         bind:newPrDescription={ctrl.newPrDescription}
         bind:newPrBase={ctrl.newPrBase}
         bind:newPrHead={ctrl.newPrHead}
+        bind:mergeMethod={ctrl.mergeMethod}
         prActionError={ctrl.prActionError}
         creatingPr={ctrl.creatingPr}
         canPush={ctrl.hasPerm("push")}
@@ -163,6 +164,7 @@
         onCreatePr={() => void ctrl.onCreatePr()}
         onUpdatePrStatus={(number, status) => void ctrl.onUpdatePrStatus(number, status)}
         onDeletePr={(number) => void ctrl.onDeletePr(number)}
+        onMergePr={(number, method) => void ctrl.onMergePr(number, method)}
       />
     {:else if ctrl.tab === "settings"}
       <SettingsTab

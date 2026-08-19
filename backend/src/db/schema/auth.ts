@@ -4,7 +4,7 @@ import { DEFAULT_ROLE } from "@/constants/roles";
 import { TOKEN_SCOPE_SLUGS } from "@/constants/scopes";
 import { DEFAULT_ENCRYPTION_KEY_ID } from "@/constants/protocol";
 import { TOKEN_NAME_MAX_LENGTH } from "@/constants/limits";
-import { PR_STATUS_SLUGS, MERGE_METHOD_SLUGS, REVIEW_STATE_SLUGS } from "@/constants/pull-requests";
+import { PR_STATUS_SLUGS, MERGE_METHOD_SLUGS, REVIEW_STATE_SLUGS, PR_MERGEABLE_STATUS_SLUGS } from "@/constants/pull-requests";
 import { createdAt, updatedAt } from "@/db/utils/timestamps";
 
 export const users = pgTable("users", {
@@ -130,6 +130,9 @@ export const pullRequests = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: PR_STATUS_SLUGS }).notNull().default("open"),
+    // Trial-merge result (see modules/pull-requests/merge.ts). Stored so the
+    // UI can show a conflict badge before the merge button is pressed.
+    mergeableStatus: text("mergeable_status", { enum: PR_MERGEABLE_STATUS_SLUGS }).notNull().default("unknown"),
     mergeMethod: text("merge_method", { enum: MERGE_METHOD_SLUGS }),
     mergeCommitSha: varchar("merge_commit_sha", { length: 40 }),
     mergedById: uuid("merged_by_id").references(() => users.id, { onDelete: "set null" }),

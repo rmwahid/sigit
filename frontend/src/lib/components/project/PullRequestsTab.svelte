@@ -3,7 +3,7 @@
   import DiffViewer from "$lib/DiffViewer.svelte";
   import { formatDate } from "$lib/utils";
   import type { PullRequest } from "$lib/api/pull-requests";
-  import { PR_STATUSES } from "$lib/constants/pull-requests";
+  import { PR_STATUSES, PR_MERGEABLE_STATUSES } from "$lib/constants/pull-requests";
   import { GitPullRequest, Plus, X } from "lucide-svelte";
 
   // Pull Requests tab (Fase 3): list + create modal + detail with diff
@@ -22,6 +22,7 @@
     newPrDescription = $bindable(),
     newPrBase = $bindable(),
     newPrHead = $bindable(),
+    mergeMethod = $bindable(),
     prActionError,
     creatingPr,
     canPush,
@@ -33,6 +34,7 @@
     onCreatePr,
     onUpdatePrStatus,
     onDeletePr,
+    onMergePr,
   }: {
     pullRequests: PullRequest[];
     prLoading: boolean;
@@ -47,6 +49,7 @@
     newPrDescription: string;
     newPrBase: string;
     newPrHead: string;
+    mergeMethod: "merge" | "squash" | "fast_forward";
     prActionError: string;
     creatingPr: boolean;
     canPush: boolean;
@@ -58,10 +61,23 @@
     onCreatePr: () => void;
     onUpdatePrStatus: (number: number, status: PullRequest["status"]) => void;
     onDeletePr: (number: number) => void;
+    onMergePr: (number: number, method: "merge" | "squash" | "fast_forward") => void;
   } = $props();
 
   const statusLabel = (status: PullRequest["status"]): string =>
     PR_STATUSES[status as keyof typeof PR_STATUSES]?.name ?? status;
+
+  const mergeableLabel = (pr: PullRequest): string =>
+    pr.status !== "open"
+      ? statusLabel(pr.status)
+      : PR_MERGEABLE_STATUSES[pr.mergeableStatus as keyof typeof PR_MERGEABLE_STATUSES]?.name ?? pr.mergeableStatus;
+
+  const mergeableBadgeClass = (pr: PullRequest): string => {
+    if (pr.status !== "open") return "border-border bg-muted";
+    if (pr.mergeableStatus === "conflict") return "border-destructive/40 bg-destructive/10 text-destructive";
+    if (pr.mergeableStatus === "mergeable") return "border-primary/60 bg-muted text-primary";
+    return "border-border bg-muted text-muted-foreground";
+  };
 
   // The tab is only mounted while active, so loading here = load on open.
   onMount(() => {
@@ -77,10 +93,28 @@
         <div class="flex items-center gap-2 text-sm">
           <GitPullRequest class="size-4 text-primary" />
           <span class="font-bold">#{activePr.number} {activePr.title}</span>
-          <span class="text-xs px-2 py-0.5 border border-border rounded-sm bg-muted">{statusLabel(activePr.status)}</span>
+          <span
+            class="text-xs px-2 py-0.5 border border-border rounded-sm {mergeableBadgeClass(activePr)}"
+            title={activePr.status === "open" ? "Trial merge result against the base branch" : undefined}
+          >{mergeableLabel(activePr)}</span>
         </div>
         <div class="flex items-center gap-2">
           {#if canPush && activePr.status === "open"}
+            <select
+              class="pixel-border-sm px-1.5 py-0.5 text-xs bg-background"
+              bind:value={mergeMethod}
+              aria-label="Merge method"
+            >
+              <option value="merge">Merge commit</option>
+              <option value="squash">Squash</option>
+              <option value="fast_forward">Fast-forward</option>
+            </select>
+            <button
+              class="pixel-border-sm px-2 py-0.5 text-xs bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={activePr.mergeableStatus === "conflict"}
+              title={activePr.mergeableStatus === "conflict" ? "This branch has conflicts with the base branch" : undefined}
+              onclick={() => onMergePr(activePr.number, mergeMethod)}
+            >Merge</button>
             <button
               class="pixel-border-sm px-2 py-0.5 text-xs"
               onclick={() => onUpdatePrStatus(activePr.number, "closed")}
@@ -101,6 +135,9 @@
           <span>by {activePr.author.email}</span>
           <span>created {formatDate(activePr.createdAt)}</span>
           {#if activePr.closedAt}<span>closed {formatDate(activePr.closedAt)}</span>{/if}
+          {#if activePr.status === "merged" && activePr.mergeCommitSha}
+            <span class="text-primary">merged {activePr.mergeMethod ?? ""} <code>{activePr.mergeCommitSha.slice(0, 7)}</code></span>
+          {/if}
         </div>
         {#if activePr.description}
           <p class="whitespace-pre-wrap text-sm">{activePr.description}</p>
@@ -148,7 +185,7 @@
               <button class="font-bold truncate flex-1 text-left hover:underline" onclick={() => openPullRequest(pr.number)}>
                 #{pr.number} {pr.title}
               </button>
-              <span class="text-xs px-2 py-0.5 border border-border rounded-sm bg-muted">{statusLabel(pr.status)}</span>
+              <span class="text-xs px-2 py-0.5 border border-border rounded-sm {mergeableBadgeClass(pr)}">{mergeableLabel(pr)}</span>
               <span class="text-xs text-muted-foreground hidden sm:inline">{pr.headBranch} -> {pr.baseBranch}</span>
               <span class="text-xs text-muted-foreground hidden md:inline">by {pr.author.email}</span>
               <span class="text-xs text-muted-foreground hidden md:inline">{formatDate(pr.createdAt)}</span>

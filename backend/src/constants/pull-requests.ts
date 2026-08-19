@@ -36,3 +36,19 @@ export const REVIEW_STATES = {
 export type ReviewState = (typeof REVIEW_STATES)[keyof typeof REVIEW_STATES]["slug"];
 
 export const REVIEW_STATE_SLUGS = Object.values(REVIEW_STATES).map((r) => r.slug) as [ReviewState, ...ReviewState[]];
+
+// Trial-merge status: whether head can currently be merged into base without
+// conflicts. "unknown" means no trial has run yet (or the trial failed for a
+// non-conflict reason).
+export const PR_MERGEABLE_STATUSES = {
+  UNKNOWN: { slug: "unknown", name: "Unknown" },
+  MERGEABLE: { slug: "mergeable", name: "Mergeable" },
+  CONFLICT: { slug: "conflict", name: "Conflict" },
+} as const;
+
+export type PrMergeableStatus = (typeof PR_MERGEABLE_STATUSES)[keyof typeof PR_MERGEABLE_STATUSES]["slug"];
+
+export const PR_MERGEABLE_STATUS_SLUGS = Object.values(PR_MERGEABLE_STATUSES).map((s) => s.slug) as [
+  PrMergeableStatus,
+  ...PrMergeableStatus[],
+];

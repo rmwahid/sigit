@@ -49,6 +49,7 @@ import {
   getProjectPullRequest,
   getProjectPullRequestDiff,
   listProjectPullRequests,
+  mergeProjectPullRequest,
   updateProjectPullRequest,
   type PullRequest,
 } from "./api/pull-requests";
@@ -105,6 +106,7 @@ export class ProjectPageController {
   newPrDescription = $state("");
   newPrBase = $state("");
   newPrHead = $state("");
+  mergeMethod = $state<"merge" | "squash" | "fast_forward">("merge");
   prActionError = $state("");
   creatingPr = $state(false);
 
@@ -706,6 +708,20 @@ export class ProjectPageController {
       await updateProjectPullRequest(id, number, { status });
       await this.loadPullRequests();
       await this.openPullRequest(number);
+    } catch (e) {
+      this.prError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async onMergePr(number: number, method: "merge" | "squash" | "fast_forward") {
+    const id = this.currentId();
+    if (!id) return;
+    if (!confirm(`Merge pull request #${number} (${method})?`)) return;
+    this.prError = "";
+    try {
+      const res = await mergeProjectPullRequest(id, number, method);
+      this.activePr = res.data;
+      await this.loadPullRequests();
     } catch (e) {
       this.prError = e instanceof Error ? e.message : String(e);
     }

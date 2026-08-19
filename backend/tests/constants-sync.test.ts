@@ -13,7 +13,7 @@ import { TOKEN_SCOPES } from "@/constants/scopes";
 import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH, BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "@/constants/limits";
 import { ARCHIVE_FORMATS } from "@/constants/protocol";
 import { TOKEN_MAX_EXPIRY_DAYS } from "@/modules/auth/tokens";
-import { PR_STATUSES, MERGE_METHODS, REVIEW_STATES, PR_TERMINAL_STATUSES } from "@/constants/pull-requests";
+import { PR_STATUSES, MERGE_METHODS, REVIEW_STATES, PR_TERMINAL_STATUSES, PR_MERGEABLE_STATUSES } from "@/constants/pull-requests";
 import {
   ADMIN_ROLE as FE_ADMIN_ROLE,
   DEFAULT_ROLE as FE_DEFAULT_ROLE,
@@ -37,6 +37,7 @@ import {
   MERGE_METHODS as FE_MERGE_METHODS,
   REVIEW_STATES as FE_REVIEW_STATES,
   PR_TERMINAL_STATUSES as FE_PR_TERMINAL_STATUSES,
+  PR_MERGEABLE_STATUSES as FE_PR_MERGEABLE_STATUSES,
 } from "../../frontend/src/lib/constants/pull-requests";
 
 describe("frontend/backend constants sync", () => {
@@ -72,5 +73,6 @@ describe("frontend/backend constants sync", () => {
     expect(FE_PR_TERMINAL_STATUSES).toEqual(PR_TERMINAL_STATUSES);
     expect(FE_MERGE_METHODS).toEqual(MERGE_METHODS);
     expect(FE_REVIEW_STATES).toEqual(REVIEW_STATES);
+    expect(FE_PR_MERGEABLE_STATUSES).toEqual(PR_MERGEABLE_STATUSES);
   });
 });

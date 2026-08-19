@@ -4,8 +4,9 @@ import { ERROR_CODES } from "@/constants/errors";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { env } from "@/config/env";
-import { getProjectByName } from "@/modules/projects/projects";
+import { getProjectByName, projectRepoPath } from "@/modules/projects/projects";
 import { backupProject } from "@/modules/projects/backup";
+import { refreshOpenPrMergeability } from "@/modules/pull-requests/merge";
 import { audit, log } from "@/lib/logger";
 import path from "node:path";
 import type { Context } from "hono";
@@ -102,6 +103,12 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
       if (code === 0) {
         backupProject(project).catch((err) => {
           log.error("backup", "auto backup after push failed", { projectId: project.id, error: err instanceof Error ? err.message : String(err) });
+        });
+        // A push may have moved a base or head branch, so the stored
+        // trial-merge results of open PRs can be stale. Refresh them
+        // fire-and-forget (any failure only degrades to "unknown").
+        refreshOpenPrMergeability(project.id, projectRepoPath(project.id)).catch((err) => {
+          log.error("mergeable", "PR mergeability refresh after push failed", { projectId: project.id, error: err instanceof Error ? err.message : String(err) });
         });
       }
     });

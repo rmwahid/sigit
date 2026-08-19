@@ -1,6 +1,6 @@
 import { api } from "./client";
 import { API_PATHS } from "$lib/constants/paths";
-import type { PrStatus } from "$lib/constants/pull-requests";
+import type { PrStatus, PrMergeableStatus } from "$lib/constants/pull-requests";
 
 // Pull request API client (routes/pull-requests.ts). Creating/updating
 // requires the push permission; listing/detail requires view; the diff
@@ -21,6 +21,7 @@ export type PullRequest = {
   headSha: string;
   author: PrAuthor;
   status: PrStatus;
+  mergeableStatus: PrMergeableStatus;
   mergeMethod: string | null;
   mergeCommitSha: string | null;
   mergedById: string | null;
@@ -74,4 +75,11 @@ export function deleteProjectPullRequest(id: string, number: number) {
 
 export function getProjectPullRequestDiff(id: string, number: number) {
   return api<{ diff: string }>(`${API_PATHS.PROJECTS}/${id}/pull-requests/${number}/diff`);
+}
+
+export function mergeProjectPullRequest(id: string, number: number, method: "merge" | "squash" | "fast_forward") {
+  return api<{ data: PullRequest }>(`${API_PATHS.PROJECTS}/${id}/pull-requests/${number}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ method }),
+  });
 }

@@ -56,6 +56,28 @@ async function seedRepo(barePath: string): Promise<string> {
   return headSha;
 }
 
+// Seeds a bare repo where feature/x and main both edit the same file after
+// diverging, so a trial merge reports a conflict.
+async function seedConflictRepo(barePath: string): Promise<void> {
+  const workPath = path.join(tmpdir(), `sigit-pr-conflict-${suffix}-${Math.random().toString(36).slice(2)}`);
+  tmpDirs.push(workPath);
+  await fs.mkdir(workPath, { recursive: true });
+  sh("git init -b main", workPath);
+  sh('git config user.email "test@local"', workPath);
+  sh('git config user.name "Test"', workPath);
+  await fs.writeFile(path.join(workPath, "shared.txt"), "base\n");
+  sh("git add -A && git commit -m \"test: base\" -q", workPath);
+  sh("git branch feature/x", workPath);
+  sh("git checkout feature/x -q", workPath);
+  await fs.writeFile(path.join(workPath, "shared.txt"), "feature change\n");
+  sh("git add -A && git commit -m \"test: feature edits shared\" -q", workPath);
+  sh("git checkout main -q", workPath);
+  await fs.writeFile(path.join(workPath, "shared.txt"), "main change\n");
+  sh("git add -A && git commit -m \"test: main edits shared\" -q", workPath);
+  sh(`git remote add sigit ${barePath}`, workPath);
+  sh("git push sigit main feature/x -q", workPath);
+}
+
 async function createProjectRow(name: string): Promise<string> {
   const [row] = await db
     .insert(projects)
@@ -143,10 +165,11 @@ describe("pull request endpoints", () => {
       body: JSON.stringify({ title: "Add feature", description: "Adds feature.txt", baseBranch: "main", headBranch: "feature/x" }),
     });
     expect(created.status).toBe(201);
-    const pr = ((await created.json()) as { data: { number: number; status: string; baseSha: string; headSha: string } }).data;
+    const pr = ((await created.json()) as { data: { number: number; status: string; baseSha: string; headSha: string; mergeableStatus: string } }).data;
     expect(pr.number).toBe(1);
     expect(pr.status).toBe("open");
     expect(pr.headSha).toBe(headSha);
+    expect(pr.mergeableStatus).toBe("mergeable");
 
     const list = await pullRequestRoutes.request(`/${projectId}/pull-requests`, { headers });
     expect(list.status).toBe(200);
@@ -256,5 +279,31 @@ describe("pull request endpoints", () => {
     expect(noView.status).toBe(403);
     const noDiff = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/diff`, { headers: collabHeaders });
     expect(noDiff.status).toBe(403);
+  });
+
+  it("marks a conflicting PR as conflict via the trial merge", async () => {
+    const projectId = await createProjectRow(`pr-conflict-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedConflictRepo(barePath);
+
+    const adminEmail = `pr-conflict-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token } = await createSession(adminId);
+    const headers = jsonHeaders(token);
+
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Conflicting", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+    const pr = ((await created.json()) as { data: { mergeableStatus: string } }).data;
+    expect(pr.mergeableStatus).toBe("conflict");
+
+    // The merge endpoint still accepts (git decides), but the badge is red.
+    const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    const detailBody = (await detail.json()) as { data: { mergeableStatus: string } };
+    expect(detailBody.data.mergeableStatus).toBe("conflict");
   });
 });
