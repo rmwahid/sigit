@@ -165,6 +165,13 @@
         onUpdatePrStatus={(number, status) => void ctrl.onUpdatePrStatus(number, status)}
         onDeletePr={(number) => void ctrl.onDeletePr(number)}
         onMergePr={(number, method) => void ctrl.onMergePr(number, method)}
+        bind:newCommentBody={ctrl.newCommentBody}
+        commentSending={ctrl.commentSending}
+        onAddComment={(number) => void ctrl.onAddComment(number)}
+        bind:reviewState={ctrl.reviewState}
+        bind:reviewBody={ctrl.reviewBody}
+        reviewSending={ctrl.reviewSending}
+        onSubmitReview={(number) => void ctrl.onSubmitReview(number)}
       />
     {:else if ctrl.tab === "settings"}
       <SettingsTab

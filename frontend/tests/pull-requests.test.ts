@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import {
+  addProjectPullRequestComment,
   createProjectPullRequest,
   deleteProjectPullRequest,
   getProjectPullRequest,
   getProjectPullRequestDiff,
   listProjectPullRequests,
+  submitProjectPullRequestReview,
   updateProjectPullRequest,
 } from "$lib/api/pull-requests";
 
@@ -77,5 +79,38 @@ describe("pull request api client", () => {
     expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ status: "closed" });
     await deleteProjectPullRequest("proj-1", 3);
     expect((fetchMock.mock.calls[1]![1] as RequestInit).method).toBe("DELETE");
+  });
+
+  it("posts comments and reviews to the right paths", async () => {
+    const commentMock = mockFetch({
+      ok: true,
+      json: async () => ({ data: { id: "c1", body: "nice", author: { id: "u1", email: "a@sigit.test" }, createdAt: "2026-08-19T00:00:00.000Z" } }),
+    });
+    vi.stubGlobal("fetch", commentMock);
+    const comment = await addProjectPullRequestComment("proj-1", 3, "nice");
+    expect(comment.data.body).toBe("nice");
+    const [commentUrl, commentInit] = commentMock.mock.calls[0]!;
+    expect(String(commentUrl)).toContain("/projects/proj-1/pull-requests/3/comments");
+    expect((commentInit as RequestInit).method).toBe("POST");
+    expect(JSON.parse((commentInit as RequestInit).body as string)).toEqual({ body: "nice" });
+
+    const reviewMock = mockFetch({
+      ok: true,
+      json: async () => ({ data: { id: "r1", state: "approve", body: null, author: { id: "u1", email: "a@sigit.test" }, createdAt: "2026-08-19T00:00:00.000Z" } }),
+    });
+    vi.stubGlobal("fetch", reviewMock);
+    await submitProjectPullRequestReview("proj-1", 3, "approve");
+    const [reviewUrl, reviewInit] = reviewMock.mock.calls[0]!;
+    expect(String(reviewUrl)).toContain("/projects/proj-1/pull-requests/3/reviews");
+    expect((reviewInit as RequestInit).method).toBe("POST");
+    expect(JSON.parse((reviewInit as RequestInit).body as string)).toEqual({ state: "approve" });
+
+    const reviewBodyMock = mockFetch({
+      ok: true,
+      json: async () => ({ data: { id: "r2", state: "request_changes", body: "fix", author: { id: "u1", email: "a@sigit.test" }, createdAt: "2026-08-19T00:00:00.000Z" } }),
+    });
+    vi.stubGlobal("fetch", reviewBodyMock);
+    await submitProjectPullRequestReview("proj-1", 3, "request_changes", "fix");
+    expect(JSON.parse((reviewBodyMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ state: "request_changes", body: "fix" });
   });
 });

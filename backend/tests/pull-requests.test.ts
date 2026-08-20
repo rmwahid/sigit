@@ -307,3 +307,103 @@ describe("pull request endpoints", () => {
     expect(detailBody.data.mergeableStatus).toBe("conflict");
   });
 });
+
+describe("pull request conversation", () => {
+  async function setupProject(label: string) {
+    const projectId = await createProjectRow(`prconv-${label}-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+    const adminEmail = `prconv-${label}-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token } = await createSession(adminId);
+    const headers = jsonHeaders(token);
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Conversation", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+    return { projectId, token, headers };
+  }
+
+  it("adds comments and returns them in the PR detail", async () => {
+    const { projectId, headers } = await setupProject("cmt");
+
+    const first = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/comments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ body: "Nice change!" }),
+    });
+    expect(first.status).toBe(201);
+    const comment = ((await first.json()) as { data: { id: string; body: string; author: { email: string } } }).data;
+    expect(comment.body).toBe("Nice change!");
+    expect(comment.author.email).toContain("prconv-cmt-admin");
+
+    const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    const body = (await detail.json()) as { data: { comments: { body: string; author: { email: string } }[] } };
+    expect(body.data.comments).toHaveLength(1);
+    expect(body.data.comments[0].body).toBe("Nice change!");
+  });
+
+  it("rejects an empty comment", async () => {
+    const { projectId, headers } = await setupProject("empty");
+    const res = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/comments`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ body: "   " }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("upserts a review (latest state wins) and lists it in detail", async () => {
+    const { projectId, headers } = await setupProject("review");
+
+    const first = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ state: "approve", body: "Looks good" }),
+    });
+    expect(first.status).toBe(201);
+    const review = ((await first.json()) as { data: { state: string; body: string | null } }).data;
+    expect(review.state).toBe("approve");
+    expect(review.body).toBe("Looks good");
+
+    // Same user submits again: the previous review is replaced, not duplicated.
+    const second = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ state: "request_changes", body: "Needs fixes" }),
+    });
+    expect(second.status).toBe(201);
+
+    const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    const body = (await detail.json()) as { data: { reviews: { state: string; body: string | null }[] } };
+    expect(body.data.reviews).toHaveLength(1);
+    expect(body.data.reviews[0].state).toBe("request_changes");
+    expect(body.data.reviews[0].body).toBe("Needs fixes");
+  });
+
+  it("rejects an invalid review state", async () => {
+    const { projectId, headers } = await setupProject("badstate");
+    const res = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ state: "lgtm" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("denies comments without push permission", async () => {
+    const { projectId } = await setupProject("noperm");
+    const collabEmail = `prconv-noperm-${suffix}@sigit.test`;
+    const collabId = await createUserRow(collabEmail);
+    const { token } = await createSession(collabId);
+    const res = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/comments`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ body: "hi" }),
+    });
+    expect(res.status).toBe(403);
+  });
+});

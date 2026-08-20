@@ -34,4 +34,6 @@ export const AUDIT_EVENTS = {
   PULL_REQUEST_UPDATE: "pull_request.update",
   PULL_REQUEST_DELETE: "pull_request.delete",
   PULL_REQUEST_MERGE: "pull_request.merge",
+  PULL_REQUEST_COMMENT: "pull_request.comment",
+  PULL_REQUEST_REVIEW: "pull_request.review",
 } as const;

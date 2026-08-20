@@ -44,15 +44,19 @@ import {
   deleteProjectBranch,
 } from "./api/branches";
 import {
+  addProjectPullRequestComment,
   createProjectPullRequest,
   deleteProjectPullRequest,
   getProjectPullRequest,
   getProjectPullRequestDiff,
   listProjectPullRequests,
   mergeProjectPullRequest,
+  submitProjectPullRequestReview,
   updateProjectPullRequest,
   type PullRequest,
+  type PullRequestDetail,
 } from "./api/pull-requests";
+import type { ReviewState } from "$lib/constants/pull-requests";
 import {
   defaultRef,
   deriveTabKeys,
@@ -97,7 +101,7 @@ export class ProjectPageController {
   pullRequests = $state<PullRequest[]>([]);
   prLoading = $state(false);
   prError = $state("");
-  activePr = $state<PullRequest | null>(null);
+  activePr = $state<PullRequestDetail | null>(null);
   activePrDiff = $state("");
   prDiffLoading = $state(false);
   prDiffError = $state("");
@@ -109,6 +113,11 @@ export class ProjectPageController {
   mergeMethod = $state<"merge" | "squash" | "fast_forward">("merge");
   prActionError = $state("");
   creatingPr = $state(false);
+  newCommentBody = $state("");
+  commentSending = $state(false);
+  reviewState = $state<ReviewState>("approve");
+  reviewBody = $state("");
+  reviewSending = $state(false);
 
   // History tab
   history = $state<CommitInfo[]>([]);
@@ -720,7 +729,7 @@ export class ProjectPageController {
     this.prError = "";
     try {
       const res = await mergeProjectPullRequest(id, number, method);
-      this.activePr = res.data;
+      this.activePr = { ...res.data, comments: this.activePr?.comments ?? [], reviews: this.activePr?.reviews ?? [] };
       await this.loadPullRequests();
     } catch (e) {
       this.prError = e instanceof Error ? e.message : String(e);
@@ -738,6 +747,42 @@ export class ProjectPageController {
       await this.loadPullRequests();
     } catch (e) {
       this.prError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async onAddComment(number: number) {
+    const id = this.currentId();
+    if (!id) return;
+    const body = this.newCommentBody.trim();
+    if (!body) return;
+    this.commentSending = true;
+    this.prError = "";
+    try {
+      const res = await addProjectPullRequestComment(id, number, body);
+      this.activePr = { ...this.activePr!, comments: [...this.activePr!.comments, res.data] };
+      this.newCommentBody = "";
+    } catch (e) {
+      this.prError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.commentSending = false;
+    }
+  }
+
+  async onSubmitReview(number: number) {
+    const id = this.currentId();
+    if (!id) return;
+    this.reviewSending = true;
+    this.prError = "";
+    try {
+      const res = await submitProjectPullRequestReview(id, number, this.reviewState, this.reviewBody.trim() || undefined);
+      // One review per user: replace the previous review of this user.
+      const reviews = this.activePr!.reviews.filter((r) => r.author.id !== res.data.author.id);
+      this.activePr = { ...this.activePr!, reviews: [...reviews, res.data] };
+      this.reviewBody = "";
+    } catch (e) {
+      this.prError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.reviewSending = false;
     }
   }
 }

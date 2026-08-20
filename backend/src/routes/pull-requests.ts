@@ -18,6 +18,7 @@ import {
   PR_STATUS_SLUGS,
   PR_MERGEABLE_STATUS_SLUGS,
   MERGE_METHOD_SLUGS,
+  REVIEW_STATE_SLUGS,
   type PrStatus,
 } from "@/constants/pull-requests";
 import { ERROR_CODES } from "@/constants/errors";
@@ -128,6 +129,11 @@ function toPr(row: PrRow) {
 async function nextPrNumber(projectId: string): Promise<number> {
   const rows = await db.select({ n: max(pullRequests.number) }).from(pullRequests).where(eq(pullRequests.projectId, projectId));
   return (rows[0]?.n ?? 0) + 1;
+}
+
+async function findPr(projectId: string, number: number) {
+  const rows = await db.select().from(pullRequests).where(and(eq(pullRequests.projectId, projectId), eq(pullRequests.number, number)));
+  return rows[0];
 }
 
 async function loadPrDetail(projectId: string, number: number) {
@@ -492,5 +498,131 @@ pullRequestRoutes.openapi(
       by: access.user.email,
     });
     return c.json({ message: `Pull request #${number} deleted` });
+  }
+);
+
+const prCommentInputSchema = z.object({
+  body: z.string().trim().min(1).max(10000),
+});
+
+// Post a conversation comment on the PR (push permission). Comments stay
+// open on terminal PRs (Gitea behavior).
+pullRequestRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/:id/pull-requests/:number/comments",
+    tags: ["Pull requests"],
+    summary: "Add a comment to a pull request (push permission)",
+    request: {
+      params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
+      body: { content: { "application/json": { schema: prCommentInputSchema } } },
+    },
+    responses: {
+      201: { description: "Created comment", content: { "application/json": { schema: z.object({ data: prCommentSchema }).openapi("PrCommentResponse") } } },
+      400: { description: "Invalid comment", content: { "application/json": { schema: errorSchema } } },
+      404: { description: "Not found", content: { "application/json": { schema: errorSchema } } },
+    },
+  }),
+  async (c) => {
+    const { id, number } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
+    if (access instanceof Response) return access as never;
+    const repo = await loadProject(c, id);
+    if ("response" in repo) return repo.response as never;
+
+    const pr = await findPr(id, number);
+    if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+
+    const rows = await db
+      .insert(prComments)
+      .values({ prId: pr.id, userId: access.user.id, body: body.body })
+      .returning();
+    const comment = rows[0];
+    audit(AUDIT_EVENTS.PULL_REQUEST_COMMENT, {
+      projectId: id,
+      projectName: repo.project.name,
+      prNumber: number,
+      by: access.user.email,
+    });
+    return c.json(
+      {
+        data: {
+          id: comment.id,
+          body: comment.body,
+          author: { id: access.user.id, email: access.user.email },
+          createdAt: comment.createdAt.toISOString(),
+        },
+      },
+      201
+    );
+  }
+);
+
+const prReviewInputSchema = z.object({
+  state: z.enum(REVIEW_STATE_SLUGS),
+  body: z.string().max(10000).optional(),
+});
+
+// Submit a review (approve / request changes / comment). One review per user
+// per PR: the latest submission overwrites the previous one (upsert).
+pullRequestRoutes.openapi(
+  createRoute({
+    method: "post",
+    path: "/:id/pull-requests/:number/reviews",
+    tags: ["Pull requests"],
+    summary: "Submit a review on a pull request (push permission)",
+    request: {
+      params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
+      body: { content: { "application/json": { schema: prReviewInputSchema } } },
+    },
+    responses: {
+      201: { description: "Created review", content: { "application/json": { schema: z.object({ data: prReviewSchema }).openapi("PrReviewResponse") } } },
+      400: { description: "Invalid review", content: { "application/json": { schema: errorSchema } } },
+      404: { description: "Not found", content: { "application/json": { schema: errorSchema } } },
+    },
+  }),
+  async (c) => {
+    const { id, number } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
+    if (access instanceof Response) return access as never;
+    const repo = await loadProject(c, id);
+    if ("response" in repo) return repo.response as never;
+
+    const pr = await findPr(id, number);
+    if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+
+    const existing = await db
+      .select({ id: prReviews.id })
+      .from(prReviews)
+      .where(and(eq(prReviews.prId, pr.id), eq(prReviews.userId, access.user.id)));
+    const rows = existing.length
+      ? await db
+          .update(prReviews)
+          .set({ state: body.state, body: body.body ?? null })
+          .where(eq(prReviews.id, existing[0].id))
+          .returning()
+      : await db.insert(prReviews).values({ prId: pr.id, userId: access.user.id, state: body.state, body: body.body ?? null }).returning();
+    const review = rows[0];
+    audit(AUDIT_EVENTS.PULL_REQUEST_REVIEW, {
+      projectId: id,
+      projectName: repo.project.name,
+      prNumber: number,
+      state: body.state,
+      by: access.user.email,
+    });
+    return c.json(
+      {
+        data: {
+          id: review.id,
+          state: review.state,
+          body: review.body,
+          author: { id: access.user.id, email: access.user.email },
+          createdAt: review.createdAt.toISOString(),
+        },
+      },
+      201
+    );
   }
 );

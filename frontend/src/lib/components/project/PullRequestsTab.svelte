@@ -2,9 +2,9 @@
   import { onMount } from "svelte";
   import DiffViewer from "$lib/DiffViewer.svelte";
   import { formatDate } from "$lib/utils";
-  import type { PullRequest } from "$lib/api/pull-requests";
-  import { PR_STATUSES, PR_MERGEABLE_STATUSES } from "$lib/constants/pull-requests";
-  import { GitPullRequest, Plus, X } from "lucide-svelte";
+  import type { PullRequest, PullRequestDetail } from "$lib/api/pull-requests";
+  import { PR_STATUSES, PR_MERGEABLE_STATUSES, type ReviewState } from "$lib/constants/pull-requests";
+  import { GitPullRequest, MessageSquare, Plus, ShieldCheck, X } from "lucide-svelte";
 
   // Pull Requests tab (Fase 3): list + create modal + detail with diff
   // preview. State lives in the page controller (lib/project-page-controller).
@@ -35,11 +35,18 @@
     onUpdatePrStatus,
     onDeletePr,
     onMergePr,
+    newCommentBody = $bindable(),
+    commentSending,
+    onAddComment,
+    reviewState = $bindable(),
+    reviewBody = $bindable(),
+    reviewSending,
+    onSubmitReview,
   }: {
     pullRequests: PullRequest[];
     prLoading: boolean;
     prError: string;
-    activePr: PullRequest | null;
+    activePr: PullRequestDetail | null;
     activePrDiff: string;
     prDiffLoading: boolean;
     prDiffError: string;
@@ -62,6 +69,13 @@
     onUpdatePrStatus: (number: number, status: PullRequest["status"]) => void;
     onDeletePr: (number: number) => void;
     onMergePr: (number: number, method: "merge" | "squash" | "fast_forward") => void;
+    newCommentBody: string;
+    commentSending: boolean;
+    onAddComment: (number: number) => void;
+    reviewState: ReviewState;
+    reviewBody: string;
+    reviewSending: boolean;
+    onSubmitReview: (number: number) => void;
   } = $props();
 
   const statusLabel = (status: PullRequest["status"]): string =>
@@ -156,6 +170,73 @@
           <DiffViewer diff={activePrDiff} />
         {:else if !prDiffLoading}
           <p class="text-xs text-muted-foreground">No diff available.</p>
+        {/if}
+      </div>
+
+      <!-- Conversation (comments + reviews) -->
+      <div class="border-t border-border px-4 py-3 flex flex-col gap-3">
+        <span class="text-sm font-bold">Conversation</span>
+        {#if activePr.reviews.length > 0}
+          <div class="flex flex-col gap-2">
+            {#each activePr.reviews as review}
+              <div class="border border-border rounded-sm px-3 py-2 text-xs flex flex-col gap-1">
+                <div class="flex items-center gap-2">
+                  <span class="px-1.5 py-0.5 border border-border rounded-sm bg-muted font-bold">
+                    {review.state === "approve" ? "Approve" : review.state === "request_changes" ? "Request changes" : "Comment"}
+                  </span>
+                  <span class="text-muted-foreground">{review.author.email} reviewed {formatDate(review.createdAt)}</span>
+                </div>
+                {#if review.body}<p class="whitespace-pre-wrap">{review.body}</p>{/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if activePr.comments.length > 0}
+          <div class="flex flex-col gap-2">
+            {#each activePr.comments as comment}
+              <div class="border border-border rounded-sm px-3 py-2 text-xs flex flex-col gap-1">
+                <span class="text-muted-foreground">{comment.author.email} commented {formatDate(comment.createdAt)}</span>
+                <p class="whitespace-pre-wrap">{comment.body}</p>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if canPush}
+          <div class="flex flex-col gap-2">
+            <textarea
+              class="pixel-border-sm px-2 py-1.5 bg-background text-sm"
+              bind:value={newCommentBody}
+              rows="2"
+              placeholder="Leave a comment"
+            ></textarea>
+            <div class="flex items-center gap-2">
+              <button
+                class="pixel-border-sm px-2 py-1 text-xs flex items-center gap-1"
+                disabled={commentSending || !newCommentBody.trim()}
+                onclick={() => onAddComment(activePr.number)}
+              >
+                <MessageSquare class="size-3.5" /> {commentSending ? "Posting..." : "Comment"}
+              </button>
+              <select class="pixel-border-sm px-1.5 py-1 text-xs bg-background" bind:value={reviewState} aria-label="Review state">
+                <option value="approve">Approve</option>
+                <option value="request_changes">Request changes</option>
+                <option value="comment">Comment</option>
+              </select>
+              <input
+                class="pixel-border-sm px-2 py-1 text-xs bg-background flex-1 min-w-0"
+                bind:value={reviewBody}
+                placeholder="Review summary (optional)"
+              />
+              <button
+                class="pixel-border-sm px-2 py-1 text-xs flex items-center gap-1"
+                disabled={reviewSending}
+                onclick={() => onSubmitReview(activePr.number)}
+                title="Submit review (replaces your previous review)"
+              >
+                <ShieldCheck class="size-3.5" /> {reviewSending ? "Submitting..." : "Submit review"}
+              </button>
+            </div>
+          </div>
         {/if}
       </div>
     </div>

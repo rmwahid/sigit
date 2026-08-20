@@ -1,6 +1,6 @@
 import { api } from "./client";
 import { API_PATHS } from "$lib/constants/paths";
-import type { PrStatus, PrMergeableStatus } from "$lib/constants/pull-requests";
+import type { PrStatus, PrMergeableStatus, ReviewState } from "$lib/constants/pull-requests";
 
 // Pull request API client (routes/pull-requests.ts). Creating/updating
 // requires the push permission; listing/detail requires view; the diff
@@ -81,5 +81,24 @@ export function mergeProjectPullRequest(id: string, number: number, method: "mer
   return api<{ data: PullRequest }>(`${API_PATHS.PROJECTS}/${id}/pull-requests/${number}/merge`, {
     method: "POST",
     body: JSON.stringify({ method }),
+  });
+}
+
+export function addProjectPullRequestComment(id: string, number: number, body: string) {
+  return api<{ data: PrComment }>(`${API_PATHS.PROJECTS}/${id}/pull-requests/${number}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function submitProjectPullRequestReview(
+  id: string,
+  number: number,
+  state: ReviewState,
+  body?: string
+) {
+  return api<{ data: PrReview }>(`${API_PATHS.PROJECTS}/${id}/pull-requests/${number}/reviews`, {
+    method: "POST",
+    body: JSON.stringify({ state, ...(body ? { body } : {}) }),
   });
 }
