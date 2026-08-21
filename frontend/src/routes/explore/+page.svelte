@@ -26,7 +26,7 @@
 
 <PublicShell>
   <h1 class="flex items-center gap-2 text-3xl font-extrabold mb-2">
-    <Landmark class="size-7 text-primary" aria-hidden="true" />
+    <Landmark class="size-7 text-vivid" aria-hidden="true" />
     <span><span class="nb-mark">Explore</span> public projects</span>
   </h1>
   <Squiggle class="h-2.5 w-40 mb-6 text-accent" />

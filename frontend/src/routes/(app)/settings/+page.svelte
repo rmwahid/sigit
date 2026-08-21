@@ -23,6 +23,7 @@
   import { createInvitation, listInvitations, revokeInvitation, type Invitation } from "$lib/api/invitations";
   import { getEmailSettings, updateEmailSettings, testEmail } from "$lib/api/email-settings";
   import Button from "$lib/components/ui/button/button.svelte";
+  import ConfirmModal from "$lib/components/ConfirmModal.svelte";
   import Input from "$lib/components/ui/input/input.svelte";
   import Label from "$lib/components/ui/label/label.svelte";
   import Card from "$lib/components/ui/card/card.svelte";
@@ -61,6 +62,7 @@
   let inviteEmail = $state("");
   let inviteResult = $state<{ inviteLink: string; emailSent: boolean } | null>(null);
   let resetTarget = $state<ManagedUser | null>(null);
+  let deleteTarget = $state<{ id: string; email: string } | null>(null);
   let resetPassword = $state("");
   let emailSettings = $state<{ apiKeyMasked: string | null; hasApiKey: boolean; fromEmail: string | null } | null>(null);
   let emailApiKey = $state("");
@@ -122,14 +124,8 @@
   }
 
   async function onDeleteUser(id: string, email: string) {
-    if (!confirm(`Delete user ${email}? Their sessions, tokens and project access are removed.`)) return;
+    deleteTarget = { id, email };
     error = "";
-    try {
-      await deleteUser(id);
-      users = (await listUsers()).data;
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
   }
 
   async function onSaveEmail() {
@@ -275,7 +271,7 @@
   </div>
 
   {#if error}<div class="p-3 border border-destructive text-destructive text-sm">{error}</div>{/if}
-  {#if message}<div class="p-3 border border-primary text-primary text-sm">{message}</div>{/if}
+  {#if message}<div class="p-3 border border-border bg-accent text-accent-foreground text-sm">{message}</div>{/if}
 
   <!-- Tab bar -->
   <div class="flex gap-1 border-b-2 border-border">
@@ -582,3 +578,24 @@
     {/if}
   {/if}
 </div>
+
+<ConfirmModal
+  open={deleteTarget !== null}
+  title="Delete user"
+  message={deleteTarget ? `Delete user ${deleteTarget.email}? Their sessions, tokens and project access are removed.` : ""}
+  confirmLabel="Delete"
+  danger
+  onConfirm={() => {
+    const target = deleteTarget;
+    deleteTarget = null;
+    if (target) void (async () => {
+      try {
+        await deleteUser(target.id);
+        users = (await listUsers()).data;
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    })();
+  }}
+  onCancel={() => (deleteTarget = null)}
+/>

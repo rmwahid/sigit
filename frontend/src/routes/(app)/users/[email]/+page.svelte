@@ -5,7 +5,6 @@
   import { ADMIN_ROLE, roleName } from "$lib/constants/roles";
   import { Flame, GitBranch, Mail, Medal } from "lucide-svelte";
   import ActivityGraph from "$lib/components/activity/ActivityGraph.svelte";
-  import PublicShell from "$lib/components/PublicShell.svelte";
   import Squiggle from "$lib/components/decor/Squiggle.svelte";
 
   let profile = $state<PublicUserProfile | null>(null);
@@ -37,7 +36,7 @@
   <title>{$page.params.email ?? "User"} - SiGit</title>
 </svelte:head>
 
-<PublicShell>
+<div class="max-w-3xl mx-auto">
   {#if error}
     <div class="pixel-border nb-dashed bg-card p-8 text-center text-muted-foreground">
       <p class="text-lg font-bold">User not found</p>
@@ -64,7 +63,7 @@
     </div>
 
     <h2 class="flex items-center gap-2 text-xl font-extrabold mb-2">
-      <Flame class="size-5 text-primary" aria-hidden="true" />
+      <Flame class="size-5 text-foreground" aria-hidden="true" />
       Activity
     </h2>
     <Squiggle class="h-2 w-32 mb-4 text-accent" />
@@ -73,7 +72,7 @@
     </div>
 
     <h2 class="flex items-center gap-2 text-xl font-extrabold mb-2">
-      <Medal class="size-5 text-primary" aria-hidden="true" />
+      <Medal class="size-5 text-foreground" aria-hidden="true" />
       Public projects
     </h2>
     <Squiggle class="h-2 w-32 mb-4 text-accent" />
@@ -100,4 +99,4 @@
       </div>
     {/if}
   {/if}
-</PublicShell>
+</div>

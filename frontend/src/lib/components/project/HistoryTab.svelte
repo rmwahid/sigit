@@ -2,6 +2,7 @@
   import DiffViewer from "$lib/DiffViewer.svelte";
   import { formatDate } from "$lib/utils";
   import type { CommitInfo } from "$lib/api/browser";
+  import BranchSelect from "$lib/components/BranchSelect.svelte";
   import { GitCommitHorizontal, X } from "lucide-svelte";
 
   // History tab: paginated commit list + diff panel (state lives in the page).
@@ -14,6 +15,9 @@
     showDiff,
     loadMore,
     closeDiff,
+    branches,
+    ref = $bindable(),
+    onRefChange,
   }: {
     history: CommitInfo[];
     historyMore: boolean;
@@ -23,10 +27,18 @@
     showDiff: (hash: string) => void;
     loadMore: () => void;
     closeDiff: () => void;
+    branches: string[];
+    ref?: string;
+    onRefChange?: () => void;
   } = $props();
 </script>
 
 <div class="flex flex-col gap-4">
+  <div class="flex items-center gap-2">
+    <BranchSelect items={branches.length ? branches : ["HEAD"]} bind:value={ref} onselect={onRefChange} />
+    <span class="text-xs text-muted-foreground">Commits reachable from the selected branch.</span>
+  </div>
+
   <div class="pixel-border bg-card flex flex-col">
     {#if history.length === 0}
       <div class="p-6 text-sm text-muted-foreground">
@@ -36,7 +48,9 @@
       <ul>
         {#each history as commit}
           <li class="border-b border-border last:border-b-0 px-4 py-2 flex items-center gap-3 text-sm">
-            <GitCommitHorizontal class="size-4 text-primary shrink-0" />
+            <span class="shrink-0 size-6 flex items-center justify-center border-2 border-border bg-secondary text-secondary-foreground">
+              <GitCommitHorizontal class="size-4" />
+            </span>
             <span class="font-bold truncate flex-1">{commit.message}</span>
             <span class="text-xs text-muted-foreground hidden sm:inline">{commit.author}</span>
             <code class="text-xs text-muted-foreground">{commit.hash.slice(0, 7)}</code>

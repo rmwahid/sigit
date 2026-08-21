@@ -148,7 +148,7 @@
           <li class="border-b border-border last:border-b-0">
             {#if entry.type === "tree"}
               <button class="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted text-left" onclick={() => openDir(entry.name)}>
-                <FolderOpen class="size-4 text-primary" />
+                <FolderOpen class="size-4 text-vivid" />
                 <span class="font-bold">{entry.name}</span>
                 <span class="ml-auto text-[10px] uppercase tracking-wider px-2 py-0.5 border border-border rounded-sm bg-muted">dir</span>
               </button>

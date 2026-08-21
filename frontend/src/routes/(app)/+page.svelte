@@ -26,7 +26,7 @@
       <div class="relative">
         <div class="h-3.5 w-44 bg-card nb-checker border-2 border-b-0 border-border absolute -top-3.5 left-1/2 -translate-x-1/2" aria-hidden="true"></div>
         <div class="pixel-border nb-dashed bg-card px-8 py-10 flex flex-col items-center gap-3">
-          <Landmark class="size-9 text-primary" />
+          <Landmark class="size-9 text-vivid" />
           <p class="text-lg font-bold">No projects yet</p>
           <p class="text-sm text-muted-foreground max-w-xs">
             Create one to get started: pick a unique name and connect your own storage. Click the

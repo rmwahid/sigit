@@ -166,7 +166,7 @@
         <Starburst class="absolute -top-3 -right-3 size-8 text-accent" />
         <div class="mb-4">
           <h2 class="flex items-center gap-2 text-lg font-bold">
-            <Rocket class="size-5 text-primary" /> New Project
+            <Rocket class="size-5 text-vivid" /> New Project
           </h2>
           <Squiggle class="h-2 w-24 text-accent mt-1" />
         </div>

@@ -1,12 +1,25 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import ThemeToggle from "$lib/ThemeToggle.svelte";
   import { APP_ROUTES } from "$lib/constants/paths";
-  import { GitBranch } from "lucide-svelte";
+  import { getMe } from "$lib/api/auth";
   import Starburst from "./decor/Starburst.svelte";
   import Meander from "./decor/Meander.svelte";
   import HangingTag from "./decor/HangingTag.svelte";
 
   let { children } = $props<{ children?: import("svelte").Snippet }>();
+
+  // Public pages can be opened signed out, but a signed-in visitor should not
+  // be offered a "Sign in" link.
+  let signedIn = $state(false);
+  onMount(async () => {
+    try {
+      await getMe();
+      signedIn = true;
+    } catch {
+      signedIn = false;
+    }
+  });
 </script>
 
 <div class="relative min-h-screen bg-background overflow-hidden">
@@ -24,13 +37,14 @@
       <a href={APP_ROUTES.EXPLORE} class="text-xl font-extrabold tracking-tight">
         <span class="nb-mark">SiGit</span>
       </a>
-      <a href={APP_ROUTES.EXPLORE} class="pixel-border-sm px-3 py-1 text-sm bg-primary text-primary-foreground flex items-center gap-1.5">
-        <GitBranch class="size-3.5" /> Explore
-      </a>
     </div>
     <div class="flex items-center gap-2">
       <ThemeToggle />
-      <a href="/login" class="pixel-border-sm px-3 py-1 text-sm bg-card">Sign in</a>
+      {#if signedIn}
+        <a href={APP_ROUTES.ROOT} class="pixel-border-sm px-3 py-1 text-sm bg-card">Dashboard</a>
+      {:else}
+        <a href="/login" class="pixel-border-sm px-3 py-1 text-sm bg-card">Sign in</a>
+      {/if}
     </div>
   </header>
 
