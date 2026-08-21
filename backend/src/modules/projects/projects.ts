@@ -5,6 +5,7 @@ import { projects, type NewProject, type Project } from "@/db/schema/projects";
 import { createConnectionFromInput, getConnection } from "@/modules/storage/connections";
 import { deleteObjectsByPrefix } from "@/modules/storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
+import { protectionSnapshotPath } from "./protection-snapshot";
 import { deleteRowById } from "@/lib/db";
 import { HttpError } from "@/lib/http-error";
 import { encryptSecret } from "@/lib/secret-encryption";
@@ -162,10 +163,11 @@ export async function hardDeleteProject(id: string): Promise<DeleteProjectResult
     hadStorage: !!project?.storageConnectionId,
   };
 
-  // 2. Delete local repo folder
+  // 2. Delete local repo folder (+ its protection snapshot sibling)
   const repoPath = projectRepoPath(id);
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
+    await fs.rm(protectionSnapshotPath(repoPath), { force: true });
     result.deletedRepo = true;
   } catch {
     result.deletedRepo = false;
@@ -188,11 +190,11 @@ export async function hardDeleteProject(id: string): Promise<DeleteProjectResult
   return result;
 }
 
-export async function projectHistory(projectId: string, limit?: number, offset?: number) {
+export async function projectHistory(projectId: string, limit?: number, offset?: number, ref?: string) {
   const repoPath = projectRepoPath(projectId);
   const head = await resolveHead(repoPath);
   if (!head) return { head: null, commits: [] };
-  const commits = await getLog(repoPath, limit ?? 50, offset ?? 0);
+  const commits = await getLog(repoPath, limit ?? 50, offset ?? 0, ref);
   return { head, commits };
 }
 

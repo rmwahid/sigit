@@ -1,6 +1,6 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { DEFAULT_ROLE } from "@/constants/roles";
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { db } from "@/config/db";
 import { invitations, users } from "@/db/schema/auth";
 import {
@@ -33,6 +33,17 @@ async function cleanup() {
     } catch {
       // best effort
     }
+  }
+  // Some invitations are never accepted (existing-user test, legacy test),
+  // so they would linger forever as pending rows. Remove every invitation
+  // this suite created, used or not.
+  try {
+    await db.delete(invitations).where(like(invitations.email, `invite-${suffix}@test.local`));
+    await db.delete(invitations).where(like(invitations.email, `legacy-${suffix}@test.local`));
+    await db.delete(invitations).where(like(invitations.email, `expired-${suffix}@test.local`));
+    await db.delete(invitations).where(like(invitations.email, `revoke-${suffix}@test.local`));
+  } catch {
+    // best effort
   }
 }
 
@@ -96,6 +107,9 @@ describe("invitations", () => {
       error = err instanceof Error ? err.message : String(err);
     }
     expect(error).toBe("EMAIL_TAKEN");
+    // The invitation is never accepted, so it would linger as a pending row.
+    const info = await validateInvitation(token);
+    if (info) await revokeInvitation(info.id);
   });
 
   it("accepting a legacy admin-role invitation still creates a collaborator", async () => {

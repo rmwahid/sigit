@@ -62,12 +62,12 @@ export async function parseCgiHeaders(
   return { status, headers, body };
 }
 
-export async function handleGitRequest(c: Context, projectName: string, pathInfo: string): Promise<Response> {
-  const project = await getProjectByName(projectName);
+export async function handleGitRequest(c: Context, projectName: string, pathInfo: string): Promise<Response> {  const project = await getProjectByName(projectName);
   if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Project not found" } }, 404);
 
   const url = new URL(c.req.url);
   // PATH_INFO uses the UUID (bare repo folder), the URL keeps the project name.
+  const token = c.get("token");
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     GIT_PROJECT_ROOT: PROJECTS_ROOT,
@@ -77,6 +77,12 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
     REQUEST_METHOD: c.req.method,
     CONTENT_TYPE: c.req.header("Content-Type") ?? "",
     REMOTE_USER,
+    // Identity for the pre-receive hook: the authenticated token's owner.
+    // SIGIT_SERVER_PUSH marks pushes performed by the server itself (PR merge
+    // via worktree), which bypass the hook's direct-push checks - those are
+    // enforced in the API instead (approvals, merge whitelist, admin bypass).
+    GITPUSH_USER_ID: token?.userId ?? "",
+    SIGIT_SERVER_PUSH: token ? "" : "1",
   };
 
   const child = spawn("git", ["http-backend"], { env });
