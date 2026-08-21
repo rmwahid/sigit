@@ -4,7 +4,7 @@
 export const PR_STATUSES = {
   OPEN: { slug: "open", name: "Open" },
   MERGED: { slug: "merged", name: "Merged" },
-  CLOSED: { slug: "closed", name: "Closed" },
+  ABANDONED: { slug: "abandoned", name: "Abandoned" },
   REJECTED: { slug: "rejected", name: "Rejected" },
 } as const;
 
@@ -12,11 +12,16 @@ export type PrStatus = (typeof PR_STATUSES)[keyof typeof PR_STATUSES]["slug"];
 
 export const PR_STATUS_SLUGS = Object.values(PR_STATUSES).map((s) => s.slug);
 
+// Slug-indexed lookup mirror (see backend constant for the rationale).
+export const PR_STATUS_BY_SLUG = Object.fromEntries(
+  Object.values(PR_STATUSES).map((s) => [s.slug, s])
+) as Record<PrStatus, (typeof PR_STATUSES)[keyof typeof PR_STATUSES]>;
+
 // Terminal statuses: no reopen. The replacement flow is a new PR from the
 // same branch.
 export const PR_TERMINAL_STATUSES: PrStatus[] = [
   PR_STATUSES.MERGED.slug,
-  PR_STATUSES.CLOSED.slug,
+  PR_STATUSES.ABANDONED.slug,
   PR_STATUSES.REJECTED.slug,
 ];
 
@@ -40,6 +45,10 @@ export type ReviewState = (typeof REVIEW_STATES)[keyof typeof REVIEW_STATES]["sl
 
 export const REVIEW_STATE_SLUGS = Object.values(REVIEW_STATES).map((r) => r.slug);
 
+export const REVIEW_STATE_BY_SLUG = Object.fromEntries(
+  Object.values(REVIEW_STATES).map((r) => [r.slug, r])
+) as Record<ReviewState, (typeof REVIEW_STATES)[keyof typeof REVIEW_STATES]>;
+
 // Trial-merge status: whether head can currently be merged into base without
 // conflicts. "unknown" means no trial has run yet (or the trial failed for a
 // non-conflict reason).
@@ -52,3 +61,7 @@ export const PR_MERGEABLE_STATUSES = {
 export type PrMergeableStatus = (typeof PR_MERGEABLE_STATUSES)[keyof typeof PR_MERGEABLE_STATUSES]["slug"];
 
 export const PR_MERGEABLE_STATUS_SLUGS = Object.values(PR_MERGEABLE_STATUSES).map((s) => s.slug);
+
+export const PR_MERGEABLE_STATUS_BY_SLUG = Object.fromEntries(
+  Object.values(PR_MERGEABLE_STATUSES).map((s) => [s.slug, s])
+) as Record<PrMergeableStatus, (typeof PR_MERGEABLE_STATUSES)[keyof typeof PR_MERGEABLE_STATUSES]>;

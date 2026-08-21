@@ -5,7 +5,8 @@
 export const PR_STATUSES = {
   OPEN: { slug: "open", name: "Open" },
   MERGED: { slug: "merged", name: "Merged" },
-  CLOSED: { slug: "closed", name: "Closed" },
+  // A PR that was not merged and is no longer being pursued.
+  ABANDONED: { slug: "abandoned", name: "Abandoned" },
   REJECTED: { slug: "rejected", name: "Rejected" },
 } as const;
 
@@ -13,9 +14,16 @@ export type PrStatus = (typeof PR_STATUSES)[keyof typeof PR_STATUSES]["slug"];
 
 export const PR_STATUS_SLUGS = Object.values(PR_STATUSES).map((s) => s.slug) as [PrStatus, ...PrStatus[]];
 
+// Slug-indexed lookup for status slugs (the named map is keyed by
+// OPEN/MERGED/..., so a slug-keyed mirror lets UI code resolve a status
+// value to its label without a fallback or a cast).
+export const PR_STATUS_BY_SLUG = Object.fromEntries(
+  Object.values(PR_STATUSES).map((s) => [s.slug, s])
+) as Record<PrStatus, (typeof PR_STATUSES)[keyof typeof PR_STATUSES]>;
+
 // Terminal statuses: no reopen (Gitea behavior). The replacement flow is a new
 // PR from the same branch.
-export const PR_TERMINAL_STATUSES: PrStatus[] = [PR_STATUSES.MERGED.slug, PR_STATUSES.CLOSED.slug, PR_STATUSES.REJECTED.slug];
+export const PR_TERMINAL_STATUSES: PrStatus[] = [PR_STATUSES.MERGED.slug, PR_STATUSES.ABANDONED.slug, PR_STATUSES.REJECTED.slug];
 
 export const MERGE_METHODS = {
   MERGE: { slug: "merge", name: "Merge commit" },
@@ -52,3 +60,7 @@ export const PR_MERGEABLE_STATUS_SLUGS = Object.values(PR_MERGEABLE_STATUSES).ma
   PrMergeableStatus,
   ...PrMergeableStatus[],
 ];
+
+export const PR_MERGEABLE_STATUS_BY_SLUG = Object.fromEntries(
+  Object.values(PR_MERGEABLE_STATUSES).map((s) => [s.slug, s])
+) as Record<PrMergeableStatus, (typeof PR_MERGEABLE_STATUSES)[keyof typeof PR_MERGEABLE_STATUSES]>;

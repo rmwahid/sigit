@@ -74,9 +74,9 @@ describe("pull request api client", () => {
   it("updates with PATCH and deletes with DELETE", async () => {
     const fetchMock = mockFetch({ ok: true, json: async () => ({ data: pr }) });
     vi.stubGlobal("fetch", fetchMock);
-    await updateProjectPullRequest("proj-1", 3, { status: "closed" });
+    await updateProjectPullRequest("proj-1", 3, { status: "abandoned" });
     expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe("PATCH");
-    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ status: "closed" });
+    expect(JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)).toEqual({ status: "abandoned" });
     await deleteProjectPullRequest("proj-1", 3);
     expect((fetchMock.mock.calls[1]![1] as RequestInit).method).toBe("DELETE");
   });

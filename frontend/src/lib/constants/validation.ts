@@ -17,3 +17,9 @@ export const COPY_FEEDBACK_MS = 1500;
 // git check-ref-format remains the final authority at create time).
 export const BRANCH_NAME_MAX_LENGTH = 200;
 export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";
+
+// Branch protection (mirrors backend limits.ts; constants-sync.test.ts).
+export const BRANCH_PATTERN_MAX_LENGTH = 200;
+export const BRANCH_PATTERN_PATTERN = "^[A-Za-z0-9._/-]+(\\*)?$";
+export const MAX_PROTECTION_REQUIRED_APPROVALS = 10;
+export const DEFAULT_PROTECTION_RESTRICT_PUSH = false;

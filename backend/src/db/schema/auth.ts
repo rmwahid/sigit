@@ -121,6 +121,7 @@ export const pullRequests = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     title: varchar("title", { length: 255 }).notNull(),
+    // Rich-text HTML (Tiptap output), sanitized in routes/pull-requests.ts.
     description: text("description"),
     baseBranch: varchar("base_branch", { length: 255 }).notNull(),
     headBranch: varchar("head_branch", { length: 255 }).notNull(),
@@ -144,8 +145,9 @@ export const pullRequests = pgTable(
   (t) => [uniqueIndex("pull_requests_project_number_unique").on(t.projectId, t.number)]
 );
 
-// General PR comment (conversation), markdown plaintext rendered client-side.
-// Allowed on every PR status (discussion stays open on terminal PRs; Gitea).
+// General PR comment (conversation), rich-text HTML (Tiptap output),
+// sanitized server-side before storage (lib/sanitize.ts). Allowed on every
+// PR status (discussion stays open on terminal PRs; Gitea).
 export const prComments = pgTable("pr_comments", {
   id: uuid("id").defaultRandom().primaryKey(),
   prId: uuid("pr_id")
@@ -159,7 +161,9 @@ export const prComments = pgTable("pr_comments", {
   updatedAt: updatedAt(),
 });
 
-// One review per user per PR (upsert): the latest state wins.
+// Review (approve / request changes / comment), append-only: every
+// submission is a new row, there is no edit or undo. The effective vote per
+// user is their latest row (see latestReviewsPerUser in protection.ts).
 export const prReviews = pgTable(
   "pr_reviews",
   {
@@ -174,8 +178,7 @@ export const prReviews = pgTable(
     body: text("body"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
-  },
-  (t) => [uniqueIndex("pr_reviews_pr_user_unique").on(t.prId, t.userId)]
+  }
 );
 
 // Branch protection rule, one row per exact branch pattern. User whitelists

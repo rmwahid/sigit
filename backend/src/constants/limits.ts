@@ -48,3 +48,10 @@ export const MAX_LFS_BATCH_OBJECTS = 1000;
 // create time; this pre-filter is mirrored by the frontend for parity).
 export const BRANCH_NAME_MAX_LENGTH = 200;
 export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";
+
+// Branch protection: pattern that selects the branches a rule applies to.
+// Wildcard is a trailing "*" (git refspec-style), e.g. "feature/*" or "*".
+export const BRANCH_PATTERN_MAX_LENGTH = 200;
+export const BRANCH_PATTERN_PATTERN = "^[A-Za-z0-9._/-]+(\\*)?$";
+export const DEFAULT_PROTECTION_RESTRICT_PUSH = false;
+export const MAX_PROTECTION_REQUIRED_APPROVALS = 10;
