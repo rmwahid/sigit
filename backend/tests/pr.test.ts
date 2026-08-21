@@ -102,4 +102,16 @@ describe("prDiff", () => {
     const diff = await prDiff(dir, "main", "main");
     expect(diff).toBe("");
   });
+
+  it("returns the diff of a single commit (merged PR mode)", async () => {
+    const dir = await makeRepo();
+    await fs.writeFile(path.join(dir, "a.txt"), "a");
+    sh("git add -A && git commit -m \"test: base\" -q", dir);
+    await fs.writeFile(path.join(dir, "b.txt"), "b");
+    sh("git add -A && git commit -m \"test: second\" -q", dir);
+    const head = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    const diff = await prDiff(dir, head);
+    expect(diff).toContain("b.txt");
+    expect(diff).toContain("+b");
+  });
 });

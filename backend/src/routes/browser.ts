@@ -143,18 +143,21 @@ browserRoutes.get("/:id/archive", async (c) => {
 });
 
 const activityQuerySchema = z.object({ limit: z.string().optional(), offset: z.string().optional() });
+const historyQuerySchema = activityQuerySchema.extend({ ref: z.string().max(255).optional() });
 
-// GET /projects/:id/history?limit&offset - paginated commit history. Same
-// permission as the authed API history endpoint (`history`), but reachable
-// anonymously for public projects (Code + History are the public tabs).
+// GET /projects/:id/history?limit&offset&ref - paginated commit history for a
+// branch (default: all refs). Same permission as the authed API history
+// endpoint (`history`), but reachable anonymously for public projects
+// (Code + History are the public tabs).
 browserRoutes.get("/:id/history", async (c) => {
   const project = await guard(c, c.req.param("id"), PROJECT_PERMISSIONS.HISTORY.slug);
   if (project instanceof Response) return project;
-  const q = activityQuerySchema.safeParse(c.req.query());
+  const q = historyQuerySchema.safeParse(c.req.query());
   const limit = Math.min(Math.max(Number(q.data?.limit) || DEFAULT_HISTORY_LIMIT, 1), MAX_HISTORY_LIMIT);
   const offset = Math.max(Number(q.data?.offset) || 0, 0);
+  const ref = q.data?.ref?.trim() || undefined;
   try {
-    const data = await projectHistory(project.id, limit, offset);
+    const data = await projectHistory(project.id, limit, offset, ref);
     return c.json({ data });
   } catch {
     return error(c, 404, ERROR_CODES.NOT_FOUND, "No commits yet");

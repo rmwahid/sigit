@@ -26,12 +26,17 @@ import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { requireProjectAccess, type AuthEnv } from "@/middleware/auth";
 import { getProject, projectRepoPath } from "@/modules/projects/projects";
-import { gitErrorMessage } from "@/modules/projects/git";
+import { getDiff } from "@/modules/projects/git";
 import { prDiff, resolveRef, validatePrBranches } from "@/modules/pull-requests/pr";
 import { mergePullRequest, refreshOpenPrMergeability, type MergeMethod } from "@/modules/pull-requests/merge";
+import { MergeBlockedError, assertPrMergeAllowed } from "@/modules/pull-requests/protection";
 import { audit } from "@/lib/logger";
+import { sanitizeRichText } from "@/lib/sanitize";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 
+// Rich text fields carry HTML (Tiptap output). Sanitization is the server's
+// job: every stored value passes through sanitizeRichText before insert or
+// update, so the API response is safe to render verbatim on the frontend.
 const prInputSchema = z.object({
   title: z.string().min(1).max(255),
   description: z.string().max(10000).optional(),
@@ -241,7 +246,7 @@ pullRequestRoutes.openapi(
       projectId: id,
       number,
       title: body.title,
-      description: body.description ?? null,
+      description: body.description ? sanitizeRichText(body.description) : null,
       baseBranch: body.baseBranch,
       headBranch: body.headBranch,
       baseSha,
@@ -318,15 +323,33 @@ pullRequestRoutes.openapi(
     const rows = await db.select().from(pullRequests).where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)));
     const pr = rows[0];
     if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+
+    // Merged PRs keep showing the changes that were merged in. The base
+    // branch now contains the head, so a plain base..head range is empty.
+    // The stored merge commit is the source of truth for what the merge
+    // brought in (parent..mergeCommit is exact for merge and squash). A
+    // fast-forward merge only moves the base ref to the head tip, so the
+    // merge commit diff would just be the last head commit; use the branch
+    // snapshot stored at PR creation instead.
+    if (pr.status === PR_STATUSES.MERGED.slug && pr.mergeCommitSha) {
+      let fastForward = false;
+      try {
+        fastForward = (await resolveRef(repo.repoPath, pr.headBranch)) === pr.mergeCommitSha;
+      } catch {
+        // head branch deleted: fall through to the merge-commit diff
+      }
+      const diff = fastForward ? await getDiff(repo.repoPath, pr.baseSha, pr.headSha) : await prDiff(repo.repoPath, pr.mergeCommitSha);
+      return c.json({ diff });
+    }
+
+    // Three-dot diff (base...head) fails on its own when a branch is missing
+    // (unknown revision), so there is no need to resolve each ref first: the
+    // extra spawns would triple the latency of opening a PR on Windows.
     try {
       const diff = await prDiff(repo.repoPath, pr.baseBranch, pr.headBranch);
       return c.json({ diff });
-    } catch (err) {
-      const message = gitErrorMessage(err);
-      if (/unknown revision|bad revision|no merge base/i.test(message)) {
-        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Base or head branch no longer exists" } }, 400) as never;
-      }
-      throw err;
+    } catch {
+      return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Base or head branch no longer exists" } }, 404) as never;
     }
   }
 );
@@ -361,9 +384,9 @@ pullRequestRoutes.openapi(
 
     if (body.status && body.status !== pr.status) {
       if (pr.status !== PR_STATUSES.OPEN.slug) {
-        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Closed or merged pull requests cannot be reopened" } }, 400) as never;
+        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Terminal pull requests cannot be reopened" } }, 400) as never;
       }
-      if (![PR_STATUSES.CLOSED.slug, PR_STATUSES.MERGED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
+      if (![PR_STATUSES.ABANDONED.slug, PR_STATUSES.MERGED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
         return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid status transition to "${body.status}"` } }, 400) as never;
       }
     }
@@ -372,7 +395,7 @@ pullRequestRoutes.openapi(
       .update(pullRequests)
       .set({
         ...(body.title !== undefined ? { title: body.title } : {}),
-        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.description !== undefined ? { description: sanitizeRichText(body.description) } : {}),
         ...(body.status !== undefined ? { status: body.status as PrStatus, closedAt: body.status === PR_STATUSES.OPEN.slug ? null : new Date() } : {}),
       })
       .where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)))
@@ -387,13 +410,33 @@ pullRequestRoutes.openapi(
         // stored status stays as-is; the refresh is best effort
       }
     }
-    audit(AUDIT_EVENTS.PULL_REQUEST_UPDATE, {
-      projectId: id,
-      projectName: repo.project.name,
-      prNumber: number,
-      by: access.user.email,
-      changes: body,
-    });
+    // Audit only what actually changed: a status transition is its own event
+    // (the feed renders "Changed status to Rejected"), edits of title or
+    // description stay under pull_request.update with the edited fields.
+    // No-ops (PATCH with the current status or identical text) produce no
+    // audit entry at all, so the feed only ever shows real changes.
+    const statusChanged = body.status !== undefined && body.status !== pr.status;
+    const fields: string[] = [];
+    if (body.title !== undefined && body.title !== pr.title) fields.push("title");
+    if (body.description !== undefined && sanitizeRichText(body.description) !== pr.description) fields.push("description");
+    if (statusChanged) {
+      audit(AUDIT_EVENTS.PULL_REQUEST_STATUS_CHANGE, {
+        projectId: id,
+        projectName: repo.project.name,
+        prNumber: number,
+        from: pr.status,
+        to: body.status,
+        by: access.user.email,
+      });
+    } else if (fields.length > 0) {
+      audit(AUDIT_EVENTS.PULL_REQUEST_UPDATE, {
+        projectId: id,
+        projectName: repo.project.name,
+        prNumber: number,
+        by: access.user.email,
+        fields,
+      });
+    }
     const author = await db.select({ email: users.email }).from(users).where(eq(users.id, changed.authorId));
     return c.json({ data: toPr({ ...changed, authorEmail: author[0]?.email ?? "" }) });
   }
@@ -431,6 +474,17 @@ pullRequestRoutes.openapi(
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests can be merged" } }, 400) as never;
     }
 
+    // Branch protection gates (approvals, request-changes, merge whitelist,
+    // admin bypass) are enforced here; the pre-receive hook cannot see the DB.
+    try {
+      await assertPrMergeAllowed(id, pr, access.user.id);
+    } catch (err) {
+      if (err instanceof MergeBlockedError) {
+        return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: err.message } }, 403) as never;
+      }
+      throw err;
+    }
+
     const result = await mergePullRequest(repo.repoPath, pr.baseBranch, pr.headBranch, method as MergeMethod);
     if (!result.ok) {
       if (result.conflict) {
@@ -452,6 +506,8 @@ pullRequestRoutes.openapi(
       .where(eq(pullRequests.id, pr.id))
       .returning();
     const changed = updated[0];
+    // The base branch moved: other open PRs aimed at it may now be stale.
+    refreshOpenPrMergeability(id, repo.repoPath).catch(() => {});
     audit(AUDIT_EVENTS.PULL_REQUEST_MERGE, {
       projectId: id,
       projectName: repo.project.name,
@@ -484,6 +540,16 @@ pullRequestRoutes.openapi(
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
 
+    // Terminal PRs keep their conversation (merged/abandoned/rejected history
+    // is read-only), so only open PRs can be deleted. This mirrors the
+    // comments/reviews guard and protects merged history from being lost.
+    const rows = await db.select().from(pullRequests).where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)));
+    const pr = rows[0];
+    if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+    if (pr.status !== PR_STATUSES.OPEN.slug) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests can be deleted" } }, 400) as never;
+    }
+
     const deleted = await db
       .delete(pullRequests)
       .where(and(eq(pullRequests.projectId, id), eq(pullRequests.number, number)))
@@ -502,11 +568,13 @@ pullRequestRoutes.openapi(
 );
 
 const prCommentInputSchema = z.object({
+  // Trim only to catch a fully-empty body; rich text keeps its internal
+  // markup ("<p></p>" is a valid Tiptap empty state).
   body: z.string().trim().min(1).max(10000),
 });
 
-// Post a conversation comment on the PR (push permission). Comments stay
-// open on terminal PRs (Gitea behavior).
+// Post a conversation comment on the PR (push permission). Only open PRs
+// accept new messages; terminal PRs are read-only.
 pullRequestRoutes.openapi(
   createRoute({
     method: "post",
@@ -533,10 +601,13 @@ pullRequestRoutes.openapi(
 
     const pr = await findPr(id, number);
     if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+    if (pr.status !== PR_STATUSES.OPEN.slug) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests accept comments" } }, 400) as never;
+    }
 
     const rows = await db
       .insert(prComments)
-      .values({ prId: pr.id, userId: access.user.id, body: body.body })
+      .values({ prId: pr.id, userId: access.user.id, body: sanitizeRichText(body.body) })
       .returning();
     const comment = rows[0];
     audit(AUDIT_EVENTS.PULL_REQUEST_COMMENT, {
@@ -561,11 +632,13 @@ pullRequestRoutes.openapi(
 
 const prReviewInputSchema = z.object({
   state: z.enum(REVIEW_STATE_SLUGS),
+  // Rich text HTML, sanitized on insert like comments and descriptions.
   body: z.string().max(10000).optional(),
 });
 
-// Submit a review (approve / request changes / comment). One review per user
-// per PR: the latest submission overwrites the previous one (upsert).
+// Submit a review (approve / request changes / comment). Every submission is
+// a new row: reviews are conversation history, not mutable state (there is no
+// edit or undo). Only open PRs accept reviews; terminal PRs are read-only.
 pullRequestRoutes.openapi(
   createRoute({
     method: "post",
@@ -592,18 +665,14 @@ pullRequestRoutes.openapi(
 
     const pr = await findPr(id, number);
     if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
+    if (pr.status !== PR_STATUSES.OPEN.slug) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests accept reviews" } }, 400) as never;
+    }
 
-    const existing = await db
-      .select({ id: prReviews.id })
-      .from(prReviews)
-      .where(and(eq(prReviews.prId, pr.id), eq(prReviews.userId, access.user.id)));
-    const rows = existing.length
-      ? await db
-          .update(prReviews)
-          .set({ state: body.state, body: body.body ?? null })
-          .where(eq(prReviews.id, existing[0].id))
-          .returning()
-      : await db.insert(prReviews).values({ prId: pr.id, userId: access.user.id, state: body.state, body: body.body ?? null }).returning();
+    const rows = await db
+      .insert(prReviews)
+      .values({ prId: pr.id, userId: access.user.id, state: body.state, body: body.body ? sanitizeRichText(body.body) : null })
+      .returning();
     const review = rows[0];
     audit(AUDIT_EVENTS.PULL_REQUEST_REVIEW, {
       projectId: id,

@@ -10,6 +10,8 @@
   import ActivityTab from "$lib/components/project/ActivityTab.svelte";
   import PullRequestsTab from "$lib/components/project/PullRequestsTab.svelte";
   import SettingsTab from "$lib/components/project/SettingsTab.svelte";
+  import TabLoading from "$lib/components/project/TabLoading.svelte";
+  import ConfirmModal from "$lib/components/ConfirmModal.svelte";
   import {
     Activity as ActivityIcon,
     FileText,
@@ -24,6 +26,14 @@
   // Thin view: all state and loaders live in the controller (paired with the
   // pure helpers in lib/project-page which have tests).
   const ctrl = new ProjectPageController();
+
+  // Active tab chips cycle through the accent colors on every click, so the
+  // tab bar does not read as one flat color. Each click rolls a fresh pick.
+  const TAB_ACCENTS = ["bg-primary text-primary-foreground", "bg-accent text-accent-foreground", "bg-secondary text-secondary-foreground"] as const;
+  let activeAccent: string = $state(TAB_ACCENTS[0]);
+  const pickAccent = () => {
+    activeAccent = TAB_ACCENTS[Math.floor(Math.random() * TAB_ACCENTS.length)];
+  };
 
   const TAB_META: Record<ProjectTabKey, { label: string; icon: typeof Folder }> = {
     code: { label: "Code", icon: Folder },
@@ -70,7 +80,7 @@
         {/if}
       </div>
       <h1 class="flex items-center gap-2 text-2xl font-extrabold">
-        <GitBranch class="size-6 text-primary" />
+        <GitBranch class="size-6 text-vivid" />
         <span class="nb-mark">{ctrl.project.name}</span>
       </h1>
       {#if ctrl.project.description}
@@ -79,14 +89,18 @@
     </div>
 
     {#if ctrl.error}<div class="p-2 border border-destructive text-destructive text-sm">{ctrl.error}</div>{/if}
-    {#if ctrl.message}<div class="p-2 border border-primary text-sm">{ctrl.message}</div>{/if}
+    {#if ctrl.message}<div class="p-2 border border-border bg-accent text-accent-foreground text-sm">{ctrl.message}</div>{/if}
 
     <!-- Tab bar -->
     <div class="flex gap-1 border-b-2 border-border">
       {#each tabs as t}
         <button
-          class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm transition-all {ctrl.tab === t.key ? "bg-primary text-primary-foreground -mb-0.5" : "bg-card hover:bg-muted"}"
-          onclick={() => (ctrl.tab = t.key)}
+          class="px-4 py-1.5 text-sm font-bold flex items-center gap-1.5 border-2 border-b-0 border-border rounded-t-sm transition-all {ctrl.tab === t.key ? activeAccent + " -mb-0.5" : "bg-card hover:bg-muted"}"
+          onclick={() => {
+            ctrl.tab = t.key;
+            pickAccent();
+            ctrl.ensureTabLoaded(t.key);
+          }}
         >
           <t.icon class="size-3.5" /> {t.label}
         </button>
@@ -125,56 +139,87 @@
         onDeleteBranch={(branch) => void ctrl.onDeleteBranch(branch)}
       />
     {:else if ctrl.tab === "history"}
-      <HistoryTab
-        history={ctrl.history}
-        historyMore={ctrl.historyMore}
-        historyLoading={ctrl.historyLoading}
-        diff={ctrl.diff}
-        isAnon={ctrl.isAnon}
-        showDiff={(hash) => void ctrl.showDiff(hash)}
-        loadMore={() => void ctrl.loadHistory(true)}
-        closeDiff={() => ctrl.closeDiff()}
-      />
+      {#if !ctrl.loadedTabs.history && ctrl.historyLoading}
+        <TabLoading label="Loading history" />
+      {:else}
+        <HistoryTab
+          history={ctrl.history}
+          historyMore={ctrl.historyMore}
+          historyLoading={ctrl.historyLoading}
+          diff={ctrl.diff}
+          isAnon={ctrl.isAnon}
+          showDiff={(hash) => void ctrl.showDiff(hash)}
+          loadMore={() => void ctrl.loadHistory(true)}
+          closeDiff={() => ctrl.closeDiff()}
+          branches={ctrl.branches}
+          bind:ref={ctrl.ref}
+          onRefChange={() => void ctrl.onRefChange()}
+        />
+      {/if}
     {:else if ctrl.tab === "activity"}
-      <ActivityTab activityByDate={ctrl.activityByDate} activityMore={ctrl.activityMore} loadMore={() => void ctrl.loadActivity(true)} />
+      {#if !ctrl.loadedTabs.activity && ctrl.activityLoading}
+        <TabLoading label="Loading activity" />
+      {:else}
+        <ActivityTab
+          activityByDate={ctrl.activityByDate}
+          activityMore={ctrl.activityMore}
+          activityLoading={ctrl.activityLoading}
+          loadMore={() => void ctrl.loadActivity(true)}
+        />
+      {/if}
     {:else if ctrl.tab === "pull-requests"}
-      <PullRequestsTab
-        pullRequests={ctrl.pullRequests}
-        prLoading={ctrl.prLoading}
-        prError={ctrl.prError}
-        activePr={ctrl.activePr}
-        activePrDiff={ctrl.activePrDiff}
-        prDiffLoading={ctrl.prDiffLoading}
-        prDiffError={ctrl.prDiffError}
-        branches={ctrl.branches}
-        bind:showPrModal={ctrl.showPrModal}
-        bind:newPrTitle={ctrl.newPrTitle}
-        bind:newPrDescription={ctrl.newPrDescription}
-        bind:newPrBase={ctrl.newPrBase}
-        bind:newPrHead={ctrl.newPrHead}
-        bind:mergeMethod={ctrl.mergeMethod}
-        prActionError={ctrl.prActionError}
-        creatingPr={ctrl.creatingPr}
-        canPush={ctrl.hasPerm("push")}
-        loadPullRequests={() => void ctrl.loadPullRequests()}
-        openPullRequest={(number) => void ctrl.openPullRequest(number)}
-        closePullRequest={() => ctrl.closePullRequest()}
-        openPrModal={() => ctrl.openPrModal()}
-        closePrModal={() => ctrl.closePrModal()}
-        onCreatePr={() => void ctrl.onCreatePr()}
-        onUpdatePrStatus={(number, status) => void ctrl.onUpdatePrStatus(number, status)}
-        onDeletePr={(number) => void ctrl.onDeletePr(number)}
-        onMergePr={(number, method) => void ctrl.onMergePr(number, method)}
-        bind:newCommentBody={ctrl.newCommentBody}
-        commentSending={ctrl.commentSending}
-        onAddComment={(number) => void ctrl.onAddComment(number)}
-        bind:reviewState={ctrl.reviewState}
-        bind:reviewBody={ctrl.reviewBody}
-        reviewSending={ctrl.reviewSending}
-        onSubmitReview={(number) => void ctrl.onSubmitReview(number)}
-      />
+      {#if !ctrl.loadedTabs["pull-requests"] && ctrl.prLoading}
+        <TabLoading label="Loading pull requests" />
+      {:else}
+        <PullRequestsTab
+          pullRequests={ctrl.pullRequests}
+          prLoading={ctrl.prLoading}
+          prError={ctrl.prError}
+          activePr={ctrl.activePr}
+          activePrDiff={ctrl.activePrDiff}
+          prDiffLoading={ctrl.prDiffLoading}
+          prDiffError={ctrl.prDiffError}
+          branches={ctrl.branches}
+          bind:showPrModal={ctrl.showPrModal}
+          bind:newPrTitle={ctrl.newPrTitle}
+          bind:newPrDescription={ctrl.newPrDescription}
+          bind:newPrBase={ctrl.newPrBase}
+          bind:newPrHead={ctrl.newPrHead}
+          bind:mergeMethod={ctrl.mergeMethod}
+          prActionError={ctrl.prActionError}
+          creatingPr={ctrl.creatingPr}
+          canPush={ctrl.hasPerm("push")}
+          loadPullRequests={() => void ctrl.loadPullRequests()}
+          openPullRequest={(number) => void ctrl.openPullRequest(number)}
+          closePullRequest={() => ctrl.closePullRequest()}
+          openPrModal={() => ctrl.openPrModal()}
+          closePrModal={() => ctrl.closePrModal()}
+          onCreatePr={() => void ctrl.onCreatePr()}
+          onUpdatePrStatus={(number, status) => void ctrl.onUpdatePrStatus(number, status)}
+          onDeletePr={(number) => void ctrl.onDeletePr(number)}
+          onMergePr={(number, method) => void ctrl.onMergePr(number, method)}
+          bind:newCommentBody={ctrl.newCommentBody}
+          bind:reviewState={ctrl.reviewState}
+          reviewSending={ctrl.reviewSending}
+          onSubmitReview={(number) => void ctrl.onSubmitReview(number)}
+          bind:prFilter={ctrl.prFilter}
+          onPrFilterChange={() => void ctrl.onPrFilterChange()}
+        />
+        <ConfirmModal
+          open={ctrl.confirmState !== null}
+          title={ctrl.confirmState?.title ?? ""}
+          message={ctrl.confirmState?.message ?? ""}
+          confirmLabel={ctrl.confirmState?.confirmLabel ?? "Confirm"}
+          danger={ctrl.confirmState?.danger ?? false}
+          onConfirm={() => ctrl.confirmConfirm()}
+          onCancel={() => ctrl.cancelConfirm()}
+        />
+      {/if}
     {:else if ctrl.tab === "settings"}
-      <SettingsTab
+      {#if !ctrl.loadedTabs.settings && ctrl.settingsLoading}
+        <TabLoading label="Loading settings" />
+      {:else}
+        <SettingsTab
         project={ctrl.project}
         connections={ctrl.connections}
         bind:connTab={ctrl.connTab}
@@ -188,6 +233,21 @@
         bind:editingCollab={ctrl.editingCollab}
         bind:editingPerms={ctrl.editingPerms}
         projectTokens={ctrl.projectTokens}
+        protectionRules={ctrl.protectionRules}
+        protectionLoading={ctrl.protectionLoading}
+        protectionError={ctrl.protectionError}
+        bind:showProtectionModal={ctrl.showProtectionModal}
+        protectionSaving={ctrl.protectionSaving}
+        bind:newProtectionPattern={ctrl.newProtectionPattern}
+        bind:newProtectionRequirePr={ctrl.newProtectionRequirePr}
+        bind:newProtectionApprovals={ctrl.newProtectionApprovals}
+        bind:newProtectionBlockRequest={ctrl.newProtectionBlockRequest}
+        bind:newProtectionBlockForce={ctrl.newProtectionBlockForce}
+        bind:newProtectionBlockDelete={ctrl.newProtectionBlockDelete}
+        bind:newProtectionRestrictPush={ctrl.newProtectionRestrictPush}
+        bind:newProtectionRestrictPushIds={ctrl.newProtectionRestrictPushIds}
+        bind:newProtectionRestrictMergeIds={ctrl.newProtectionRestrictMergeIds}
+        bind:newProtectionAllowBypass={ctrl.newProtectionAllowBypass}
         hasPerm={(perm) => ctrl.hasPerm(perm)}
         onConnect={() => void ctrl.onConnect()}
         onDisconnect={() => void ctrl.onDisconnect()}
@@ -199,7 +259,11 @@
         onSaveCollabPerms={() => void ctrl.onSaveCollabPerms()}
         onRemoveCollab={(userId) => void ctrl.onRemoveCollab(userId)}
         togglePerm={(list, perm) => ctrl.togglePerm(list, perm)}
-      />
+        onCreateProtectionRule={() => void ctrl.onCreateProtectionRule()}
+        onUpdateProtectionRule={(rule, patch) => void ctrl.onUpdateProtectionRule(rule, patch)}
+        onDeleteProtectionRule={(rule) => void ctrl.onDeleteProtectionRule(rule)}
+        />
+      {/if}
     {/if}
   </div>
 

@@ -1,23 +1,27 @@
 <script lang="ts">
   import { formatDate } from "$lib/utils";
+  import { formatActivityItem } from "$lib/project-page";
   import type { ActivityItem } from "$lib/api/browser";
   import { GitCommitHorizontal, Zap } from "lucide-svelte";
 
-  // Activity tab: timeline grouped by date (state lives in the page).
+  // Activity tab: timeline grouped by date (state lives in the page). Each
+  // line is a commit or an audit event rendered as a human sentence.
   let {
     activityByDate,
     activityMore,
     loadMore,
+    activityLoading,
   }: {
     activityByDate: [string, ActivityItem[]][];
     activityMore: boolean;
     loadMore: () => void;
+    activityLoading: boolean;
   } = $props();
 </script>
 
 <div class="pixel-border bg-card flex flex-col">
   {#if activityByDate.length === 0}
-    <div class="p-6 text-sm text-muted-foreground">No activity yet.</div>
+    <div class="p-6 text-sm text-muted-foreground">{activityLoading ? "Loading..." : "No activity yet."}</div>
   {:else}
     <div class="flex flex-col divide-y-2 divide-border">
       {#each activityByDate as [date, items]}
@@ -27,13 +31,16 @@
             {#each items as item}
               <li class="flex items-center gap-3 text-sm">
                 {#if item.type === "commit"}
-                  <GitCommitHorizontal class="size-4 text-primary shrink-0" />
-                  <span class="font-bold truncate">{String(item.message ?? "")}</span>
-                  <span class="text-xs text-muted-foreground hidden sm:inline">{String(item.author ?? "")}</span>
-                  <code class="text-xs text-muted-foreground">{String(item.hash ?? "").slice(0, 7)}</code>
+                  <span class="shrink-0 size-6 flex items-center justify-center border-2 border-border bg-secondary text-secondary-foreground">
+                    <GitCommitHorizontal class="size-4" />
+                  </span>
+                  <span class="font-bold truncate flex-1">{formatActivityItem(item)}</span>
+                  <code class="text-xs text-muted-foreground shrink-0">{String(item.hash ?? "").slice(0, 7)}</code>
                 {:else}
-                  <Zap class="size-4 text-accent shrink-0" />
-                  <span class="font-medium truncate">{String(item.event ?? "event")}</span>
+                  <span class="shrink-0 flex items-center justify-center size-6 border-2 border-border bg-accent text-accent-foreground">
+                    <Zap class="size-3.5" />
+                  </span>
+                  <span class="font-medium truncate flex-1">{formatActivityItem(item)}</span>
                 {/if}
                 <span class="ml-auto text-xs text-muted-foreground hidden md:inline">{String(item.ts ?? "").slice(11, 16)}</span>
               </li>

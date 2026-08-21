@@ -15,7 +15,7 @@ import {
 import { listPublicProjects } from "./api/explore";
 import { listTokens, type GitToken } from "./api/tokens";
 import type { TokenScope } from "./constants/scopes";
-import { COPY_FEEDBACK_MS } from "./constants/validation";
+import { COPY_FEEDBACK_MS, BRANCH_PATTERN_PATTERN } from "./constants/validation";
 import { DEFAULT_GIT_BASE_URL } from "./constants/paths";
 import { DEFAULT_COLLAB_PERMISSIONS, type ProjectPermission } from "./constants/permissions";
 import { ADMIN_ROLE } from "./constants/roles";
@@ -56,12 +56,23 @@ import {
   type PullRequest,
   type PullRequestDetail,
 } from "./api/pull-requests";
-import type { ReviewState } from "$lib/constants/pull-requests";
+import {
+  createProjectProtectionRule,
+  deleteProjectProtectionRule,
+  listProjectProtectionRules,
+  updateProjectProtectionRule,
+  type ProtectionRule,
+  type ProtectionRuleInput,
+} from "./api/branch-protection";
+import type { PrStatus, ReviewState } from "$lib/constants/pull-requests";
+import { MERGE_METHODS, PR_STATUSES, REVIEW_STATES } from "$lib/constants/pull-requests";
 import {
   defaultRef,
   deriveTabKeys,
+  emptyRichText,
   groupActivityByDate,
   hasProjectPerm,
+  isPlainPrComment,
   isValidBranchName,
   joinPath,
   splitPath,
@@ -90,6 +101,12 @@ export class ProjectPageController {
   viewing = $state<{ path: string; content: string; encoding: "text" | "base64"; size: number } | null>(null);
   blobError = $state("");
 
+  // Lazy tab loading: each tab fetches its data the first time it is opened
+  // and keeps it cached afterwards. `loadedTabs` tracks what already fetched
+  // (loading indicator = first open, "reload" keeps current data on screen).
+  loadedTabs = $state<Partial<Record<ProjectTabKey, boolean>>>({});
+  codeLoaded = $derived(Boolean(this.loadedTabs.code));
+
   // Branch modal (new branch + delete)
   showBranchModal = $state(false);
   newBranchName = $state("");
@@ -101,6 +118,10 @@ export class ProjectPageController {
   pullRequests = $state<PullRequest[]>([]);
   prLoading = $state(false);
   prError = $state("");
+  prLoaded = $derived(Boolean(this.loadedTabs["pull-requests"]));
+  // Status filter for the list ("all" = no filter); the backend query
+  // supports the four status slugs directly.
+  prFilter = $state<PrStatus | "all">(PR_STATUSES.OPEN.slug);
   activePr = $state<PullRequestDetail | null>(null);
   activePrDiff = $state("");
   prDiffLoading = $state(false);
@@ -110,13 +131,11 @@ export class ProjectPageController {
   newPrDescription = $state("");
   newPrBase = $state("");
   newPrHead = $state("");
-  mergeMethod = $state<"merge" | "squash" | "fast_forward">("merge");
+  mergeMethod = $state<(typeof MERGE_METHODS)[keyof typeof MERGE_METHODS]["slug"]>(MERGE_METHODS.MERGE.slug);
   prActionError = $state("");
   creatingPr = $state(false);
   newCommentBody = $state("");
-  commentSending = $state(false);
-  reviewState = $state<ReviewState>("approve");
-  reviewBody = $state("");
+  reviewState = $state<ReviewState>(REVIEW_STATES.COMMENT.slug);
   reviewSending = $state(false);
 
   // History tab
@@ -130,6 +149,7 @@ export class ProjectPageController {
   activity = $state<ActivityItem[]>([]);
   activityOffset = $state(0);
   activityMore = $state(false);
+  activityLoading = $state(false);
 
   // Setup snippet
   appInfo = $state<{ gitBaseUrl: string } | null>(null);
@@ -146,12 +166,55 @@ export class ProjectPageController {
   deleteConfirmName = $state("");
   deleting = $state(false);
   deleteStep = $state("");
+  settingsLoading = $state(false);
+  settingsLoaded = $derived(Boolean(this.loadedTabs.settings));
   collaborators = $state<Collaborator[]>([]);
   allUsers = $state<ManagedUser[]>([]);
   newCollabUserId = $state("");
   newCollabPerms = $state<ProjectPermission[]>([...DEFAULT_COLLAB_PERMISSIONS]);
   editingCollab = $state<Collaborator | null>(null);
   editingPerms = $state<ProjectPermission[]>([]);
+
+  // Branch protection (Settings tab)
+  protectionRules = $state<ProtectionRule[]>([]);
+  protectionLoading = $state(false);
+  protectionError = $state("");
+  showProtectionModal = $state(false);
+  protectionSaving = $state(false);
+  newProtectionPattern = $state("");
+  newProtectionRequirePr = $state(false);
+  newProtectionApprovals = $state(0);
+  newProtectionBlockRequest = $state(false);
+  newProtectionBlockForce = $state(true);
+  newProtectionBlockDelete = $state(true);
+  newProtectionRestrictPush = $state(false);
+  newProtectionRestrictPushIds = $state<string[]>([]);
+  newProtectionRestrictMergeIds = $state<string[]>([]);
+  newProtectionAllowBypass = $state(false);
+
+  // Confirmation modal (replaces native confirm()): the caller sets the
+  // pending action, the modal renders it, and confirmConfirm runs it.
+  confirmState = $state<{ title: string; message: string; confirmLabel: string; danger: boolean; action: () => void } | null>(null);
+
+  askConfirm(opts: { title: string; message: string; confirmLabel?: string; danger?: boolean; action: () => void }) {
+    this.confirmState = {
+      title: opts.title,
+      message: opts.message,
+      confirmLabel: opts.confirmLabel ?? "Confirm",
+      danger: opts.danger ?? false,
+      action: opts.action,
+    };
+  }
+
+  cancelConfirm() {
+    this.confirmState = null;
+  }
+
+  confirmConfirm() {
+    const action = this.confirmState?.action;
+    this.confirmState = null;
+    action?.();
+  }
 
   access = $derived((this.project?.myPermissions as ProjectPermission[] | null) ?? null);
   isAdmin = $derived(this.access === null);
@@ -201,7 +264,10 @@ export class ProjectPageController {
     this.activity = [];
     this.activityOffset = 0;
     this.activityMore = false;
+    this.loadedTabs = {};
+    this.settingsLoading = false;
     this.pullRequests = [];
+    this.prFilter = PR_STATUSES.OPEN.slug;
     this.activePr = null;
     this.activePrDiff = "";
     this.prError = "";
@@ -227,12 +293,11 @@ export class ProjectPageController {
       const p = await getProject(id);
       if (this.currentId() !== id) return;
       this.project = p.data;
-      await Promise.all([this.loadRefs(), this.loadTree(), this.loadHistory(), this.loadActivity()]);
-      if (this.isAdmin) {
-        void this.loadConnections();
-        void this.loadTokens();
-        void this.loadCollaborators();
-      }
+      // Refs first: loadHistory depends on the resolved default branch name
+      // (it fetches without a ref while this.ref is still "HEAD").
+      await this.loadRefs();
+      await Promise.all([this.loadTree(), this.loadHistory(), this.loadActivity()]);
+      // Settings and Pull Requests load lazily on first open (ensureTabLoaded).
     } catch {
       // No session (or failed): anonymous visitors may still open public projects.
       try {
@@ -246,7 +311,8 @@ export class ProjectPageController {
         // Anonymous view: public projects only carry id/name/description/isPublic.
         this.project = { ...found, description: found.description ?? undefined, storageConnectionId: null, lfsSizeThreshold: 0 };
         this.isAnon = true;
-        await Promise.all([this.loadRefs(), this.loadTree(), this.loadHistory()]);
+        await this.loadRefs();
+        await Promise.all([this.loadTree(), this.loadHistory()]);
       } catch (e) {
         if (this.currentId() === id) this.error = e instanceof Error ? e.message : String(e);
       }
@@ -260,6 +326,31 @@ export class ProjectPageController {
     } catch {
       // fall back to the default base url; the clone box still works
     }
+  }
+
+  // Lazy tab loader: the first open fetches the tab's data, later opens reuse
+  // the cached state (no refetch). Loaders set their own *_loading flag, so
+  // this only guards the "first open" fetch.
+  ensureTabLoaded(tab: ProjectTabKey) {
+    if (this.loadedTabs[tab]) return;
+    if (tab === "settings") void this.ensureSettings();
+    if (tab === "pull-requests") void this.ensurePullRequests();
+    this.loadedTabs[tab] = true;
+  }
+
+  private async ensureSettings() {
+    if (!this.project || !this.isAdmin) return;
+    this.settingsLoading = true;
+    try {
+      await Promise.all([this.loadConnections(), this.loadTokens(), this.loadCollaborators(), this.loadProtectionRules()]);
+    } finally {
+      this.settingsLoading = false;
+    }
+  }
+
+  private async ensurePullRequests() {
+    if (!this.project) return;
+    await this.loadPullRequests();
   }
 
   private async loadConnections() {
@@ -289,6 +380,114 @@ export class ProjectPageController {
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  private async loadProtectionRules() {
+    if (!this.project || !this.isAdmin) return;
+    const id = this.project.id;
+    this.protectionLoading = true;
+    this.protectionError = "";
+    try {
+      const res = await listProjectProtectionRules(id);
+      if (this.project?.id === id) this.protectionRules = res.data;
+    } catch (e) {
+      if (this.project?.id === id) this.protectionError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (this.project?.id === id) this.protectionLoading = false;
+    }
+  }
+
+  // Settings data (connections/tokens/collaborators/protection) is loaded by
+  // ensureSettings on first open; mutations inside the tab reload the pieces
+  // they touch, so a project change needs a full reset (init already clears
+  // settingsLoading, loadedTabs.settings is unset and the new first open
+  // re-fetches everything).
+  async loadSettingsIfNeeded() {
+    if (!this.project || !this.isAdmin) return;
+    if (this.loadedTabs.settings) return;
+    await this.ensureSettings();
+  }
+
+  private patternValid(pattern: string): boolean {
+    return new RegExp(BRANCH_PATTERN_PATTERN).test(pattern) && !pattern.includes("..");
+  }
+
+  async onCreateProtectionRule() {
+    const id = this.currentId();
+    if (!id) return;
+    const pattern = this.newProtectionPattern.trim();
+    if (!pattern) return;
+    if (!this.patternValid(pattern)) {
+      this.protectionError = "Invalid branch pattern. Use a name or a prefix wildcard like feature/*";
+      return;
+    }
+    if (this.protectionRules.some((r) => r.branchPattern === pattern)) {
+      this.protectionError = `A rule for "${pattern}" already exists`;
+      return;
+    }
+    this.protectionSaving = true;
+    this.protectionError = "";
+    try {
+      await createProjectProtectionRule(id, {
+        branchPattern: pattern,
+        requirePr: this.newProtectionRequirePr,
+        requiredApprovals: this.newProtectionApprovals,
+        blockOnRequestChanges: this.newProtectionBlockRequest,
+        blockForcePush: this.newProtectionBlockForce,
+        blockDeletion: this.newProtectionBlockDelete,
+        restrictPushUserIds: this.newProtectionRestrictPush ? this.newProtectionRestrictPushIds : [],
+        restrictMergeUserIds: this.newProtectionRestrictMergeIds,
+        allowAdminBypass: this.newProtectionAllowBypass,
+      });
+      this.showProtectionModal = false;
+      this.newProtectionPattern = "";
+      this.newProtectionRequirePr = false;
+      this.newProtectionApprovals = 0;
+      this.newProtectionBlockRequest = false;
+      this.newProtectionBlockForce = true;
+      this.newProtectionBlockDelete = true;
+      this.newProtectionRestrictPush = false;
+      this.newProtectionRestrictPushIds = [];
+      this.newProtectionRestrictMergeIds = [];
+      this.newProtectionAllowBypass = false;
+      await this.loadProtectionRules();
+    } catch (e) {
+      this.protectionError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.protectionSaving = false;
+    }
+  }
+
+  async onUpdateProtectionRule(rule: ProtectionRule, patch: Partial<ProtectionRuleInput>) {
+    const id = this.currentId();
+    if (!id) return;
+    this.protectionError = "";
+    try {
+      await updateProjectProtectionRule(id, rule.id, patch);
+      await this.loadProtectionRules();
+    } catch (e) {
+      this.protectionError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async onDeleteProtectionRule(rule: ProtectionRule) {
+    const id = this.currentId();
+    if (!id) return;
+    this.askConfirm({
+      title: "Delete protection rule",
+      message: `Delete protection rule for "${rule.branchPattern}"?`,
+      confirmLabel: "Delete",
+      danger: true,
+      action: async () => {
+        this.protectionError = "";
+        try {
+          await deleteProjectProtectionRule(id, rule.id);
+          await this.loadProtectionRules();
+        } catch (e) {
+          this.protectionError = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   private async loadRefs() {
@@ -344,7 +543,12 @@ export class ProjectPageController {
   async onRefChange() {
     this.dirPath = "";
     this.viewing = null;
+    this.diff = null;
+    this.history = [];
+    this.historyOffset = 0;
+    this.historyMore = false;
     await this.loadTree();
+    await this.loadHistory();
   }
 
   openBranchModal() {
@@ -384,16 +588,23 @@ export class ProjectPageController {
 
   async onDeleteBranch(branch: string) {
     if (!this.project) return;
-    if (!confirm(`Delete branch "${branch}"? This cannot be undone.`)) return;
-    this.branchActionError = "";
-    try {
-      await deleteProjectBranch(this.project.id, branch);
-      if (this.ref === branch) this.ref = "HEAD";
-      await this.loadRefs();
-      await this.onRefChange();
-    } catch (e) {
-      this.branchActionError = e instanceof Error ? e.message : String(e);
-    }
+    this.askConfirm({
+      title: "Delete branch",
+      message: `Delete branch "${branch}"? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+      action: async () => {
+        this.branchActionError = "";
+        try {
+          await deleteProjectBranch(this.project!.id, branch);
+          if (this.ref === branch) this.ref = "HEAD";
+          await this.loadRefs();
+          await this.onRefChange();
+        } catch (e) {
+          this.branchActionError = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   async openDir(name: string) {
@@ -425,31 +636,39 @@ export class ProjectPageController {
   async loadHistory(more = false) {
     if (!this.project) return;
     const id = this.project.id;
-    this.historyLoading = true;
+    const atRef = this.ref;
+    const first = !more && !this.loadedTabs.history;
+    if (first) this.historyLoading = true;
     try {
-      const res = await getHistoryPage(id, 50, more ? this.historyOffset : 0);
-      if (this.project?.id !== id) return;
+      const res = await getHistoryPage(id, 50, more ? this.historyOffset : 0, atRef === "HEAD" ? undefined : atRef);
+      if (this.project?.id !== id || this.ref !== atRef) return;
       this.history = more ? [...this.history, ...res.data.commits] : res.data.commits;
       this.historyOffset = this.history.length;
       this.historyMore = res.data.commits.length === 50;
+      if (first) this.loadedTabs.history = true;
     } catch (e) {
       if (this.project?.id === id) this.error = e instanceof Error ? e.message : String(e);
     } finally {
-      this.historyLoading = false;
+      if (this.project?.id === id) this.historyLoading = false;
     }
   }
 
   async loadActivity(more = false) {
     if (!this.project) return;
     const id = this.project.id;
+    const first = !more && !this.loadedTabs.activity;
+    if (first) this.activityLoading = true;
     try {
       const res = await getActivity(id, 50, more ? this.activityOffset : 0);
       if (this.project?.id !== id) return;
       this.activity = more ? [...this.activity, ...res.data] : res.data;
       this.activityOffset = this.activity.length;
       this.activityMore = res.data.length === 50;
+      if (first) this.loadedTabs.activity = true;
     } catch (e) {
       if (this.project?.id === id) this.error = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (this.project?.id === id) this.activityLoading = false;
     }
   }
 
@@ -530,14 +749,21 @@ export class ProjectPageController {
 
   async onRestore() {
     if (!this.project) return;
-    if (!confirm("Restore project from backup? This overwrites local history.")) return;
-    try {
-      await restoreProject(this.project.id);
-      this.message = "Project restored from backup";
-      await this.loadHistory();
-    } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
-    }
+    this.askConfirm({
+      title: "Restore from backup",
+      message: "Restore project from backup? This overwrites local history.",
+      confirmLabel: "Restore",
+      danger: true,
+      action: async () => {
+        try {
+          await restoreProject(this.project!.id);
+          this.message = "Project restored from backup";
+          await this.loadHistory();
+        } catch (e) {
+          this.error = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   togglePerm(list: ProjectPermission[], perm: ProjectPermission): ProjectPermission[] {
@@ -617,14 +843,21 @@ export class ProjectPageController {
     this.prLoading = true;
     this.prError = "";
     try {
-      const res = await listProjectPullRequests(id);
+      const res = await listProjectPullRequests(id, this.prFilter === "all" ? undefined : this.prFilter);
       if (this.currentId() !== id) return;
       this.pullRequests = res.data;
+      this.loadedTabs["pull-requests"] = true;
     } catch (e) {
       if (this.currentId() === id) this.prError = e instanceof Error ? e.message : String(e);
     } finally {
       if (this.currentId() === id) this.prLoading = false;
     }
+  }
+
+  async onPrFilterChange() {
+    // Re-fetch when the status filter changes; the current detail stays open
+    // until the user navigates back (list state is refetched underneath).
+    await this.loadPullRequests();
   }
 
   async openPullRequest(number: number) {
@@ -696,7 +929,7 @@ export class ProjectPageController {
     try {
       await createProjectPullRequest(this.project.id, {
         title,
-        description: this.newPrDescription.trim() || undefined,
+        description: emptyRichText(this.newPrDescription) ? undefined : this.newPrDescription,
         baseBranch: this.newPrBase,
         headBranch: this.newPrHead,
       });
@@ -709,7 +942,7 @@ export class ProjectPageController {
     }
   }
 
-  async onUpdatePrStatus(number: number, status: PullRequest["status"]) {
+  async onUpdatePrStatus(number: number, status: PrStatus) {
     const id = this.currentId();
     if (!id) return;
     this.prError = "";
@@ -722,63 +955,68 @@ export class ProjectPageController {
     }
   }
 
-  async onMergePr(number: number, method: "merge" | "squash" | "fast_forward") {
+  async onMergePr(number: number, method: (typeof MERGE_METHODS)[keyof typeof MERGE_METHODS]["slug"]) {
     const id = this.currentId();
     if (!id) return;
-    if (!confirm(`Merge pull request #${number} (${method})?`)) return;
-    this.prError = "";
-    try {
-      const res = await mergeProjectPullRequest(id, number, method);
-      this.activePr = { ...res.data, comments: this.activePr?.comments ?? [], reviews: this.activePr?.reviews ?? [] };
-      await this.loadPullRequests();
-    } catch (e) {
-      this.prError = e instanceof Error ? e.message : String(e);
-    }
+    this.askConfirm({
+      title: "Merge pull request",
+      message: `Merge pull request #${number} (${method})?`,
+      confirmLabel: "Merge",
+      danger: true,
+      action: async () => {
+        this.prError = "";
+        try {
+          const res = await mergeProjectPullRequest(id, number, method);
+          this.activePr = { ...res.data, comments: this.activePr?.comments ?? [], reviews: this.activePr?.reviews ?? [] };
+          await this.loadPullRequests();
+        } catch (e) {
+          this.prError = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   async onDeletePr(number: number) {
     const id = this.currentId();
     if (!id) return;
-    if (!confirm(`Delete pull request #${number}? This cannot be undone.`)) return;
-    this.prError = "";
-    try {
-      await deleteProjectPullRequest(id, number);
-      this.closePullRequest();
-      await this.loadPullRequests();
-    } catch (e) {
-      this.prError = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  async onAddComment(number: number) {
-    const id = this.currentId();
-    if (!id) return;
-    const body = this.newCommentBody.trim();
-    if (!body) return;
-    this.commentSending = true;
-    this.prError = "";
-    try {
-      const res = await addProjectPullRequestComment(id, number, body);
-      this.activePr = { ...this.activePr!, comments: [...this.activePr!.comments, res.data] };
-      this.newCommentBody = "";
-    } catch (e) {
-      this.prError = e instanceof Error ? e.message : String(e);
-    } finally {
-      this.commentSending = false;
-    }
+    this.askConfirm({
+      title: "Delete pull request",
+      message: `Delete pull request #${number}? This cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+      action: async () => {
+        this.prError = "";
+        try {
+          await deleteProjectPullRequest(id, number);
+          this.closePullRequest();
+          await this.loadPullRequests();
+        } catch (e) {
+          this.prError = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   async onSubmitReview(number: number) {
     const id = this.currentId();
     if (!id) return;
+    const body = this.newCommentBody;
+    if (emptyRichText(body)) return;
     this.reviewSending = true;
     this.prError = "";
     try {
-      const res = await submitProjectPullRequestReview(id, number, this.reviewState, this.reviewBody.trim() || undefined);
-      // One review per user: replace the previous review of this user.
-      const reviews = this.activePr!.reviews.filter((r) => r.author.id !== res.data.author.id);
-      this.activePr = { ...this.activePr!, reviews: [...reviews, res.data] };
-      this.reviewBody = "";
+      // A plain comment is a new conversation entry (POST /comments always
+      // inserts). Approvals and change requests are also append-only reviews
+      // (every submission is a new row; there is no edit or undo).
+      if (isPlainPrComment(this.reviewState)) {
+        const res = await addProjectPullRequestComment(id, number, body);
+        this.activePr = { ...this.activePr!, comments: [...(this.activePr?.comments ?? []), res.data] };
+      } else {
+        const res = await submitProjectPullRequestReview(id, number, this.reviewState, body);
+        const reviews = this.activePr!.reviews.filter((r) => r.author.id !== res.data.author.id);
+        this.activePr = { ...this.activePr!, reviews: [...reviews, res.data] };
+      }
+      this.newCommentBody = "";
     } catch (e) {
       this.prError = e instanceof Error ? e.message : String(e);
     } finally {

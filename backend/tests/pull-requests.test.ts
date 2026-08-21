@@ -9,12 +9,14 @@ import { execSync } from "node:child_process";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
-import { projectCollaborators, pullRequests, users } from "@/db/schema/auth";
+import { branchProtectionRules, projectCollaborators, pullRequests, users } from "@/db/schema/auth";
 import { SESSION_COOKIE } from "@/constants/protocol";
 import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import { createSession } from "@/modules/auth/auth";
 import { pullRequestRoutes } from "@/routes/pull-requests";
+import { rulesSnapshot } from "@/modules/projects/branch-protection";
+import { writeProtectionSnapshot } from "@/modules/projects/protection-snapshot";
 import {
   PR_STATUSES,
   PR_STATUS_SLUGS,
@@ -162,14 +164,21 @@ describe("pull request endpoints", () => {
     const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ title: "Add feature", description: "Adds feature.txt", baseBranch: "main", headBranch: "feature/x" }),
+      body: JSON.stringify({
+        title: "Add feature",
+        description: "<p>Adds <strong>feature.txt</strong></p><script>alert(1)</script>",
+        baseBranch: "main",
+        headBranch: "feature/x",
+      }),
     });
     expect(created.status).toBe(201);
-    const pr = ((await created.json()) as { data: { number: number; status: string; baseSha: string; headSha: string; mergeableStatus: string } }).data;
+    const pr = ((await created.json()) as { data: { number: number; status: string; baseSha: string; headSha: string; mergeableStatus: string; description: string } }).data;
     expect(pr.number).toBe(1);
     expect(pr.status).toBe("open");
     expect(pr.headSha).toBe(headSha);
     expect(pr.mergeableStatus).toBe("mergeable");
+    // Rich-text description is sanitized server-side (trust boundary).
+    expect(pr.description).toBe("<p>Adds <strong>feature.txt</strong></p>");
 
     const list = await pullRequestRoutes.request(`/${projectId}/pull-requests`, { headers });
     expect(list.status).toBe(200);
@@ -189,14 +198,15 @@ describe("pull request endpoints", () => {
     const diff = ((await diffRes.json()) as { diff: string }).diff;
     expect(diff).toContain("feature.txt");
 
+    // Only open PRs can be deleted: terminal PRs keep their conversation.
     const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
       method: "PATCH",
       headers,
-      body: JSON.stringify({ status: "closed" }),
+      body: JSON.stringify({ status: "abandoned" }),
     });
     expect(closed.status).toBe(200);
     const closedBody = (await closed.json()) as { data: { status: string; closedAt: string | null } };
-    expect(closedBody.data.status).toBe("closed");
+    expect(closedBody.data.status).toBe("abandoned");
     expect(closedBody.data.closedAt).not.toBeNull();
 
     const reopen = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
@@ -206,10 +216,53 @@ describe("pull request endpoints", () => {
     });
     expect(reopen.status).toBe(400);
 
-    const deleted = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { method: "DELETE", headers });
+    // A second open PR can still be deleted (terminal PRs cannot).
+    const second = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Second PR", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(second.status).toBe(201);
+    const deleted = await pullRequestRoutes.request(`/${projectId}/pull-requests/2`, { method: "DELETE", headers });
     expect(deleted.status).toBe(200);
-    const afterDelete = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    const afterDelete = await pullRequestRoutes.request(`/${projectId}/pull-requests/2`, { headers });
     expect(afterDelete.status).toBe(404);
+  });
+
+  it("rejects deleting a terminal pull request", async () => {
+    const projectId = await createProjectRow(`pr-termdel-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const adminEmail = `pr-termdel-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token } = await createSession(adminId);
+    const headers = jsonHeaders(token);
+
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: "Terminal delete", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+
+    const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ status: "abandoned" }),
+    });
+    expect(closed.status).toBe(200);
+
+    const deleted = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { method: "DELETE", headers });
+    expect(deleted.status).toBe(400);
+    const body = (await deleted.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toBe("Only open pull requests can be deleted");
+
+    // The PR still exists after the rejected delete.
+    const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    expect(detail.status).toBe(200);
   });
 
   it("rejects invalid PRs (same branch, missing branch, no merge base, no permission)", async () => {
@@ -333,17 +386,17 @@ describe("pull request conversation", () => {
     const first = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/comments`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ body: "Nice change!" }),
+      body: JSON.stringify({ body: "<p>Nice <strong>change</strong>!</p><script>alert(1)</script>" }),
     });
     expect(first.status).toBe(201);
     const comment = ((await first.json()) as { data: { id: string; body: string; author: { email: string } } }).data;
-    expect(comment.body).toBe("Nice change!");
+    expect(comment.body).toBe("<p>Nice <strong>change</strong>!</p>");
     expect(comment.author.email).toContain("prconv-cmt-admin");
 
     const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
     const body = (await detail.json()) as { data: { comments: { body: string; author: { email: string } }[] } };
     expect(body.data.comments).toHaveLength(1);
-    expect(body.data.comments[0].body).toBe("Nice change!");
+    expect(body.data.comments[0].body).toBe("<p>Nice <strong>change</strong>!</p>");
   });
 
   it("rejects an empty comment", async () => {
@@ -356,7 +409,7 @@ describe("pull request conversation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("upserts a review (latest state wins) and lists it in detail", async () => {
+  it("appends reviews (every submission is a new row) and lists them in detail", async () => {
     const { projectId, headers } = await setupProject("review");
 
     const first = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
@@ -369,7 +422,8 @@ describe("pull request conversation", () => {
     expect(review.state).toBe("approve");
     expect(review.body).toBe("Looks good");
 
-    // Same user submits again: the previous review is replaced, not duplicated.
+    // Same user submits again: a new review row is added (append-only, no
+    // edit or undo), the previous one stays in the conversation history.
     const second = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
       headers,
@@ -379,9 +433,10 @@ describe("pull request conversation", () => {
 
     const detail = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
     const body = (await detail.json()) as { data: { reviews: { state: string; body: string | null }[] } };
-    expect(body.data.reviews).toHaveLength(1);
-    expect(body.data.reviews[0].state).toBe("request_changes");
-    expect(body.data.reviews[0].body).toBe("Needs fixes");
+    expect(body.data.reviews).toHaveLength(2);
+    expect(body.data.reviews[0].state).toBe("approve");
+    expect(body.data.reviews[1].state).toBe("request_changes");
+    expect(body.data.reviews[1].body).toBe("Needs fixes");
   });
 
   it("rejects an invalid review state", async () => {
@@ -405,5 +460,274 @@ describe("pull request conversation", () => {
       body: JSON.stringify({ body: "hi" }),
     });
     expect(res.status).toBe(403);
+  });
+});
+
+// Branch protection gates at merge time (approvals, request-changes blocking,
+// merge whitelist). The rules are created directly in the DB (the CRUD routes
+// are covered by tests/branch-protection-routes.test.ts) and the snapshot is
+// written manually, mirroring what the routes do.
+describe("pull request branch protection (merge gates)", () => {
+  async function setupProtected(
+    label: string,
+    rule: {
+      requirePr?: boolean;
+      requiredApprovals?: number;
+      blockOnRequestChanges?: boolean;
+      restrictMergeUserIds?: string[] | null;
+      allowAdminBypass?: boolean;
+    } = {}
+  ) {
+    const projectId = await createProjectRow(`prprot-${label}-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const adminEmail = `prprot-${label}-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token: adminToken } = await createSession(adminId);
+    const adminHeaders = jsonHeaders(adminToken);
+
+    const collabEmail = `prprot-${label}-collab-${suffix}@sigit.test`;
+    const collabId = await createUserRow(collabEmail);
+    await db.insert(projectCollaborators).values({ projectId, userId: collabId, permissions: ["push"] });
+    const { token: collabToken } = await createSession(collabId);
+    const collabHeaders = jsonHeaders(collabToken);
+
+    const ruleRow = await db
+      .insert(branchProtectionRules)
+      .values({
+        projectId,
+        branchPattern: "main",
+        requirePr: rule.requirePr ?? false,
+        requiredApprovals: rule.requiredApprovals ?? 0,
+        blockOnRequestChanges: rule.blockOnRequestChanges ?? false,
+        blockForcePush: true,
+        blockDeletion: true,
+        restrictPushUserIds: null,
+        restrictMergeUserIds: rule.restrictMergeUserIds ?? null,
+        allowAdminBypass: rule.allowAdminBypass ?? false,
+      })
+      .returning();
+
+    // The hook is not involved here (the merge pushes through the server), but
+    // keeping the snapshot in sync matches the routes' behavior.
+    await writeProtectionSnapshot(barePath, rulesSnapshot([ruleRow[0]]));
+
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ title: "Protected", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+
+    return { projectId, adminHeaders, collabHeaders };
+  }
+
+  it("blocks the merge until the required approvals are met", async () => {
+    const { projectId, adminHeaders } = await setupProtected("appr", { requiredApprovals: 1 });
+
+    // No approvals yet -> 403
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+
+    // A single approve review satisfies requiredApprovals=1 -> merge succeeds
+    const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(review.status).toBe(201);
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+    const body = (await merged.json()) as { data: { status: string; mergeCommitSha: string | null } };
+    expect(body.data.status).toBe("merged");
+    expect(body.data.mergeCommitSha).not.toBeNull();
+  });
+
+  it("keeps showing the PR diff after it is merged (no-ff merge)", async () => {
+    const { projectId, adminHeaders } = await setupProtected("diffpost", { requiredApprovals: 1 });
+
+    await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+
+    const diffRes = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/diff`, { headers: adminHeaders });
+    expect(diffRes.status).toBe(200);
+    const diffBody = (await diffRes.json()) as { diff: string };
+    // The merge commit diff (parent..commit) still carries the feature change.
+    expect(diffBody.diff).toContain("feature.txt");
+    expect(diffBody.diff).toContain("+new");
+  });
+
+  it("blocks the merge while changes are requested", async () => {
+    const { projectId, adminHeaders } = await setupProtected("reqchg", { blockOnRequestChanges: true });
+
+    const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ state: "request_changes" }),
+    });
+    expect(review.status).toBe(201);
+
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+  });
+
+  it("approvals by different users accumulate, one approve per user", async () => {
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("multi", { requiredApprovals: 2 });
+
+    // admin approves once
+    await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    // still one approval -> blocked
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+
+    // collab approves -> 2 approvals -> merge allowed
+    await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+  });
+
+  it("blocks merges from users outside the merge whitelist", async () => {
+    const projectId = await createProjectRow(`prprot-mwl2-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const collabEmail = `prprot-mwl2-collab-${suffix}@sigit.test`;
+    const collabId = await createUserRow(collabEmail);
+    await db.insert(projectCollaborators).values({ projectId, userId: collabId, permissions: ["push"] });
+    const { token: collabToken } = await createSession(collabId);
+    const collabHeaders = jsonHeaders(collabToken);
+
+    const adminEmail = `prprot-mwl2-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token: adminToken } = await createSession(adminId);
+    const adminHeaders = jsonHeaders(adminToken);
+
+    // Whitelist only the collab: the admin is blocked from merging.
+    const ruleRow = await db
+      .insert(branchProtectionRules)
+      .values({
+        projectId,
+        branchPattern: "main",
+        requirePr: false,
+        requiredApprovals: 0,
+        blockOnRequestChanges: false,
+        blockForcePush: true,
+        blockDeletion: true,
+        restrictPushUserIds: null,
+        restrictMergeUserIds: [collabId],
+        allowAdminBypass: false,
+      })
+      .returning();
+    await writeProtectionSnapshot(barePath, rulesSnapshot(ruleRow));
+
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ title: "Whitelisted", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+
+    // Admin is not in the whitelist -> 403.
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+
+    // The whitelisted collab can merge (admin bypass is off).
+    const allowed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(allowed.status).toBe(200);
+  });
+
+  it("allowAdminBypass lets the site admin merge despite the whitelist", async () => {
+    const projectId = await createProjectRow(`prprot-bypass-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const collabEmail = `prprot-bypass-collab-${suffix}@sigit.test`;
+    const collabId = await createUserRow(collabEmail);
+    await db.insert(projectCollaborators).values({ projectId, userId: collabId, permissions: ["push"] });
+
+    const adminEmail = `prprot-bypass-admin-${suffix}@sigit.test`;
+    const adminId = await createUserRow(adminEmail, "admin");
+    const { token: adminToken } = await createSession(adminId);
+    const adminHeaders = jsonHeaders(adminToken);
+
+    const ruleRow = await db
+      .insert(branchProtectionRules)
+      .values({
+        projectId,
+        branchPattern: "main",
+        requirePr: false,
+        requiredApprovals: 0,
+        blockOnRequestChanges: false,
+        blockForcePush: true,
+        blockDeletion: true,
+        restrictPushUserIds: null,
+        restrictMergeUserIds: [collabId],
+        allowAdminBypass: true,
+      })
+      .returning();
+    await writeProtectionSnapshot(barePath, rulesSnapshot(ruleRow));
+
+    const created = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ title: "Bypass", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(created.status).toBe(201);
+
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
   });
 });

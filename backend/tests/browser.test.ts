@@ -233,5 +233,13 @@ describe("browser routes access rules", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { head: string | null; commits: { hash: string }[] } };
     expect(body.data.commits.length).toBe(1);
+
+    const refRes = await browserRoutes.request(`/${pub}/history?ref=main`);
+    expect(refRes.status).toBe(200);
+    const refBody = (await refRes.json()) as { data: { commits: { hash: string }[] } };
+    expect(refBody.data.commits.length).toBe(1);
+
+    const missingRes = await browserRoutes.request(`/${pub}/history?ref=does-not-exist`);
+    expect(missingRes.status).toBe(404);
   });
 });

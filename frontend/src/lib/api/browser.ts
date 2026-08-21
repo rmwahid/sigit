@@ -33,8 +33,9 @@ export function getBlob(id: string, ref: string, filePath: string) {
   return api<{ data: BlobResponse }>(`/projects/${id}/blob?${q}`);
 }
 
-export function getHistoryPage(id: string, limit: number, offset: number) {
-  return api<{ data: HistoryPage }>(`/projects/${id}/history?limit=${limit}&offset=${offset}`);
+export function getHistoryPage(id: string, limit: number, offset: number, ref?: string) {
+  const refQuery = ref && ref !== "HEAD" ? `&ref=${encodeURIComponent(ref)}` : "";
+  return api<{ data: HistoryPage }>(`/projects/${id}/history?limit=${limit}&offset=${offset}${refQuery}`);
 }
 
 export function getActivity(id: string, limit: number, offset: number) {

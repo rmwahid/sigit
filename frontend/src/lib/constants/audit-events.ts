@@ -1,5 +1,6 @@
-// Audit event names. Single source of truth - audit() call sites reference
-// these instead of inline strings.
+// Mirror of backend/src/constants/audit-events.ts (single source of truth =
+// backend). Kept in sync by backend/tests/constants-sync.test.ts. Used by the
+// activity feed to render event names from the audit log.
 export const AUDIT_EVENTS = {
   GIT_PUSH: "git.push",
   LFS_DOWNLOAD: "lfs.download",
@@ -41,3 +42,5 @@ export const AUDIT_EVENTS = {
   PROTECTION_UPDATE: "protection.update",
   PROTECTION_DELETE: "protection.delete",
 } as const;
+
+export type AuditEvent = (typeof AUDIT_EVENTS)[keyof typeof AUDIT_EVENTS];
