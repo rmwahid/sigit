@@ -37,6 +37,7 @@ export const projectUpdateSchema = z.object({
   lfsSizeThreshold: z.number().int().min(1).optional(),
   lfsPatterns: z.string().optional(),
   isPublic: z.boolean().optional(),
+  confirmStorageDisconnect: z.boolean().optional(),
 });
 
 export const projectWithConnectionSchema = z.object({

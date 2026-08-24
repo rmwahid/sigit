@@ -17,6 +17,7 @@ export const AUDIT_EVENTS = {
   USER_RESET_PASSWORD: "user.reset_password",
   USER_DELETE: "user.delete",
   PROJECT_CREATE_WITH_CONNECTION: "project.create_with_connection",
+  PROJECT_UPDATE: "project.update",
   PROJECT_DELETE: "project.delete",
   PROJECT_BACKUP: "project.backup",
   PROJECT_RESTORE: "project.restore",

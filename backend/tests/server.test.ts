@@ -1,8 +1,18 @@
-import { describe, expect, it, afterAll } from "bun:test";
+import { describe, expect, it, afterAll, mock } from "bun:test";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { sha256 } from "@/lib/hash";
-import { parseCgiHeaders } from "@/modules/git/server";
+import { parseCgiHeaders, backupWithRetry } from "@/modules/git/server";
 import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
+import { objectMeta } from "@/modules/storage/objects";
 import { createProject, hardDeleteProject } from "@/modules/projects/projects";
+import { backupObjectKey } from "@/modules/projects/backup";
+import { createUser, deleteUser } from "@/modules/auth/auth";
+import { ADMIN_ROLE } from "@/constants/roles";
+import { TOKEN_SCOPES } from "@/constants/scopes";
+import { createToken, revokeToken, setTokenProjectScopes } from "@/modules/auth/tokens";
 import {
   buildBatchResponse,
   downloadObject,
@@ -195,5 +205,158 @@ describe("lfs server object lifecycle (MinIO)", () => {
     expect(again.ok).toBe(true);
     const downloaded = await downloadObject(project, connection, oid);
     expect(downloaded?.equals(content)).toBe(true);
+  });
+});
+
+describe("backup retry", () => {
+  // Restore module overrides so later test files import the real
+  // @/modules/projects/backup again.
+  afterAll(() => {
+    mock.restore();
+  });
+
+  it("retries transient failures, forwards the FULL project row, and stops on success", async () => {
+    const attempts: number[] = [];
+    let received: unknown = null;
+    const fakeProject = { id: "project-x", name: "test", storageConnectionId: "conn-1" };
+    mock.module("@/modules/projects/backup", () => ({
+      backupProject: mock(async (project: unknown) => {
+        received = project;
+        attempts.push(attempts.length + 1);
+        if (attempts.length < 2) throw new Error("storage down");
+        return { key: "projects/x/backup.bundle", size: 1, head: null };
+      }),
+    }));
+    // Re-import so the mock takes effect for this test.
+    const { backupWithRetry } = await import("@/modules/git/server");
+    await backupWithRetry(fakeProject as never);
+    expect(attempts.length).toBe(2);
+    // Regression guard: the whole project row must reach backupProject
+    // (a bare {id} has no storageConnectionId and always fails).
+    expect(received).toBe(fakeProject);
+  });
+
+  it("gives up after BACKUP_RETRIES and does not throw (logged instead)", async () => {
+    let calls = 0;
+    mock.module("@/modules/projects/backup", () => ({
+      backupProject: mock(async () => {
+        calls += 1;
+        throw new Error("storage down");
+      }),
+    }));
+    const { backupWithRetry } = await import("@/modules/git/server");
+    await backupWithRetry({ id: "project-x", name: "test" } as never);
+    expect(calls).toBe(3);
+  });
+});
+
+// End-to-end guard for the auto-backup path: a REAL git push over HTTP must
+// leave backup.bundle in the user storage. This is the exact regression that
+// shipped once (backupWithRetry passed a bare {id}, so every auto backup
+// failed silently with "Project has no storage connection") and no unit test
+// could catch it, because none of them push through handleGitRequest.
+describe("auto backup after real push over HTTP (MinIO)", () => {
+  const suffix = `auto-${Date.now().toString(36)}`;
+  const createdUserIds: string[] = [];
+  const createdTokens: { id: string; userId: string }[] = [];
+
+  it("stores an encrypted backup.bundle in user storage after git push", async () => {
+    const connection = await createConnectionFromInput({
+      name: `backup-e2e-conn-${suffix}`,
+      endpoint: "http://127.0.0.1:9000",
+      region: "us-east-1",
+      accessKeyId: "minioadmin",
+      secretAccessKey: "minioadmin",
+      bucket: "sigit-test",
+      forcePathStyle: true,
+    });
+    createdConnectionIds.push(connection.id);
+    const stored = await getConnection(connection.id);
+    if (!stored) throw new Error("test connection not found");
+    const project = await createProject({ name: `backup-e2e-${suffix}`, storageConnectionId: connection.id });
+    createdProjectIds.push(project.id);
+
+    // Admin token with write scope (admin bypasses collaborator checks).
+    const user = await createUser(`backup-e2e-${suffix}@test.local`, "password123", ADMIN_ROLE);
+    createdUserIds.push(user.id);
+    const { id: tokenId, token } = await createToken(user.id, `backup-e2e-tok-${suffix}`, new Date(Date.now() + 60 * 60 * 1000));
+    createdTokens.push({ id: tokenId, userId: user.id });
+    await setTokenProjectScopes(tokenId, [{ projectId: project.id, scope: TOKEN_SCOPES.WRITE.slug }]);
+
+    // Boot the backend as a STANDALONE subprocess (same proven pattern as
+    // e2e-lfs.ts / build-smoke.ts): in-process Bun.serve inside bun test
+    // hangs real git clients mid-request on Windows.
+    const PORT = 3977;
+    const base = `http://127.0.0.1:${PORT}`;
+    const server = Bun.spawn(["bun", "run", "src/index.ts"], {
+      env: { ...process.env, PORT: String(PORT) },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      let up = false;
+      for (let i = 0; i < 50 && !up; i++) {
+        try {
+          const r = await fetch(`${base}/app-info`, { signal: AbortSignal.timeout(1500) });
+          up = r.ok;
+        } catch {
+          // not up yet
+        }
+        if (!up) await Bun.sleep(300);
+      }
+      expect(up).toBe(true);
+
+      // Same auth recipe as build-smoke: http.extraHeader (URL credentials
+      // make git fall into the Windows credential-manager path, which hangs).
+      const basic = "Basic " + Buffer.from(`sigit:${token}`).toString("base64");
+      const work = path.join(tmpdir(), `sigit-backup-e2e-${suffix}`);
+      fs.mkdirSync(work, { recursive: true });
+      const sh = (args: string[], timeout = 10000): void => {
+        const res = spawnSync("git", args, { cwd: work, encoding: "utf8", timeout });
+        if (res.status !== 0) {
+          throw new Error(`git ${args.join(" ")} failed: ${res.stderr}`);
+        }
+      };
+
+      sh(["init", "-b", "main"]);
+      sh(["config", "user.email", "test@local"]);
+      sh(["config", "user.name", "Test"]);
+      fs.writeFileSync(path.join(work, "hello.txt"), "hello backup");
+      sh(["add", "-A"]);
+      sh(["commit", "-m", "test: auto backup e2e"]);
+
+      const push = spawnSync(
+        "git",
+        ["-c", `http.extraHeader=Authorization: ${basic}`, "push", `${base}/projects/${project.name}.git`, "main"],
+        { cwd: work, encoding: "utf8", timeout: 20000 }
+      );
+      expect(push.status).toBe(0);
+
+      // The bundle is built asynchronously after receive-pack closes; poll
+      // instead of sleeping a fixed time (slow CI / cold git spawn).
+      const deadline = Date.now() + 15000;
+      let meta: Awaited<ReturnType<typeof objectMeta>> = null;
+      while (Date.now() < deadline) {
+        meta = await objectMeta(stored, backupObjectKey(project.id));
+        if (meta && meta.size > 0) break;
+        await Bun.sleep(300);
+      }
+      expect(meta).not.toBeNull();
+      expect(meta!.size).toBeGreaterThan(0);
+
+      fs.rmSync(work, { recursive: true, force: true });
+    } finally {
+      server.kill();
+      spawnSync("taskkill", ["/F", "/T", "/PID", String(server.pid)], { stdio: "ignore" });
+    }
+  }, TEST_TIMEOUT);
+
+  afterAll(async () => {
+    for (const { id, userId } of createdTokens) {
+      await revokeToken(id, userId).catch(() => undefined);
+    }
+    for (const id of createdUserIds) {
+      await deleteUser(id).catch(() => undefined);
+    }
   });
 });

@@ -3,12 +3,14 @@ import { db } from "@/config/db";
 import { env } from "@/config/env";
 import { projects, type NewProject, type Project } from "@/db/schema/projects";
 import { createConnectionFromInput, getConnection } from "@/modules/storage/connections";
-import { deleteObjectsByPrefix } from "@/modules/storage/objects";
+import { deleteObjectsByPrefix, listAllObjects } from "@/modules/storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
 import { protectionSnapshotPath } from "./protection-snapshot";
 import { deleteRowById } from "@/lib/db";
 import { HttpError } from "@/lib/http-error";
 import { encryptSecret } from "@/lib/secret-encryption";
+import { ERROR_CODES } from "@/constants/errors";
+import type { S3ConnectionLike } from "@/modules/storage/objects";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -140,6 +142,35 @@ export async function updateProject(id: string, data: Partial<NewProject>): Prom
     await refreshPreReceiveHook(project.id, safe.lfsSizeThreshold);
   }
   return project;
+}
+
+// Number of LFS objects stored for a project (keys under projects/{id}/lfs/).
+// Throws on storage errors - a failed check must not silently allow the
+// disconnect, because the real LFS files would be left behind with no way
+// to fetch them.
+export async function countStoredLfsObjects(
+  project: Pick<Project, "id">,
+  connection: S3ConnectionLike
+): Promise<number> {
+  const prefix = `projects/${project.id}/lfs/`;
+  return (await listAllObjects(connection, prefix)).length;
+}
+
+// Guards disconnecting a project from its storage: projects with LFS objects
+// must not be cut off without the caller confirming that the data loss is
+// accepted. Thrower version for routes/modules (no LFS objects = pass).
+export async function assertStorageDisconnectAllowed(
+  project: Pick<Project, "id" | "storageConnectionId">,
+  connection: S3ConnectionLike | undefined | null,
+  confirm?: boolean
+): Promise<void> {
+  if (!project.storageConnectionId) return;
+  if (confirm === true) return;
+  if (!connection) throw new HttpError(400, ERROR_CODES.BAD_REQUEST, "Storage connection not found");
+  const count = await countStoredLfsObjects(project, connection);
+  if (count > 0) {
+    throw new HttpError(409, ERROR_CODES.DISCONNECT_CONFIRMATION_REQUIRED, "This project has stored files in the storage connection. Disconnecting makes them unreachable. Confirm the disconnect to continue.");
+  }
 }
 
 export async function deleteProject(id: string): Promise<boolean> {

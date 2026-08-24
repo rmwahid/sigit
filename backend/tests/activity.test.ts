@@ -14,6 +14,11 @@ import { exploreRoutes } from "@/routes/explore";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The git-spawning tests below (init, commit, push) can take longer than the
+// 5s default timeout when the whole suite runs in parallel. Keep an explicit
+// timeout so the suite is deterministic.
+const TEST_TIMEOUT = 30000;
+
 const barePath = path.join(tmpdir(), `sigit-activity-${Date.now()}`);
 const workPath = path.join(tmpdir(), `sigit-activity-work-${Date.now()}`);
 
@@ -75,7 +80,7 @@ describe("getCommitDays (bare repo)", () => {
     const bob = await getCommitDays(barePath, "bob@local", since);
     expect(bob.get(day1.key)).toBe(1);
     expect(bob.has(day2.key)).toBe(false);
-  });
+  }, TEST_TIMEOUT);
 });
 
 describe("mergeDayCounts", () => {
@@ -180,5 +185,5 @@ describe("user activity across public projects (DB)", () => {
 
     const missing = await exploreRoutes.request("/users/nobody@local/activity");
     expect(missing.status).toBe(404);
-  });
+  }, TEST_TIMEOUT);
 });

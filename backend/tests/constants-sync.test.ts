@@ -4,12 +4,14 @@
 //   roles        -> lib/constants/roles.ts
 //   permissions  -> lib/constants/permissions.ts
 //   scopes       -> lib/constants/scopes.ts
+//   errors       -> lib/constants/errors.ts
 //   limits       -> lib/constants/validation.ts
 //   protocol     -> lib/constants/protocol.ts
 import { describe, expect, it } from "bun:test";
 import { ADMIN_ROLE, DEFAULT_ROLE, ROLES } from "@/constants/roles";
 import { ALL_PROJECT_PERMISSIONS, PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { TOKEN_SCOPES } from "@/constants/scopes";
+import { ERROR_CODES } from "@/constants/errors";
 import { MAX_FILE_BROWSER_BYTES, MIN_PASSWORD_LENGTH, BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN, BRANCH_PATTERN_MAX_LENGTH, BRANCH_PATTERN_PATTERN, MAX_PROTECTION_REQUIRED_APPROVALS, DEFAULT_PROTECTION_RESTRICT_PUSH } from "@/constants/limits";
 import { ARCHIVE_FORMATS } from "@/constants/protocol";
 import { TOKEN_MAX_EXPIRY_DAYS } from "@/modules/auth/tokens";
@@ -24,6 +26,7 @@ import {
   PROJECT_PERMISSIONS as FE_PROJECT_PERMISSIONS,
 } from "../../frontend/src/lib/constants/permissions";
 import { TOKEN_SCOPES as FE_TOKEN_SCOPES } from "../../frontend/src/lib/constants/scopes";
+import { ERROR_CODES as FE_ERROR_CODES } from "../../frontend/src/lib/constants/errors";
 import {
   MAX_FILE_BROWSER_BYTES as FE_MAX_FILE_BROWSER_BYTES,
   MIN_PASSWORD_LENGTH as FE_MIN_PASSWORD_LENGTH,
@@ -62,6 +65,10 @@ describe("frontend/backend constants sync", () => {
 
   it("token scopes match exactly (slug + name)", () => {
     expect(FE_TOKEN_SCOPES).toEqual(TOKEN_SCOPES);
+  });
+
+  it("error codes match exactly", () => {
+    expect(FE_ERROR_CODES).toEqual(ERROR_CODES);
   });
 
   it("validation limits match exactly", () => {

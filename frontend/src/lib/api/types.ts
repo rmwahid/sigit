@@ -47,9 +47,12 @@ export type NewProject = Omit<Project, "id" | "storageConnectionId"> & {
   storageConnectionId: string;
 };
 
-// Update payload: storageConnectionId may be null (disconnect from storage)
+// Update payload: storageConnectionId may be null (disconnect from storage).
+// confirmStorageDisconnect is required by the backend when the project still
+// has LFS objects in storage (see assertStorageDisconnectAllowed).
 export type ProjectUpdate = Partial<Omit<NewProject, "storageConnectionId">> & {
   storageConnectionId?: string | null;
+  confirmStorageDisconnect?: boolean;
 };
 
 export type DeleteProjectResult = {

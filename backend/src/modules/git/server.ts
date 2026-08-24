@@ -6,12 +6,50 @@ import { Readable } from "node:stream";
 import { env } from "@/config/env";
 import { getProjectByName, projectRepoPath } from "@/modules/projects/projects";
 import { backupProject } from "@/modules/projects/backup";
+import type { Project } from "@/db/schema/projects";
 import { refreshOpenPrMergeability } from "@/modules/pull-requests/merge";
 import { audit, log } from "@/lib/logger";
 import path from "node:path";
 import type { Context } from "hono";
 
 const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
+
+// Auto-backup after a successful push: the bundle is rebuilt from the full
+// history on every push, so a transient storage outage only leaves the stored
+// bundle stale until the next successful backup. Retry with a short backoff to
+// ride out brief storage hiccups; the last failure is logged (the push itself
+// already succeeded and is not rolled back).
+const BACKUP_RETRIES = 3;
+const BACKUP_RETRY_DELAY_MS = 500;
+
+// Takes the full Project row: backupProject reads storageConnectionId to
+// resolve the user storage connection (a bare {id} would always fail).
+export async function backupWithRetry(project: Project): Promise<void> {
+  for (let attempt = 1; attempt <= BACKUP_RETRIES; attempt++) {
+    try {
+      await backupProject(project);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === BACKUP_RETRIES) {
+        log.error("backup", "auto backup after push failed after retries", {
+          projectId: project.id,
+          projectName: project.name,
+          error: message,
+          attempts: attempt,
+        });
+      } else {
+        log.warn("backup", "auto backup after push failed, retrying", {
+          projectId: project.id,
+          projectName: project.name,
+          error: message,
+          attempt,
+        });
+        await new Promise((resolve) => setTimeout(resolve, BACKUP_RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
+}
 
 // git http-backend uses CGI conventions: header lines like
 // "Status: 200 OK" + "Content-Type: ..." then \r\n\r\n and the body.
@@ -107,9 +145,7 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
     child.on("close", (code) => {
       audit(AUDIT_EVENTS.GIT_PUSH, { projectId: project.id, projectName: project.name, result: code === 0 ? "accepted" : "failed" });
       if (code === 0) {
-        backupProject(project).catch((err) => {
-          log.error("backup", "auto backup after push failed", { projectId: project.id, error: err instanceof Error ? err.message : String(err) });
-        });
+        backupWithRetry(project);
         // A push may have moved a base or head branch, so the stored
         // trial-merge results of open PRs can be stale. Refresh them
         // fire-and-forget (any failure only degrades to "unknown").

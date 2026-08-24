@@ -5,12 +5,13 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { getCommitFiles, getDiff } from "@/modules/projects/git";
-import { backupProject, restoreProject } from "@/modules/projects/backup";
+import { backupProject, restoreProject, assertBundleNotBehindLocal } from "@/modules/projects/backup";
 import { getConnection } from "@/modules/storage/connections";
 import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
+import { HttpError } from "@/lib/http-error";
+import { audit, log } from "@/lib/logger";
 import { projectCollaborators, users } from "@/db/schema/auth";
 import { ADMIN_ROLE } from "@/constants/roles";
-import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, idResponse, messageSchema } from "./schemas/common";
 import {
   createProject,
@@ -20,6 +21,7 @@ import {
   updateProject,
   projectRepoPath,
   hardDeleteProject,
+  assertStorageDisconnectAllowed,
 } from "@/modules/projects/projects";
 import {
   ALL_PROJECT_PERMISSIONS,
@@ -209,9 +211,20 @@ projectRoutes.openapi(
     if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
-    const project = await updateProject(id, body);
+    const project = await getProject(id);
     if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
-    return c.json({ data: toProjectResponse(project) });
+    // Disconnecting a project that has LFS objects requires an explicit
+    // confirm flag - the files in storage become unreachable afterwards.
+    if (body.storageConnectionId === null) {
+      const connection = project.storageConnectionId
+        ? await getConnection(project.storageConnectionId)
+        : undefined;
+      await assertStorageDisconnectAllowed(project, connection, body.confirmStorageDisconnect);
+    }
+    const updated = await updateProject(id, body);
+    if (!updated) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
+    audit(AUDIT_EVENTS.PROJECT_UPDATE, { projectId: id, name: updated.name });
+    return c.json({ data: toProjectResponse(updated) });
   }
 );
 
@@ -369,8 +382,17 @@ projectRoutes.openapi(
     }
     const connection = await getConnection(project.storageConnectionId);
     if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Storage connection not found" } }, 404) as never;
+    // Do not allow restoring a bundle that is older than the local repo:
+    // that would overwrite newer commits with an older state (data loss).
+    try {
+      await assertBundleNotBehindLocal(project, connection);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      log.error("restore", "restore guard check failed", { projectId: id, error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
     await restoreProject(project, connection);
-    audit(AUDIT_EVENTS.PROJECT_RESTORE, { projectId: id });
+    audit(AUDIT_EVENTS.PROJECT_RESTORE, { projectId: id, result: "restored" });
     return c.json({ message: "Restored" });
   }
 );

@@ -105,7 +105,14 @@ export async function objectMeta(
   }
 }
 
-export async function listAllObjects(connection: StorageConnection, prefix?: string): Promise<string[]> {
+// The S3 client only needs the connection credentials + endpoint config, not
+// the full row (allows callers to pass partial connection data).
+export type S3ConnectionLike = Pick<
+  StorageConnection,
+  "bucket" | "endpoint" | "region" | "accessKeyId" | "secretEncrypted" | "encryptionKeyId" | "forcePathStyle"
+>;
+
+export async function listAllObjects(connection: S3ConnectionLike, prefix?: string): Promise<string[]> {
   const client = createS3Client(connection);
   const keys: string[] = [];
   let continuationToken: string | undefined;

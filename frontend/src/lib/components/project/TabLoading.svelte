@@ -22,6 +22,7 @@
     <Squiggle class="size-4 text-muted-foreground -scale-x-100" />
   </div>
   <div class="tab-loading-bar h-2 w-40 overflow-hidden border-2 border-border bg-card">
-    <div class="tab-loading-fill h-full w-1/3 bg-accent"></div>
+    <!-- Decorative progress bar: hidden from assistive tech (label carries the meaning). -->
+    <div class="tab-loading-fill h-full w-1/3 bg-accent" aria-hidden="true"></div>
   </div>
 </div>

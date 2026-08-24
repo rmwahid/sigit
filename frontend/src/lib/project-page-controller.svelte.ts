@@ -725,13 +725,24 @@ export class ProjectPageController {
 
   async onDisconnect() {
     if (!this.project) return;
-    try {
-      await updateProject(this.project.id, { storageConnectionId: null });
-      await this.loadProject();
-      this.message = "Storage disconnected";
-    } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
-    }
+    // Confirm with the user first: disconnecting may leave LFS objects
+    // unreachable in the storage connection (the backend also enforces an
+    // explicit confirm flag when objects exist).
+    this.askConfirm({
+      title: "Disconnect storage",
+      message: "Disconnect this project from its storage connection? Large files and backups will become unreachable.",
+      confirmLabel: "Disconnect",
+      danger: true,
+      action: async () => {
+        try {
+          await updateProject(this.project!.id, { storageConnectionId: null, confirmStorageDisconnect: true });
+          await this.loadProject();
+          this.message = "Storage disconnected";
+        } catch (e) {
+          this.error = e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
   }
 
   async onBackup() {

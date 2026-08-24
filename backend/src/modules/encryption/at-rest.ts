@@ -58,10 +58,14 @@ export async function putEncrypted(
   connection: StorageConnection,
   key: string,
   body: Buffer,
-  contentType?: string
+  contentType?: string,
+  extraMetadata?: Record<string, string>
 ): Promise<void> {
   const ciphertext = encryptProjectBuffer(project, body);
-  await putObject(connection, key, ciphertext, contentType, { [PLAINTEXT_SIZE_METADATA]: String(body.length) });
+  await putObject(connection, key, ciphertext, contentType, {
+    [PLAINTEXT_SIZE_METADATA]: String(body.length),
+    ...extraMetadata,
+  });
 }
 
 // Downloads and decrypts.

@@ -1,5 +1,6 @@
-// Error codes used in API error responses. Single source of truth - every
-// route/module references these instead of inline strings.
+// Mirror of backend/src/constants/errors.ts (single source of truth = backend).
+// Kept in sync by backend/tests/constants-sync.test.ts. Used by the UI to
+// branch on API error codes (e.g. confirmation-required flows).
 export const ERROR_CODES = {
   NOT_FOUND: "NOT_FOUND",
   UNAUTHORIZED: "UNAUTHORIZED",
@@ -19,3 +20,5 @@ export const ERROR_CODES = {
   INVALID_BRANCH_NAME: "INVALID_BRANCH_NAME",
   CONFLICT: "CONFLICT",
 } as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

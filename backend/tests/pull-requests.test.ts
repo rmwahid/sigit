@@ -32,6 +32,11 @@ const createdProjectIds: string[] = [];
 const createdUserIds: string[] = [];
 const tmpDirs: string[] = [];
 
+// Several tests here spawn throwaway git repos (init, commit, push), which
+// can take longer than the 5s default timeout when the whole suite runs in
+// parallel. Keep an explicit timeout so the suite is deterministic.
+const TEST_TIMEOUT = 30000;
+
 function sh(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: "utf8" });
 }
@@ -265,74 +270,83 @@ describe("pull request endpoints", () => {
     expect(detail.status).toBe(200);
   });
 
-  it("rejects invalid PRs (same branch, missing branch, no merge base, no permission)", async () => {
-    const projectId = await createProjectRow(`pr-perm-${suffix}`);
-    const barePath = projectRepoPath(projectId);
-    await initRepo(barePath);
-    await seedRepo(barePath);
+  // This test spawns several throwaway git repos (init, commit, push), which
+  // can take longer than the 5s default timeout when the whole suite runs in
+  // parallel. Keep an explicit timeout so the suite is deterministic.
+  // This test spawns several throwaway git repos (init, commit, push), so it
+  // gets the shared TEST_TIMEOUT too.
+  it(
+    "rejects invalid PRs (same branch, missing branch, no merge base, no permission)",
+    async () => {
+      const projectId = await createProjectRow(`pr-perm-${suffix}`);
+      const barePath = projectRepoPath(projectId);
+      await initRepo(barePath);
+      await seedRepo(barePath);
 
-    const noPermEmail = `pr-noperm-${suffix}@sigit.test`;
-    const noPermId = await createUserRow(noPermEmail);
-    const { token } = await createSession(noPermId);
-    const denied = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
-      method: "POST",
-      headers: jsonHeaders(token),
-      body: JSON.stringify({ title: "nope", baseBranch: "main", headBranch: "feature/x" }),
-    });
-    expect(denied.status).toBe(403);
+      const noPermEmail = `pr-noperm-${suffix}@sigit.test`;
+      const noPermId = await createUserRow(noPermEmail);
+      const { token } = await createSession(noPermId);
+      const denied = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ title: "nope", baseBranch: "main", headBranch: "feature/x" }),
+      });
+      expect(denied.status).toBe(403);
 
-    const adminEmail = `pr-admin2-${suffix}@sigit.test`;
-    const adminId = await createUserRow(adminEmail, "admin");
-    const { token: adminToken } = await createSession(adminId);
-    const headers = jsonHeaders(adminToken);
+      const adminEmail = `pr-admin2-${suffix}@sigit.test`;
+      const adminId = await createUserRow(adminEmail, "admin");
+      const { token: adminToken } = await createSession(adminId);
+      const headers = jsonHeaders(adminToken);
 
-    const collabEmail = `pr-collab-${suffix}@sigit.test`;
-    const collabId = await createUserRow(collabEmail);
-    await db.insert(projectCollaborators).values({ projectId, userId: collabId, permissions: ["push"] });
-    const { token: collabToken } = await createSession(collabId);
-    const collabHeaders = jsonHeaders(collabToken);
+      const collabEmail = `pr-collab-${suffix}@sigit.test`;
+      const collabId = await createUserRow(collabEmail);
+      await db.insert(projectCollaborators).values({ projectId, userId: collabId, permissions: ["push"] });
+      const { token: collabToken } = await createSession(collabId);
+      const collabHeaders = jsonHeaders(collabToken);
 
-    const same = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
-      method: "POST",
-      headers: collabHeaders,
-      body: JSON.stringify({ title: "same", baseBranch: "main", headBranch: "main" }),
-    });
-    expect(same.status).toBe(400);
+      const same = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+        method: "POST",
+        headers: collabHeaders,
+        body: JSON.stringify({ title: "same", baseBranch: "main", headBranch: "main" }),
+      });
+      expect(same.status).toBe(400);
 
-    const missing = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
-      method: "POST",
-      headers: collabHeaders,
-      body: JSON.stringify({ title: "missing", baseBranch: "main", headBranch: "ghost" }),
-    });
-    expect(missing.status).toBe(400);
+      const missing = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+        method: "POST",
+        headers: collabHeaders,
+        body: JSON.stringify({ title: "missing", baseBranch: "main", headBranch: "ghost" }),
+      });
+      expect(missing.status).toBe(400);
 
-    const workPath = path.join(tmpdir(), `sigit-pr-work2-${suffix}-${Math.random().toString(36).slice(2)}`);
-    tmpDirs.push(workPath);
-    await fs.mkdir(workPath, { recursive: true });
-    sh("git init -b unrelated", workPath);
-    sh('git config user.email "test@local"', workPath);
-    sh('git config user.name "Test"', workPath);
-    await fs.writeFile(path.join(workPath, "other.txt"), "x");
-    sh("git add -A && git commit -m \"test: unrelated history\" -q", workPath);
-    sh("git remote add sigit2 " + barePath, workPath);
-    sh("git push sigit2 unrelated -q", workPath);
-    const noMergeBase = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
-      method: "POST",
-      headers: collabHeaders,
-      body: JSON.stringify({ title: "unrelated", baseBranch: "main", headBranch: "unrelated" }),
-    });
-    expect(noMergeBase.status).toBe(400);
+      const workPath = path.join(tmpdir(), `sigit-pr-work2-${suffix}-${Math.random().toString(36).slice(2)}`);
+      tmpDirs.push(workPath);
+      await fs.mkdir(workPath, { recursive: true });
+      sh("git init -b unrelated", workPath);
+      sh('git config user.email "test@local"', workPath);
+      sh('git config user.name "Test"', workPath);
+      await fs.writeFile(path.join(workPath, "other.txt"), "x");
+      sh("git add -A && git commit -m \"test: unrelated history\" -q", workPath);
+      sh("git remote add sigit2 " + barePath, workPath);
+      sh("git push sigit2 unrelated -q", workPath);
+      const noMergeBase = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+        method: "POST",
+        headers: collabHeaders,
+        body: JSON.stringify({ title: "unrelated", baseBranch: "main", headBranch: "unrelated" }),
+      });
+      expect(noMergeBase.status).toBe(400);
 
-    // Missing PR -> 404 (needs view permission, so use the admin session)
-    const missingPr = await pullRequestRoutes.request(`/${projectId}/pull-requests/99`, { headers });
-    expect(missingPr.status).toBe(404);
+      // Missing PR -> 404 (needs view permission, so use the admin session)
+      const missingPr = await pullRequestRoutes.request(`/${projectId}/pull-requests/99`, { headers });
+      expect(missingPr.status).toBe(404);
 
-    // The collab has only push: reading (detail/diff) is denied with 403
-    const noView = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers: collabHeaders });
-    expect(noView.status).toBe(403);
-    const noDiff = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/diff`, { headers: collabHeaders });
-    expect(noDiff.status).toBe(403);
-  });
+      // The collab has only push: reading (detail/diff) is denied with 403
+      const noView = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers: collabHeaders });
+      expect(noView.status).toBe(403);
+      const noDiff = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/diff`, { headers: collabHeaders });
+      expect(noDiff.status).toBe(403);
+    },
+    TEST_TIMEOUT,
+  );
 
   it("marks a conflicting PR as conflict via the trial merge", async () => {
     const projectId = await createProjectRow(`pr-conflict-${suffix}`);

@@ -4,8 +4,10 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
-import { listAllObjects } from "@/modules/storage/objects";
+import { listAllObjects, putObject } from "@/modules/storage/objects";
 import {
+  assertStorageDisconnectAllowed,
+  countStoredLfsObjects,
   createProject,
   createProjectWithConnection,
   getProject,
@@ -13,7 +15,9 @@ import {
   projectHistory,
   projectNameFromRouteParam,
   projectRepoPath,
+  updateProject,
 } from "@/modules/projects/projects";
+import { HttpError } from "@/lib/http-error";
 
 // Integration test: runs against dev DB `sigit` + local MinIO (bucket sigit-test).
 // Push flow uses the real git CLI against the server bare repo (replaces the removed web push).
@@ -196,4 +200,65 @@ describe("projects integration (DB sigit + MinIO + git push)", () => {
     const objects = await listAllObjects(conn, `projects/${project.id}/`);
     expect(objects).toHaveLength(0);
   }, TEST_TIMEOUT);
+
+  it("guards storage disconnect when the project has LFS objects", async () => {
+    const { project } = await createProjectWithConnection({
+      name: `test-disconnect-guard-${suffix}`,
+      connection: storageConnection(`test-conn-disconnect-${suffix}`),
+    });
+    createdProjectIds.push(project.id);
+    createdConnectionIds.push(project.storageConnectionId!);
+    const conn = await getConnection(project.storageConnectionId!);
+    expect(conn).toBeDefined();
+
+    // Seed an LFS object + backup bundle in the user storage.
+    await putObject(conn!, `projects/${project.id}/lfs/${"a".repeat(64)}`, Buffer.from("lfs-content"));
+    await putObject(conn!, `projects/${project.id}/backup.bundle`, Buffer.from("bundle"));
+
+    const count = await countStoredLfsObjects(project, conn!);
+    expect(count).toBe(1);
+
+    // Without confirmation the disconnect is rejected (409 + dedicated code).
+    let rejected = false;
+    try {
+      await assertStorageDisconnectAllowed(project, conn, false);
+    } catch (err) {
+      rejected = true;
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).status).toBe(409);
+      expect((err as HttpError).code).toBe("DISCONNECT_CONFIRMATION_REQUIRED");
+    }
+    expect(rejected).toBe(true);
+
+    // With confirmation the guard passes and the update can proceed.
+    await expectNoThrow(() => assertStorageDisconnectAllowed(project, conn, true));
+    await updateProject(project.id, { storageConnectionId: null, confirmStorageDisconnect: true });
+    const updated = await getProject(project.id);
+    expect(updated?.storageConnectionId).toBeNull();
+  }, TEST_TIMEOUT);
+
+  it("allows storage disconnect without confirmation when there are no LFS objects", async () => {
+    const { project } = await createProjectWithConnection({
+      name: `test-disconnect-empty-${suffix}`,
+      connection: storageConnection(`test-conn-disconnect-empty-${suffix}`),
+    });
+    createdProjectIds.push(project.id);
+    createdConnectionIds.push(project.storageConnectionId!);
+    const conn = await getConnection(project.storageConnectionId!);
+    expect(conn).toBeDefined();
+
+    // No LFS objects: the guard passes without confirm.
+    await expectNoThrow(() => assertStorageDisconnectAllowed(project, conn, false));
+    await updateProject(project.id, { storageConnectionId: null });
+    const updated = await getProject(project.id);
+    expect(updated?.storageConnectionId).toBeNull();
+  }, TEST_TIMEOUT);
 });
+
+async function expectNoThrow(fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    expect(err).toBeUndefined();
+  }
+}
