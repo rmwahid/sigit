@@ -28,9 +28,11 @@ The server stays small, the history stays complete, and the data stays yours.
 
 **Your project. Your storage. Your history.**
 
-### Screenshot
+### Screenshots
 
-_Coming soon - dashboard screenshot._
+| Dashboard | Project page (dark mode) | Login |
+| --- | --- | --- |
+| ![SiGit dashboard with project cards](assets/dashboard.png) | ![Project page with file browser and rendered README](assets/project-page-dark.png) | ![Login page](assets/login.png) |
 
 ### How it works
 
@@ -146,7 +148,7 @@ Updates: `git pull && podman-compose --env-file backend/.env up -d --build` - co
 │   │   ├── routes/      # API routes (OpenAPI)
 │   │   └── db/          # Drizzle schema + migrations
 │   └── tests/
-└── frontend/    # SvelteKit UI: dashboard, history, diff viewer, tokens
+└── frontend/    # SvelteKit UI: dashboard, project pages (Code/History/Activity/Pull Requests/Settings), explore, file browser, diff viewer
     └── src/
         ├── routes/
         └── lib/
@@ -160,16 +162,18 @@ Updates: `git pull && podman-compose --env-file backend/.env up -d --build` - co
 - [x] **Git LFS server** - full batch/upload/download/verify protocol; objects are stored in your storage at `projects/{id}/lfs/{oid}` with SHA-256 verification.
 - [x] **Automatic backups** - every accepted push updates `projects/{id}/backup.bundle` in your storage.
 - [x] **Unique project names** - projects live at `/projects/<name>.git`.
-- [x] **Web UI** - neobrutalism-styled: dashboard cards, project pages with Code/History/Activity/Settings tabs, explore page + user profiles for public projects, diff viewer with per-file collapse, token management.
+- [x] **Web UI** - neobrutalism-styled: dashboard cards, project pages with Code/History/Activity/Pull Requests/Settings tabs, explore page + user profiles for public projects, diff viewer with per-file collapse, token management.
 - [x] **Secrets encrypted at rest** - S3 credentials encrypted with AES-256-GCM; env managed with SOPS.
 - [x] **Project page setup snippet** - one-click copy of the `git remote add` and `git lfs track` commands for each project.
 - [x] **Per-project token scopes** - tokens grant read/write per project; no global tokens. Project pages list which tokens can access them.
 - [x] **Multi-user and permissions** - admin invites users by email (Resend); collaborators get granular per-project permissions (clone, push, LFS, view, history, diff); public projects support anonymous read-only clone.
 - [x] **Docker Compose deployment** - one-command self-hosting: backend, frontend, Postgres, and optional MinIO.
 - [x] **UI restore from backup** - restore a project from its `backup.bundle` in the web UI.
-- [ ] **Webhooks** - push and project events for CI integrations.
 - [x] **Encryption at rest** - transparent server-side encryption (per-project AES-256-GCM keys) for LFS objects and `backup.bundle` in your storage.
-- [ ] **Branch protection and releases** - protected branches, tags, and downloadable release archives.
+- [x] **Branch protection** - per-branch rules (exact match, longest prefix, glob) with required pull requests, required approvals, block force push/deletion, and per-user push/merge whitelists; enforced by the `pre-receive` hook and the merge API. Rules are stored as a shell-parseable snapshot so the hook needs no JSON tooling.
+- [x] **Pull requests** - create/close/reopen PRs between branches, diff preview with conflict detection via a trial merge, comments and reviews (approve / request changes), and merging as a merge commit (`--no-ff`).
+- [ ] **Releases** - tags and downloadable release archives.
+- [ ] **Webhooks** - push and project events for CI integrations.
 - [ ] **SSH authentication** - git and LFS over SSH.
 - [x] **Web-based file browser** - browse files per branch (tree + text file viewer), rendered README (marked), ZIP/TAR.GZ downloads, paginated history and a per-project activity feed. Public projects are browsable anonymously (Code + History tabs).
 
