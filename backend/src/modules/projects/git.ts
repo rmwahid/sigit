@@ -1,18 +1,16 @@
 import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
 import { HOOK_MESSAGES } from "@/constants/lfs-messages";
-import { exec, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
-function repoCwd(repoPath: string) {
-  return { cwd: repoPath };
-}
-
-// Run git WITHOUT a shell: refs and paths are argv, never interpolated strings.
+// Every git invocation in this module goes through execGit: argv-based, no
+// shell. Values that reach git (refs, hashes, paths) can then never be
+// interpreted as shell syntax, and this is also measurably faster on Windows
+// than spawning cmd.exe.
 export function execGit(repoPath: string, args: string[], maxBuffer = 32 * 1024 * 1024) {
   return execFileAsync("git", args, { cwd: repoPath, encoding: "buffer", maxBuffer });
 }
@@ -20,9 +18,9 @@ export function execGit(repoPath: string, args: string[], maxBuffer = 32 * 1024 
 export async function initRepo(repoPath: string, lfsThreshold = DEFAULT_LFS_SIZE_THRESHOLD): Promise<void> {
   await fs.mkdir(repoPath, { recursive: true });
   try {
-    await execAsync("git init --bare -b main", repoCwd(repoPath));
-    await execAsync("git config user.email \"sigit@local\"", repoCwd(repoPath));
-    await execAsync("git config user.name \"SiGit\"", repoCwd(repoPath));
+    await execGit(repoPath, ["init", "--bare", "-b", "main"]);
+    await execGit(repoPath, ["config", "user.email", "sigit@local"]);
+    await execGit(repoPath, ["config", "user.name", "SiGit"]);
   } catch {
     // may already be initialized
   }
@@ -188,12 +186,23 @@ exit 0
   await fs.writeFile(hookPath, script, { mode: 0o755 });
 }
 
+// A commit hash as accepted from a request path. Git accepts abbreviated and
+// full object ids, plus HEAD/ref syntax for rev-parse; only the hex form is
+// allowed here because the hash is a user-supplied route param.
+export function isValidCommitHash(hash: string): boolean {
+  return /^[0-9a-fA-F]{4,64}$/.test(hash);
+}
+
 export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT, offset = 0, ref?: string): Promise<{ hash: string; date: string; message: string; author: string }[]> {
   const format = "%H%x1f%ai%x1f%s%x1f%an%x1e";
-  const refArg = ref ? ` ${ref}` : "";
-  const { stdout } = await execAsync(`git log --pretty=format:"${format}"${refArg} --skip ${offset} -n ${limit}`, repoCwd(repoPath));
-  if (!stdout.trim()) return [];
-  return stdout
+  const args = [`--pretty=format:${format}`, `--skip=${offset}`, `-n`, String(limit)];
+  // A ref is an optional trailing revision argument; it is validated by the
+  // caller (isValidRefName) because git also accepts option-like values here.
+  if (ref) args.push(ref);
+  const { stdout } = await execGit(repoPath, ["log", ...args]);
+  const text = stdout.toString("utf8");
+  if (!text.trim()) return [];
+  return text
     .split("\x1e")
     .filter(Boolean)
     .map((entry) => {
@@ -204,10 +213,8 @@ export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT, of
 
 export async function getDiff(repoPath: string, a?: string, b?: string): Promise<string> {
   const range = a && b ? `${a}..${b}` : a ? await diffRangeForCommit(repoPath, a) : "HEAD";
-  // execFile (no shell) matches execGit and avoids the cmd.exe spawn overhead
-  // that makes every diff a few tens of ms slower on Windows.
-  const { stdout } = await execFileAsync("git", ["diff", range], repoCwd(repoPath));
-  return stdout;
+  const { stdout } = await execGit(repoPath, ["diff", range]);
+  return stdout.toString("utf8");
 }
 
 // Empty tree hash: the diff baseline for root commits (they have no parent,
@@ -216,7 +223,7 @@ const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 async function diffRangeForCommit(repoPath: string, hash: string): Promise<string> {
   try {
-    await execAsync(`git rev-parse --verify "${hash}~1"`, repoCwd(repoPath));
+    await execGit(repoPath, ["rev-parse", "--verify", `${hash}~1`]);
     return `${hash}~1..${hash}`;
   } catch {
     return `${EMPTY_TREE_HASH}..${hash}`;
@@ -226,9 +233,10 @@ async function diffRangeForCommit(repoPath: string, hash: string): Promise<strin
 export async function getCommitFiles(repoPath: string, hash: string): Promise<{ path: string; status: string }[]> {
   // git show (not diff-tree): diff-tree returns empty on bare repos with some
   // Windows git versions; the output format is the same (status\tpath).
-  const { stdout } = await execAsync(`git show --format= --name-status ${hash}`, repoCwd(repoPath));
-  if (!stdout.trim()) return [];
-  return stdout
+  const { stdout } = await execGit(repoPath, ["show", "--format=", "--name-status", hash]);
+  const text = stdout.toString("utf8");
+  if (!text.trim()) return [];
+  return text
     .split("\n")
     .filter(Boolean)
     .map((line) => {
@@ -241,8 +249,8 @@ export async function resolveHead(repoPath: string): Promise<string | null> {
   try {
     // --verify fails (exit != 0) on a repo without commits (unborn HEAD),
     // whereas `git rev-parse HEAD` in newer git returns the string "HEAD".
-    const { stdout } = await execAsync("git rev-parse --verify HEAD", repoCwd(repoPath));
-    return stdout.trim();
+    const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", "HEAD"]);
+    return stdout.toString("utf8").trim();
   } catch {
     return null;
   }

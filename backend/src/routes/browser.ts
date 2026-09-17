@@ -156,6 +156,12 @@ browserRoutes.get("/:id/history", async (c) => {
   const limit = Math.min(Math.max(Number(q.data?.limit) || DEFAULT_HISTORY_LIMIT, 1), MAX_HISTORY_LIMIT);
   const offset = Math.max(Number(q.data?.offset) || 0, 0);
   const ref = q.data?.ref?.trim() || undefined;
+  // The ref becomes a git revision argument, so it must pass the same guard
+  // the tree/blob/archive handlers use (rejects option-like and revision-syntax
+  // values such as "main; rm -rf" or "--upload-pack=...").
+  if (ref !== undefined && !isValidRefName(ref)) {
+    return error(c, 400, ERROR_CODES.BAD_REQUEST, "Invalid ref");
+  }
   try {
     const data = await projectHistory(project.id, limit, offset, ref);
     return c.json({ data });

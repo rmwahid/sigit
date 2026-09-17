@@ -55,3 +55,19 @@ export const BRANCH_PATTERN_MAX_LENGTH = 200;
 export const BRANCH_PATTERN_PATTERN = "^[A-Za-z0-9._/-]+(\\*)?$";
 export const DEFAULT_PROTECTION_RESTRICT_PUSH = false;
 export const MAX_PROTECTION_REQUIRED_APPROVALS = 10;
+
+// Rate limiting (lib/rate-limit.ts): fixed window per client identity.
+// Window is 15 minutes; each rule sets its own attempt budget.
+export const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+// Login attempts per IP per window (argon2id makes each attempt expensive, so
+// this is generous enough for a person mistyping and tight enough to stop
+// scripted guessing).
+export const RATE_LIMIT_LOGIN_MAX = 10;
+// Invite acceptance per IP per window (public endpoint that creates an account).
+export const RATE_LIMIT_INVITE_ACCEPT_MAX = 10;
+// Password-verifying session endpoints (revoke-all, change-password): these
+// need a valid session already, so the budget only guards password probing.
+export const RATE_LIMIT_PASSWORD_MAX = 10;
+// Git/LFS token auth per IP per window: git clients retry, and a legitimate
+// clone can issue several requests, so the budget is higher than for login.
+export const RATE_LIMIT_GIT_TOKEN_MAX = 100;

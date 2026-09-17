@@ -1,4 +1,6 @@
 # Build context hygiene: only source + manifests enter the Docker build.
+# Every env file variant is excluded so no plaintext secret can be baked into
+# an image layer (the deployment reads its values from the environment).
 .git
 .repowise
 node_modules
@@ -6,11 +8,15 @@ node_modules
 backend/dist
 backend/data
 backend/.env
+backend/.env.*
 backend/.env.sops
 backend/tests
 frontend/.svelte-kit
 frontend/build
 frontend/.env
+frontend/.env.*
 frontend/tests
+.env
+.env.*
 *.log
 .sops.yaml

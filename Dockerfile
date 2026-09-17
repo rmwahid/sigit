@@ -54,4 +54,11 @@ RUN bun run build
 FROM caddy:2-alpine AS frontend
 COPY frontend/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /app/frontend/build /usr/share/caddy
+# Run unprivileged like the backend. The official image ships no non-root user
+# and its caddy binary carries cap_net_bind_service=ep (verified on
+# caddy:2-alpine), so an unprivileged process can still bind 80/443.
+RUN addgroup -S -g 10002 sigit \
+  && adduser -S -u 10002 -G sigit sigit \
+  && chown -R sigit:sigit /usr/share/caddy /etc/caddy /config /data
+USER sigit
 EXPOSE 80 443

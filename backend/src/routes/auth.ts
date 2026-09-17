@@ -1,4 +1,4 @@
-import { MIN_PASSWORD_LENGTH } from "@/constants/limits";
+import { MIN_PASSWORD_LENGTH, RATE_LIMIT_INVITE_ACCEPT_MAX, RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_PASSWORD_MAX } from "@/constants/limits";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -8,7 +8,8 @@ import { ROLE_SLUGS } from "@/constants/roles";
 import { requireUser, type AuthEnv } from "@/middleware/auth";
 import { env } from "@/config/env";
 import { acceptInvitation, validateInvitation } from "@/modules/auth/invitations";
-import { audit } from "@/lib/logger";
+import { audit, log } from "@/lib/logger";
+import { clientIdentity, consumeRateLimit, resetRateLimit, type RateLimitRule } from "@/lib/rate-limit";
 import { errorSchema, messageSchema } from "./schemas/common";
 import {
   createSession,
@@ -23,6 +24,44 @@ import {
 } from "@/modules/auth/auth";
 
 const SECURE_COOKIE = env.NODE_ENV === "production";
+
+// Whether the session cookie must carry Secure. Fails CLOSED: the cookie is
+// only allowed without Secure when the request is a plain-HTTP loopback
+// request in a non-production process (local dev on http://localhost:5173),
+// which is the one case where a Secure cookie would simply not be stored. Any
+// other plain-HTTP request - e.g. a bare-metal deployment that forgot to set
+// NODE_ENV=production, or a reverse proxy that terminates TLS - is treated as
+// secure so the session cannot travel in cleartext.
+export function isSecureRequest(c: Parameters<typeof requireUser>[0]): boolean {
+  const url = new URL(c.req.url);
+  if (url.protocol === "https:") return true;
+  if (c.req.header("x-forwarded-proto")?.split(",")[0]?.trim() === "https") return true;
+  const host = url.hostname;
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+  if (!SECURE_COOKIE && loopback) return false;
+  return true;
+}
+
+// Credential-guessing budgets. Keyed per client address: reaching them returns
+// 429 with Retry-After instead of continuing to spend argon2id work.
+const LOGIN_RULE: RateLimitRule = { name: "auth.login", max: RATE_LIMIT_LOGIN_MAX };
+const INVITE_ACCEPT_RULE: RateLimitRule = { name: "auth.invite_accept", max: RATE_LIMIT_INVITE_ACCEPT_MAX };
+const PASSWORD_RULE: RateLimitRule = { name: "auth.password", max: RATE_LIMIT_PASSWORD_MAX };
+
+// Returns a 429 response when the budget for this identity is exhausted.
+// Failed attempts are audited so the admin log view surfaces brute force.
+function checkRateLimit(c: Parameters<typeof requireUser>[0], rule: RateLimitRule): Response | null {
+  const identity = clientIdentity(c.req.raw.headers);
+  const result = consumeRateLimit(rule, identity);
+  if (result.allowed) return null;
+  log.warn("auth", "rate limit exceeded", { rule: rule.name, identity });
+  audit(AUDIT_EVENTS.AUTH_RATE_LIMITED, { rule: rule.name, identity });
+  c.header("Retry-After", String(result.retryAfterSeconds));
+  return c.json(
+    { error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many attempts. Try again later." } },
+    429
+  );
+}
 
 const loginSchema = z.object({
   email: z.string().email().openapi({ example: "admin@sigit.dev" }),
@@ -90,17 +129,31 @@ authRoutes.openapi(
         description: "Invalid credentials",
         content: { "application/json": { schema: errorSchema } },
       },
+      429: {
+        description: "Too many attempts",
+        content: { "application/json": { schema: errorSchema } },
+      },
     },
   }),
   async (c) => {
+    const limited = checkRateLimit(c, LOGIN_RULE);
+    if (limited) return limited as never;
     const { email, password } = c.req.valid("json");
     const user = await getUserByEmail(email);
-    if (!user) return c.json({ error: { code: ERROR_CODES.INVALID_CREDENTIALS, message: "Invalid credentials" } }, 401);
+    if (!user) {
+      audit(AUDIT_EVENTS.AUTH_LOGIN_FAILED, { email, reason: "unknown_email" });
+      return c.json({ error: { code: ERROR_CODES.INVALID_CREDENTIALS, message: "Invalid credentials" } }, 401);
+    }
     const ok = await verifyPassword(password, user.passwordHash);
-    if (!ok) return c.json({ error: { code: ERROR_CODES.INVALID_CREDENTIALS, message: "Invalid credentials" } }, 401);
+    if (!ok) {
+      audit(AUDIT_EVENTS.AUTH_LOGIN_FAILED, { email, reason: "bad_password" });
+      return c.json({ error: { code: ERROR_CODES.INVALID_CREDENTIALS, message: "Invalid credentials" } }, 401);
+    }
 
     const { token } = await createSession(user.id);
-    c.header("Set-Cookie", sessionCookie(token, SESSION_MAX_AGE_SECONDS, SECURE_COOKIE));
+    // Successful login clears the window so a mistyping user is not throttled.
+    resetRateLimit(LOGIN_RULE, clientIdentity(c.req.raw.headers));
+    c.header("Set-Cookie", sessionCookie(token, SESSION_MAX_AGE_SECONDS, isSecureRequest(c)));
     audit(AUDIT_EVENTS.AUTH_LOGIN, { userId: user.id, email: user.email });
     return c.json({ data: { id: user.id, email: user.email, role: user.role } });
   }
@@ -122,7 +175,7 @@ authRoutes.openapi(
   async (c) => {
     const token = getSessionTokenFromCookie(c.req.header("Cookie"));
     if (token) await deleteSession(token);
-    c.header("Set-Cookie", sessionCookie("", 0, SECURE_COOKIE));
+    c.header("Set-Cookie", sessionCookie("", 0, isSecureRequest(c)));
     audit(AUDIT_EVENTS.AUTH_LOGOUT, {});
     return c.json({ message: "Logged out" });
   }
@@ -149,6 +202,8 @@ authRoutes.openapi(
     },
   }),
   async (c) => {
+    const limited = checkRateLimit(c, PASSWORD_RULE);
+    if (limited) return limited as never;
     const { password } = c.req.valid("json");
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
@@ -183,6 +238,8 @@ authRoutes.openapi(
     },
   }),
   async (c) => {
+    const limited = checkRateLimit(c, PASSWORD_RULE);
+    if (limited) return limited as never;
     const { currentPassword, newPassword } = c.req.valid("json");
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
@@ -257,6 +314,8 @@ authRoutes.openapi(
     },
   }),
   async (c) => {
+    const limited = checkRateLimit(c, INVITE_ACCEPT_RULE);
+    if (limited) return limited as never;
     const { token, password } = c.req.valid("json");
     let accepted;
     try {
@@ -267,7 +326,7 @@ authRoutes.openapi(
       return c.json({ error: { code, message } }, code === "EMAIL_TAKEN" ? 400 : 404) as never;
     }
     const session = await createSession(accepted.id);
-    c.header("Set-Cookie", sessionCookie(session.token, SESSION_MAX_AGE_SECONDS, SECURE_COOKIE));
+    c.header("Set-Cookie", sessionCookie(session.token, SESSION_MAX_AGE_SECONDS, isSecureRequest(c)));
     audit(AUDIT_EVENTS.AUTH_INVITE_ACCEPT, { userId: accepted.id, email: accepted.email, role: accepted.role });
     return c.json({ data: { id: accepted.id, email: accepted.email, role: accepted.role } });
   }

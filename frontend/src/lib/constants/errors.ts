@@ -19,6 +19,7 @@ export const ERROR_CODES = {
   BRANCH_EXISTS: "BRANCH_EXISTS",
   INVALID_BRANCH_NAME: "INVALID_BRANCH_NAME",
   CONFLICT: "CONFLICT",
+  RATE_LIMITED: "RATE_LIMITED",
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

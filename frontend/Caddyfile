@@ -4,6 +4,21 @@
 {$SITE_SCHEME:http}://{$SITE_ADDRESS:localhost} {
 	encode zstd gzip
 
+	# Security headers for every response (the API sets its own via Hono
+	# secureHeaders; the static SPA would otherwise be served without any).
+	# CSP: scripts are same-origin only (no inline script in the built app),
+	# styles allow inline for Svelte/component styles, images allow data: URIs
+	# used by the chart components, and connect-src stays same-origin.
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		# HSTS only makes sense when the site is actually served over HTTPS.
+		#{$SITE_SCHEME}HSTS "max-age=31536000; includeSubDomains"
+	}
+
 	# git smart HTTP + LFS: /projects/<name>.git/... goes straight to the backend
 	# (the SPA only owns /projects/<uuid> UI pages, which have no .git suffix).
 	@git path_regexp git ^/projects/[^/]+\.git(?:/|$)

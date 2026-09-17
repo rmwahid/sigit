@@ -2,9 +2,9 @@ import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from "@/constants/limits";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/config/db";
-import { getCommitFiles, getDiff } from "@/modules/projects/git";
+import { getCommitFiles, getDiff, isValidCommitHash } from "@/modules/projects/git";
 import { backupProject, restoreProject, assertBundleNotBehindLocal } from "@/modules/projects/backup";
 import { getConnection } from "@/modules/storage/connections";
 import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
@@ -312,6 +312,12 @@ projectRoutes.openapi(
     if (guard instanceof Response) return guard as never;
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
+    // The hash becomes a git revision argument (diff and show), so only the
+    // object-id form is accepted: ref syntax, option-like values and anything
+    // with shell or path meaning are rejected here.
+    if (!isValidCommitHash(hash)) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Invalid commit hash" } }, 400) as never;
+    }
     const repoPath = projectRepoPath(project.id);
     const diff = await getDiff(repoPath, hash);
     const files = await getCommitFiles(repoPath, hash);
@@ -483,8 +489,12 @@ projectRoutes.openapi(
     if (!target || target.role === ADMIN_ROLE) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "User not found or is an admin" } }, 400) as never;
     }
-    // Upsert: replace any existing collaborator row for this user.
-    await db.delete(projectCollaborators).where(eq(projectCollaborators.userId, userId));
+    // Upsert: replace any existing collaborator row for this user ON THIS
+    // PROJECT only. Scoped by projectId so memberships in other projects are
+    // left untouched.
+    await db
+      .delete(projectCollaborators)
+      .where(and(eq(projectCollaborators.projectId, id), eq(projectCollaborators.userId, userId)));
     const rows = await db
       .insert(projectCollaborators)
       .values({ projectId: id, userId, permissions: normalizePermissions(permissions) })
@@ -531,10 +541,12 @@ projectRoutes.openapi(
     if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const { id, userId } = c.req.valid("param");
     const { permissions } = c.req.valid("json");
+    // Scoped by projectId AND userId: a collaborator row is per project, so
+    // updating one project must never touch the user's other memberships.
     const rows = await db
       .update(projectCollaborators)
       .set({ permissions: normalizePermissions(permissions) })
-      .where(eq(projectCollaborators.userId, userId))
+      .where(and(eq(projectCollaborators.projectId, id), eq(projectCollaborators.userId, userId)))
       .returning();
     const row = rows[0];
     if (!row) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
@@ -566,13 +578,14 @@ projectRoutes.openapi(
   async (c) => {
     const admin = await requireAdmin(c);
     if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
-    const { userId } = c.req.valid("param");
+    const { id, userId } = c.req.valid("param");
+    // Scoped by projectId AND userId (see the update handler).
     const rows = await db
       .delete(projectCollaborators)
-      .where(eq(projectCollaborators.userId, userId))
+      .where(and(eq(projectCollaborators.projectId, id), eq(projectCollaborators.userId, userId)))
       .returning();
     if (rows.length === 0) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;
-    audit(AUDIT_EVENTS.PROJECT_COLLABORATOR_REMOVE, { userId, by: admin.email });
+    audit(AUDIT_EVENTS.PROJECT_COLLABORATOR_REMOVE, { projectId: id, userId, by: admin.email });
     return c.json({ message: "Removed" });
   }
 );

@@ -3,6 +3,7 @@ import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { decryptSecret, encryptSecret, maskSecret } from "@/lib/secret-encryption";
 import { audit } from "@/lib/logger";
+import { requireAdmin, type AuthEnv } from "@/middleware/auth";
 import { errorSchema, idParamSchema, idResponse } from "./schemas/common";
 import {
   createConnectionFromInput,
@@ -29,6 +30,16 @@ import {
   prefixQuerySchema,
 } from "./schemas/storage";
 
+// The whole storage surface is ADMIN ONLY. A connection row carries the
+// endpoint, the access key id and the (masked) secret for an entire bucket,
+// and the object routes take a raw bucket key, so without a check any
+// authenticated collaborator could enumerate and delete every project's LFS
+// objects and backup bundles. Collaborators reach storage exclusively through
+// their own project's git/LFS endpoints (auth enforced per project there).
+// Guarded in every handler because requireAdmin is a helper that takes the
+// context (the `authed` wrapper was removed, see middleware/auth.ts).
+const ADMIN_ONLY = { code: ERROR_CODES.FORBIDDEN, message: "Admin only" };
+
 function toConnectionResponse(conn: StorageConnection) {
   const secret = decryptSecret({ keyId: conn.encryptionKeyId, ciphertext: conn.secretEncrypted });
   return {
@@ -48,7 +59,7 @@ function toConnectionResponse(conn: StorageConnection) {
   };
 }
 
-export const storageRoutes = new OpenAPIHono();
+export const storageRoutes = new OpenAPIHono<AuthEnv>();
 
 storageRoutes.openapi(
   createRoute({
@@ -64,6 +75,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const connections = await listConnections();
     return c.json({ data: connections.map(toConnectionResponse) });
   }
@@ -86,6 +99,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const body = c.req.valid("json");
     const connection = await createConnectionFromInput(body);
     audit(AUDIT_EVENTS.STORAGE_CREATE_CONNECTION, { connectionId: connection.id, name: connection.name, bucket: connection.bucket });
@@ -112,6 +127,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
     if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
@@ -141,6 +158,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
     const updateData: Record<string, unknown> = { ...body };
@@ -175,6 +194,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id } = c.req.valid("param");
     const deleted = await deleteConnection(id);
     if (!deleted) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
@@ -202,6 +223,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id } = c.req.valid("param");
     const connection = await getConnection(id);
     if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
@@ -232,6 +255,8 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id } = c.req.valid("param");
     const { prefix } = c.req.valid("query");
     const connection = await getConnection(id);
@@ -260,11 +285,13 @@ storageRoutes.openapi(
     },
   }),
   async (c) => {
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: ADMIN_ONLY }, 403) as never;
     const { id, key } = c.req.valid("param");
     const connection = await getConnection(id);
     if (!connection) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     await deleteObject(connection, key);
-    audit(AUDIT_EVENTS.STORAGE_DELETE_OBJECT, { connectionId: id, key });
+    audit(AUDIT_EVENTS.STORAGE_DELETE_OBJECT, { connectionId: id, key, by: admin.email });
     return c.json({ data: { key } });
   }
 );

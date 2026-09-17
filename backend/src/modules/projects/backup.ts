@@ -1,22 +1,17 @@
 import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 import { ERROR_CODES } from "@/constants/errors";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { getConnection } from "@/modules/storage/connections";
 import { getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { getObject, objectMeta } from "@/modules/storage/objects";
 import { projectRepoPath } from "./projects";
-import { initRepo } from "./git";
+import { execGit, gitErrorMessage, initRepo } from "./git";
 import { HttpError } from "@/lib/http-error";
 import { log } from "@/lib/logger";
-import { gitErrorMessage } from "./git";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Project } from "@/db/schema/projects";
 import type { StorageConnection } from "@/db/schema/storage";
-
-const execAsync = promisify(exec);
 
 // S3 object metadata key that stores the repo HEAD sha the bundle was created
 // from (backupProject). Used by the restore guard to reject restoring a bundle
@@ -31,7 +26,7 @@ export function backupObjectKey(projectId: string): string {
 export async function createBundle(project: Project): Promise<Buffer> {
   const repoPath = projectRepoPath(project.id);
   const tmpFile = path.join(os.tmpdir(), `${project.id}.bundle`);
-  await execAsync(`git bundle create "${tmpFile}" --all`, { cwd: repoPath });
+  await execGit(repoPath, ["bundle", "create", tmpFile, "--all"]);
   const buffer = await fs.readFile(tmpFile);
   await fs.unlink(tmpFile).catch(() => {});
   return buffer;
@@ -40,8 +35,8 @@ export async function createBundle(project: Project): Promise<Buffer> {
 // HEAD sha of the repo (null when the repo has no commits yet).
 async function repoHead(repoPath: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync("git rev-parse --verify HEAD", { cwd: repoPath });
-    return stdout.trim() || null;
+    const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", "HEAD"]);
+    return stdout.toString("utf8").trim() || null;
   } catch {
     return null;
   }
@@ -96,9 +91,10 @@ export async function assertBundleNotBehindLocal(
   const tmpFile = path.join(os.tmpdir(), `${project.id}-guard.bundle`);
   await fs.writeFile(tmpFile, bundle);
   try {
-    const { stdout } = await execAsync(`git bundle list-heads "${tmpFile}"`);
+    const { stdout } = await execGit(path.dirname(tmpFile), ["bundle", "list-heads", tmpFile]);
     const bundleHeads = new Set(
       stdout
+        .toString("utf8")
         .split("\n")
         .map((l) => l.trim().split(/\s+/)[0])
         .filter(Boolean)
@@ -127,7 +123,7 @@ export async function restoreProject(
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
     await fs.mkdir(repoPath, { recursive: true });
-    await execAsync(`git clone "${tmpFile}" .`, { cwd: repoPath });
+    await execGit(repoPath, ["clone", tmpFile, "."]);
     await initRepo(repoPath, project.lfsSizeThreshold);
   } catch (err) {
     log.error("restore", "restoreProject failed", {

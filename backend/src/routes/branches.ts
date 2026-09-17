@@ -7,6 +7,7 @@ import {
   createBranch,
   deleteBranch,
   gitErrorMessage,
+  isValidRefName,
   listBranches,
   resolveBranchRef,
   resolveDefaultBranch,
@@ -106,6 +107,9 @@ branchRoutes.openapi(
     try {
       if (await resolveBranchRef(repo.repoPath, name)) {
         return c.json({ error: { code: ERROR_CODES.BRANCH_EXISTS, message: `Branch "${name}" already exists` } }, 400) as never;
+      }
+      if (fromBranch !== undefined && !isValidRefName(fromBranch)) {
+        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid source ref "${fromBranch}"` } }, 400) as never;
       }
       const fromRef = fromBranch ?? "HEAD";
       await createBranch(repo.repoPath, name, fromRef);

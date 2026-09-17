@@ -6,6 +6,8 @@ export const AUDIT_EVENTS = {
   LFS_DOWNLOAD: "lfs.download",
   LFS_UPLOAD: "lfs.upload",
   AUTH_LOGIN: "auth.login",
+  AUTH_LOGIN_FAILED: "auth.login_failed",
+  AUTH_RATE_LIMITED: "auth.rate_limited",
   AUTH_LOGOUT: "auth.logout",
   AUTH_REVOKE_ALL: "auth.revoke_all",
   AUTH_CHANGE_PASSWORD: "auth.change_password",
