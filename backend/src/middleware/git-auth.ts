@@ -8,7 +8,7 @@ import { BASIC_AUTH_PREFIX } from "@/constants/protocol";
 import { TOKEN_SCOPES } from "@/constants/scopes";
 import { ERROR_CODES } from "@/constants/errors";
 import { RATE_LIMIT_GIT_TOKEN_MAX } from "@/constants/limits";
-import { clientIdentity, consumeRateLimit, type RateLimitRule } from "@/lib/rate-limit";
+import { clientIdentity, throttleRequest, type RateLimitRule } from "@/lib/rate-limit";
 import { audit, log } from "@/lib/logger";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import type { Context } from "hono";
@@ -44,14 +44,13 @@ function anonymousReadAllowed(project: Project | undefined, action: GitAction): 
 // git client retrying a valid token is unaffected.
 function rejectBadToken(c: Context<GitAuthEnv>, projectName: string): Response {
   const identity = clientIdentity(c.req.raw.headers);
-  const result = consumeRateLimit(GIT_TOKEN_RULE, identity);
-  if (result.allowed) {
+  const blocked = throttleRequest(c, GIT_TOKEN_RULE, identity);
+  if (!blocked) {
     return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401);
   }
   log.warn("git", "token auth rate limit exceeded", { identity, project: projectName });
   audit(AUDIT_EVENTS.AUTH_RATE_LIMITED, { rule: GIT_TOKEN_RULE.name, identity, project: projectName });
-  c.header("Retry-After", String(result.retryAfterSeconds));
-  return c.json({ error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many attempts. Try again later." } }, 429);
+  return blocked;
 }
 
 // Auth for the git protocol (smart HTTP + LFS):

@@ -72,6 +72,17 @@ export const RATE_LIMIT_PASSWORD_MAX = 10;
 // clone can issue several requests, so the budget is higher than for login.
 export const RATE_LIMIT_GIT_TOKEN_MAX = 100;
 
+// Read budgets for the unauthenticated browser routes. Each request spawns a git
+// process and the archive route also builds and buffers the whole repository
+// archive, so neither may be replayed without bound on a public project.
+export const RATE_LIMIT_ARCHIVE_MAX = 10;
+export const RATE_LIMIT_HISTORY_MAX = 120;
+// The public profile activity endpoint spawns one git log per public project on
+// every request, so it needs a request budget AND a cap on how many repositories
+// a single request may scan (the cost otherwise grows with the whole install).
+export const RATE_LIMIT_PUBLIC_ACTIVITY_MAX = 30;
+export const MAX_ACTIVITY_PROJECTS = 25;
+
 // Request-body caps. A body must be bounded BEFORE it is buffered and parsed,
 // because the runtime default (~128 MiB) otherwise lets an anonymous caller make
 // the shared process allocate a few hundred megabytes per request.

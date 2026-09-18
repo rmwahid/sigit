@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { listPublicProjects } from "@/modules/auth/access";
 import { projectRepoPath } from "@/modules/projects/projects";
+import { MAX_ACTIVITY_PROJECTS } from "@/constants/limits";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,7 +55,10 @@ export function mergeDayCounts(sources: Map<string, number>[]): Map<string, numb
 // calendar year). Missing or empty repos are skipped, not errors.
 export async function getUserActivity(email: string, now = new Date()): Promise<ActivityDay[]> {
   const since = new Date(now.getFullYear(), 0, 1).toISOString();
-  const publicProjects = await listPublicProjects();
+  // One request costs a git log per repository, so the walk is capped instead of
+  // growing with the install. Past the cap the graph reflects the repositories
+  // the query returns first, which is a sample rather than the full set.
+  const publicProjects = (await listPublicProjects()).slice(0, MAX_ACTIVITY_PROJECTS);
   const perRepo: Map<string, number>[] = [];
   for (const project of publicProjects) {
     const repoPath = projectRepoPath(project.id);

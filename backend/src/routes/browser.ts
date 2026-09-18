@@ -2,7 +2,14 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { optionalAuth, type AuthEnv } from "@/middleware/auth";
 import { ERROR_CODES } from "@/constants/errors";
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, MAX_HISTORY_LIMIT } from "@/constants/limits";
+import {
+  DEFAULT_HISTORY_LIMIT,
+  MAX_FILE_BROWSER_BYTES,
+  MAX_HISTORY_LIMIT,
+  RATE_LIMIT_ARCHIVE_MAX,
+  RATE_LIMIT_HISTORY_MAX,
+} from "@/constants/limits";
+import { throttleRequest, type RateLimitRule } from "@/lib/rate-limit";
 import { ARCHIVE_FORMAT_SLUGS, type ArchiveFormatSlug } from "@/constants/protocol";
 import { PROJECT_PERMISSIONS, type ProjectPermission } from "@/constants/permissions";
 import { getProjectAccess, hasPermission } from "@/modules/auth/access";
@@ -51,6 +58,13 @@ async function guard(c: Context<AuthEnv>, projectId: string, perm: ProjectPermis
   }
   return project;
 }
+
+// Read budgets. Both of these spawn a git process per request and the archive
+// route additionally builds and buffers the whole repository archive, so an
+// anonymous caller on a public project must not be able to replay them without
+// bound. The budgets sit above what browsing a project produces.
+const ARCHIVE_RULE: RateLimitRule = { name: "browser.archive", max: RATE_LIMIT_ARCHIVE_MAX };
+const HISTORY_RULE: RateLimitRule = { name: "browser.history", max: RATE_LIMIT_HISTORY_MAX };
 
 const treeQuerySchema = z.object({ ref: z.string().optional(), path: z.string().optional() });
 
@@ -122,6 +136,8 @@ const archiveQuerySchema = z.object({ ref: z.string().optional(), format: z.stri
 browserRoutes.get("/:id/archive", async (c) => {
   const project = await guard(c, c.req.param("id"));
   if (project instanceof Response) return project;
+  const blocked = throttleRequest(c, ARCHIVE_RULE);
+  if (blocked) return blocked;
   const q = archiveQuerySchema.safeParse(c.req.query());
   if (!q.success) return error(c, 400, ERROR_CODES.BAD_REQUEST, "Invalid query");
   const ref = q.data.ref ?? "HEAD";
@@ -152,6 +168,8 @@ const historyQuerySchema = activityQuerySchema.extend({ ref: z.string().max(255)
 browserRoutes.get("/:id/history", async (c) => {
   const project = await guard(c, c.req.param("id"), PROJECT_PERMISSIONS.HISTORY.slug);
   if (project instanceof Response) return project;
+  const blocked = throttleRequest(c, HISTORY_RULE);
+  if (blocked) return blocked;
   const q = historyQuerySchema.safeParse(c.req.query());
   const limit = Math.min(Math.max(Number(q.data?.limit) || DEFAULT_HISTORY_LIMIT, 1), MAX_HISTORY_LIMIT);
   const offset = Math.max(Number(q.data?.offset) || 0, 0);

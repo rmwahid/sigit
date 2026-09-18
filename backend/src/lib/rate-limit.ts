@@ -1,9 +1,13 @@
-// In-memory rate limiter for the unauthenticated credential surfaces (login,
-// invite accept, password verification) and the git token Basic-auth path.
+// In-memory rate limiter. It guards the unauthenticated credential surfaces
+// (login, invite accept, password verification), the git token Basic-auth path,
+// and the unauthenticated read routes that spawn git work (archive, history,
+// public activity), so none of them can be replayed without bound.
 // Process-local by design: a single SiGit instance is the deployment model
 // (compose runs one backend), and the ring-buffer logger already accepts
 // in-memory state for observability. Fixed window counters keep it tiny and
 // allocation-free per request.
+import type { Context } from "hono";
+import { ERROR_CODES } from "@/constants/errors";
 import { RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
 
 export type RateLimitRule = {
@@ -63,6 +67,17 @@ export function resetAllRateLimits(): void {
 // Number of tracked buckets (used by tests to assert eviction/reuse).
 export function rateLimitBucketCount(): number {
   return buckets.size;
+}
+
+// Records one attempt for this client and returns a 429 response when the budget
+// is exhausted, otherwise null. Every throttled surface shares this helper so the
+// response shape cannot drift between them; callers keep their own logging and
+// audit so each surface stays observable.
+export function throttleRequest(c: Context, rule: RateLimitRule, identity = clientIdentity(c.req.raw.headers)): Response | null {
+  const result = consumeRateLimit(rule, identity);
+  if (result.allowed) return null;
+  c.header("Retry-After", String(result.retryAfterSeconds));
+  return c.json({ error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many requests. Try again later." } }, 429);
 }
 
 // Client identity for rate limiting: the forwarded client address when a

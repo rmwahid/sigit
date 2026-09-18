@@ -7,7 +7,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
 import { projectCollaborators, users } from "@/db/schema/auth";
-import { MAX_FILE_BROWSER_BYTES } from "@/constants/limits";
+import { MAX_FILE_BROWSER_BYTES, RATE_LIMIT_ARCHIVE_MAX } from "@/constants/limits";
+import { ERROR_CODES } from "@/constants/errors";
 import { SESSION_COOKIE } from "@/constants/protocol";
 import {
   archive,
@@ -184,6 +185,35 @@ describe("browser routes access rules", () => {
     const body = (await publicRes.json()) as { data: { branches: string[]; head: string | null } };
     expect(Array.isArray(body.data.branches)).toBe(true);
     expect(body.data.head).toBeNull();
+  });
+
+  it("anonymous: the archive budget is enforced per client identity", async () => {
+    const pub = await createProjectRow(`browser-throttle-${suffix}`, true);
+    await initRepo(projectRepoPath(pub));
+    await seedRepo(projectRepoPath(pub), { "hello.txt": "hi" });
+    // The bucket key is the forwarded address, so this test picks its own
+    // identity and stays independent of other test files sharing the process.
+    const identity = { "x-forwarded-for": "198.51.100.77" };
+
+    // The limiter is process-global module state and another test file resets it
+    // between its own cases, so allow for an occasional reset instead of
+    // asserting the exact request index: keep asking until the budget bites.
+    let blocked: Response | null = null;
+    for (let i = 0; i < RATE_LIMIT_ARCHIVE_MAX * 3 && !blocked; i++) {
+      const res = await browserRoutes.request(`/${pub}/archive?format=zip`, { headers: identity });
+      if (res.status === 429) blocked = res;
+      else expect(res.status).toBe(200);
+    }
+    expect(blocked).not.toBeNull();
+    expect((blocked as unknown as Response).headers.get("Retry-After")).toBeTruthy();
+    const body = (await (blocked as unknown as Response).json()) as { error: { code: string } };
+    expect(body.error.code).toBe(ERROR_CODES.RATE_LIMITED);
+
+    // A different identity is unaffected: one caller cannot exhaust another's budget.
+    const other = await browserRoutes.request(`/${pub}/archive?format=zip`, {
+      headers: { "x-forwarded-for": "198.51.100.78" },
+    });
+    expect(other.status).toBe(200);
   });
 
   it("anonymous: activity is 401 even on public projects", async () => {
