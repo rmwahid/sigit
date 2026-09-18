@@ -7,7 +7,7 @@ import { sha256 } from "@/lib/hash";
 import { parseCgiHeaders, backupWithRetry } from "@/modules/git/server";
 import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
 import { objectMeta } from "@/modules/storage/objects";
-import { createProject, hardDeleteProject } from "@/modules/projects/projects";
+import { createProject, hardDeleteProject, updateProject } from "@/modules/projects/projects";
 import { backupObjectKey } from "@/modules/projects/backup";
 import { createUser, deleteUser } from "@/modules/auth/auth";
 import { ADMIN_ROLE } from "@/constants/roles";
@@ -360,4 +360,79 @@ describe("auto backup after real push over HTTP (MinIO)", () => {
       await deleteUser(id).catch(() => undefined);
     }
   });
+});
+
+// Regression: a git child that exits without draining its body must not take the
+// server process down. http-backend answers 415 to a POST that carries no service
+// content type and exits without reading stdin, so the still-outstanding write
+// fails on the request-body stream. While that stream error was unhandled it
+// terminated the whole backend, which one anonymous request was enough to do.
+describe("git request body errors (no child crash)", () => {
+  const suffix = `epipe-${Date.now().toString(36)}`;
+
+  it("survives a POST whose git child exits before reading the body", async () => {
+    const connection = await createConnectionFromInput({
+      name: `epipe-conn-${suffix}`,
+      endpoint: "http://127.0.0.1:9000",
+      region: "us-east-1",
+      accessKeyId: "minioadmin",
+      secretAccessKey: "minioadmin",
+      bucket: "sigit-test",
+      forcePathStyle: true,
+    });
+    createdConnectionIds.push(connection.id);
+    const project = await createProject({ name: `epipe-${suffix}`, storageConnectionId: connection.id });
+    createdProjectIds.push(project.id);
+    // Anonymous git access is only granted on a public project.
+    await updateProject(project.id, { isPublic: true });
+
+    const PORT = 3978;
+    const base = `http://127.0.0.1:${PORT}`;
+    const server = Bun.spawn(["bun", "run", "src/index.ts"], {
+      env: { ...process.env, PORT: String(PORT) },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      let up = false;
+      for (let i = 0; i < 50 && !up; i++) {
+        try {
+          const r = await fetch(`${base}/app-info`, { signal: AbortSignal.timeout(1500) });
+          up = r.ok;
+        } catch {
+          // not up yet
+        }
+        if (!up) await Bun.sleep(300);
+      }
+      expect(up).toBe(true);
+
+      // A body far larger than the pipe buffer, with no service content type:
+      // git answers 4xx and exits instead of draining it.
+      const res = await fetch(`${base}/projects/${project.name}.git/git-upload-pack`, {
+        method: "POST",
+        body: new Uint8Array(512 * 1024),
+        signal: AbortSignal.timeout(20000),
+      });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+
+      // The body-stream failure lands after the response was written, so give it
+      // a moment before probing (a crash is asynchronous).
+      await Bun.sleep(1500);
+
+      let alive = false;
+      for (let i = 0; i < 20 && !alive; i++) {
+        try {
+          const r = await fetch(`${base}/app-info`, { signal: AbortSignal.timeout(1500) });
+          alive = r.ok;
+        } catch {
+          // process gone
+        }
+        if (!alive) await Bun.sleep(250);
+      }
+      expect(alive).toBe(true);
+    } finally {
+      server.kill();
+      spawnSync("taskkill", ["/F", "/T", "/PID", String(server.pid)], { stdio: "ignore" });
+    }
+  }, TEST_TIMEOUT);
 });
