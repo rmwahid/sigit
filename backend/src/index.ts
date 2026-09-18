@@ -1,7 +1,9 @@
 import { ERROR_CODES } from "./constants/errors";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
+import { MAX_AUTH_BODY_BYTES } from "./constants/limits";
 import { apiReference } from "@scalar/hono-api-reference";
 import { env } from "./config/env";
 import { appInfoRoutes } from "./routes/app-info";
@@ -95,6 +97,17 @@ app.get("/", (c) => c.json({ message: "SiGit API" }));
 // Public app info (git base url for setup snippets), before the requireAuth block
 app.route("/app-info", appInfoRoutes);
 app.route("/explore", exploreRoutes);
+
+// /auth is unauthenticated, so its body must be capped BEFORE the route reads
+// and parses it: the handler-side schemas only bound the values after the whole
+// body has already been buffered in the shared process.
+app.use(
+  "/auth/*",
+  bodyLimit({
+    maxSize: MAX_AUTH_BODY_BYTES,
+    onError: (c) => c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Request body too large" } }, 413),
+  })
+);
 
 app.route("/auth", authRoutes);
 

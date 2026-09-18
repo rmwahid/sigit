@@ -125,10 +125,23 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
 
   const child = spawn("git", ["http-backend"], { env });
 
+  // A git child can exit before it drains the body: http-backend answers 415 to
+  // a POST without the service content type and 404 for an unknown service,
+  // both without reading stdin. The outstanding write then fails with EPIPE,
+  // and an unhandled error event on child.stdin takes the whole server process
+  // down with it. Both directions of the pipe get an error path.
+  child.on("error", (err) => {
+    log.error("git", "git child failed", { projectId: project.id, error: err.message });
+  });
+  child.stdin.on("error", (err) => {
+    log.warn("git", "git child stdin closed early", { projectId: project.id, error: err.message });
+  });
+
   // Request body -> child stdin (the git client sends the packfile for receive-pack)
   const reqBody = c.req.raw.body;
   if (reqBody) {
     const nodeStream = Readable.fromWeb(reqBody as unknown as import("node:stream/web").ReadableStream);
+    nodeStream.on("error", () => child.stdin.destroy());
     nodeStream.pipe(child.stdin);
   } else {
     child.stdin.end();

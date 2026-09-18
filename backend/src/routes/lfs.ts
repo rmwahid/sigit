@@ -5,7 +5,7 @@ import { getProjectByName, projectNameFromRouteParam } from "@/modules/projects/
 import { getConnection } from "@/modules/storage/connections";
 import { scopeAllows, scopeForLfsOperation } from "@/modules/auth/scopes";
 import { log } from "@/lib/logger";
-import { MAX_LFS_BATCH_OBJECTS, MAX_LFS_OBJECT_BYTES } from "@/constants/limits";
+import { MAX_LFS_BATCH_OBJECTS, MAX_LFS_OBJECT_BYTES, MAX_LFS_REQUEST_BYTES } from "@/constants/limits";
 import { LFS_MESSAGES } from "@/constants/lfs-messages";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -72,11 +72,15 @@ async function guard(c: Context, fn: () => Promise<Response>): Promise<Response>
 lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async (c) => {
   const name = projectNameFromRouteParam(c.req.param("name"));
   return guard(c, async () => {
-    const body = await c.req.json().catch(() => null);
+    const body = (await readJsonWithLimit(c, MAX_LFS_REQUEST_BYTES)) as {
+      operation?: unknown;
+      objects?: unknown;
+      transfers?: unknown;
+    } | null;
     if (!body || (body.operation !== "download" && body.operation !== "upload") || !Array.isArray(body.objects)) {
       throw new LfsError(422, "Invalid batch request");
     }
-    const objects: LfsObject[] = body.objects;
+    const objects = body.objects as LfsObject[];
     if (objects.length === 0 || objects.length > MAX_LFS_BATCH_OBJECTS || !objects.every(isValidBatchObject)) {
       throw new LfsError(422, "Invalid batch objects");
     }
@@ -111,9 +115,14 @@ lfsRoutes.get("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
     const project = await loadProject(name);
     const connection = await loadConnection(project);
-    const content = await downloadObject(project, connection, oid);
-    if (!content) throw new LfsError(404, "Object does not exist");
-    return new Response(new Uint8Array(content), { headers: { "Content-Type": CONTENT_TYPE_OCTET_STREAM } });
+    const result = await downloadObject(project, connection, oid);
+    if (!result.ok) {
+      if (result.reason === "too_large") {
+        throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+      }
+      throw new LfsError(404, "Object does not exist");
+    }
+    return new Response(new Uint8Array(result.content), { headers: { "Content-Type": CONTENT_TYPE_OCTET_STREAM } });
   });
 });
 
@@ -146,10 +155,17 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/:oid/verify", requireGitToken, 
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
-    const body = await c.req.json().catch(() => null);
+    const body = (await readJsonWithLimit(c, MAX_LFS_REQUEST_BYTES)) as { oid?: unknown; size?: unknown } | null;
     const size = typeof body?.size === "number" && Number.isInteger(body.size) ? body.size : -1;
     if (size < 0 || body?.oid !== oid) throw new LfsError(422, "Invalid verify request");
     const project = await loadProject(name);
+    // Verify is part of the upload flow and can act on stored content, so it
+    // needs the same write authority as the upload it verifies: a read-scoped
+    // token, a read-only collaborator or an anonymous caller must not reach it.
+    const required = scopeForLfsOperation("upload");
+    if (!scopeAllows(c.get("tokenScope"), required)) {
+      throw new LfsError(403, `Token requires "${required}" scope for verify`);
+    }
     const connection = await loadConnection(project);
     const result = await verifyObject(project, connection, oid, size);
     if (!result.ok) {
@@ -168,6 +184,22 @@ function isValidBatchObject(obj: unknown): obj is LfsObject {
     Number.isInteger(o.size) &&
     o.size >= 0
   );
+}
+
+// Reads and parses a JSON body with a byte cap. An oversized body is refused
+// before it is buffered and parsed, so an anonymous caller cannot make the
+// shared process allocate hundreds of megabytes. The declared length is only a
+// hint; readBodyWithLimit enforces the real limit while streaming.
+async function readJsonWithLimit(c: Context, maxBytes: number): Promise<unknown> {
+  const declared = Number(c.req.header("Content-Length") ?? "0");
+  if (declared > maxBytes) throw new LfsError(413, "Request body too large");
+  const raw = await readBodyWithLimit(c, maxBytes);
+  if (raw === null) throw new LfsError(413, "Request body too large");
+  try {
+    return JSON.parse(raw.toString("utf8"));
+  } catch {
+    return null;
+  }
 }
 
 // Streams the request body with a byte limit; returns null when the limit is

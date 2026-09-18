@@ -1,5 +1,6 @@
 import { AUDIT_EVENTS } from "@/constants/audit-events";
-import { deleteObject, objectMeta, objectSize } from "@/modules/storage/objects";
+import { MAX_LFS_OBJECT_BYTES } from "@/constants/limits";
+import { objectMeta, objectSize } from "@/modules/storage/objects";
 import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { audit, log } from "@/lib/logger";
 import { sha256 } from "@/lib/hash";
@@ -88,15 +89,24 @@ export async function buildBatchResponse(opts: BatchOptions): Promise<BatchRespo
   return { transfer: "basic", objects };
 }
 
+export type DownloadResult = { ok: true; content: Buffer } | { ok: false; reason: "missing" | "too_large" };
+
+// Reads a stored object. The size gate uses the same per-object bound the upload
+// route enforces, so an object the server would refuse to accept can never cost
+// more than that bound to serve. The size comes from the plaintext metadata
+// written by putEncrypted; the ciphertext ContentLength is 28 bytes larger.
 export async function downloadObject(
   project: Project,
   connection: StorageConnection,
   oid: string
-): Promise<Buffer | null> {
+): Promise<DownloadResult> {
   const key = lfsObjectKey(project.id, oid);
-  if ((await objectSize(connection, key)) === null) return null;
-  audit(AUDIT_EVENTS.LFS_DOWNLOAD, { projectId: project.id, oid });
-  return getDecrypted(project, connection, key);
+  const meta = await objectMeta(connection, key);
+  if (!meta) return { ok: false, reason: "missing" };
+  const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
+  if (plaintextSize > MAX_LFS_OBJECT_BYTES) return { ok: false, reason: "too_large" };
+  audit(AUDIT_EVENTS.LFS_DOWNLOAD, { projectId: project.id, oid, size: plaintextSize });
+  return { ok: true, content: await getDecrypted(project, connection, key) };
 }
 
 // Stores an LFS object: verify the oid first, then putObject (encrypted) to user storage.
@@ -117,7 +127,10 @@ export async function uploadObject(
 // Verify step (spec): object exists AND size matches what the client claimed.
 // The stored size is the plaintext size from metadata (set by putEncrypted);
 // it falls back to ContentLength for legacy plaintext objects.
-// On mismatch the object is deleted so storage does not accumulate garbage.
+// A mismatch means the upload did not complete correctly, so the step reports it
+// and leaves the stored object alone. The declared size is asserted by the
+// caller, and deleting on that basis would let any reader of a project destroy
+// stored content; a genuine orphan is reclaimed by an operator sweep instead.
 export async function verifyObject(
   project: Project,
   connection: StorageConnection,
@@ -131,12 +144,7 @@ export async function verifyObject(
   }
   const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
   if (plaintextSize !== size) {
-    try {
-      await deleteObject(connection, key);
-    } catch (err) {
-      // a wrong object may stay in storage; not a fatal condition
-      log.error("lfs", `failed to delete mismatched object ${key}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    log.warn("lfs", `verify size mismatch for ${key}`, { stored: plaintextSize, declared: size });
     return { ok: false, error: LFS_MESSAGES.SIZE_MISMATCH };
   }
   return { ok: true };
