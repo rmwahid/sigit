@@ -37,9 +37,15 @@ export const TOKEN_NAME_MAX_LENGTH = 100;
 // Lives in constants/limits.ts (not db/schema) because it is a domain rule.
 export const DEFAULT_LFS_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
-// LFS object size cap (2 GiB): PUT route rejects larger bodies and the batch
-// builder omits the upload action.
-export const MAX_LFS_OBJECT_BYTES = 2 * 1024 * 1024 * 1024;
+// LFS object size cap. Matches what the server can actually receive: Bun.serve
+// refuses a request body above its own default ceiling (128 MiB) before any
+// route runs, so the previous 2 GiB advertised a size that could never arrive
+// while letting the download path serve an object that costs ~6x its size in
+// memory. The PUT route rejects larger bodies, the batch builder omits the
+// upload action, and the download route refuses to serve an object above it.
+// Raising this value requires raising the runtime body limit AND the container
+// memory limit in compose.yaml together.
+export const MAX_LFS_OBJECT_BYTES = 128 * 1024 * 1024;
 
 // LFS batch request: max objects per batch (spec-ish sanity cap).
 export const MAX_LFS_BATCH_OBJECTS = 1000;

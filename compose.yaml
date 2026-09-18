@@ -29,6 +29,13 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    # Bound the container so memory pressure from concurrent requests restarts
+    # this one service instead of exhausting the host. Sized against the largest
+    # single legitimate operation: the LFS paths hold roughly six times the
+    # object size until they stream, and MAX_LFS_OBJECT_BYTES caps an object at
+    # 128 MiB, so one request peaks near 768 MB and 2g leaves room for several.
+    # Raise this together with MAX_LFS_OBJECT_BYTES.
+    mem_limit: 2g
     tmpfs:
       - /tmp
     logging:
