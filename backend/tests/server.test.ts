@@ -195,16 +195,17 @@ describe("lfs server object lifecycle (MinIO)", () => {
     const verified = await verifyObject(project, connection, oid, content.length);
     expect(verified.ok).toBe(true);
 
-    // Wrong declared size -> rejected AND the object is garbage-collected.
+    // Wrong declared size -> rejected, and the stored object is left alone: the
+    // declared size is the caller's claim, so it must not delete content.
     const wrongSize = await verifyObject(project, connection, oid, content.length + 1);
     expect(wrongSize.ok).toBe(false);
     expect(wrongSize.error).toBe("size mismatch: stored size != declared size");
 
-    // Re-upload and download: plaintext round-trips through encrypted storage.
-    const again = await uploadObject(project, connection, oid, content);
-    expect(again.ok).toBe(true);
+    // Download after the rejected verify: the object is still there and the
+    // plaintext round-trips through encrypted storage.
     const downloaded = await downloadObject(project, connection, oid);
-    expect(downloaded?.equals(content)).toBe(true);
+    expect(downloaded.ok).toBe(true);
+    expect(downloaded.ok && downloaded.content.equals(content)).toBe(true);
   });
 });
 

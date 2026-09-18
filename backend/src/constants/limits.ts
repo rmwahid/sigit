@@ -71,3 +71,11 @@ export const RATE_LIMIT_PASSWORD_MAX = 10;
 // Git/LFS token auth per IP per window: git clients retry, and a legitimate
 // clone can issue several requests, so the budget is higher than for login.
 export const RATE_LIMIT_GIT_TOKEN_MAX = 100;
+
+// Request-body caps. A body must be bounded BEFORE it is buffered and parsed,
+// because the runtime default (~128 MiB) otherwise lets an anonymous caller make
+// the shared process allocate a few hundred megabytes per request.
+// Auth bodies carry an email, a password and an invite token: a few KB is ample.
+export const MAX_AUTH_BODY_BYTES = 16 * 1024;
+// LFS JSON bodies (batch / verify): a full batch of 1000 objects is ~110 KB.
+export const MAX_LFS_REQUEST_BYTES = 1024 * 1024;
