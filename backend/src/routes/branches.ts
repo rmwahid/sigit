@@ -91,7 +91,7 @@ branchRoutes.openapi(
     summary: "Create a branch from a ref (default HEAD)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: createBranchInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: createBranchInputSchema } } },
     },
     responses: {
       201: { description: "Created branch", content: { "application/json": { schema: createBranchResponseSchema } } },

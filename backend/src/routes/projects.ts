@@ -107,7 +107,7 @@ projectRoutes.openapi(
     tags: ["Projects"],
     summary: "Create a project",
     request: {
-      body: { content: { "application/json": { schema: projectInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectInputSchema } } },
     },
     responses: {
       201: {
@@ -144,7 +144,7 @@ projectRoutes.openapi(
     tags: ["Projects"],
     summary: "Create a project together with a new storage connection",
     request: {
-      body: { content: { "application/json": { schema: projectWithConnectionSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectWithConnectionSchema } } },
     },
     responses: {
       201: {
@@ -221,7 +221,7 @@ projectRoutes.openapi(
     summary: "Update a project",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: projectUpdateSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectUpdateSchema } } },
     },
     responses: {
       200: {
@@ -495,7 +495,7 @@ projectRoutes.openapi(
     summary: "Add a collaborator with permissions (admin only)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: collaboratorInput } } },
+      body: { required: true, content: { "application/json": { schema: collaboratorInput } } },
     },
     responses: {
       201: {
@@ -556,7 +556,7 @@ projectRoutes.openapi(
     summary: "Update collaborator permissions (admin only)",
     request: {
       params: z.object({ id: z.string().uuid(), userId: z.string().uuid() }),
-      body: { content: { "application/json": { schema: collaboratorUpdateInput } } },
+      body: { required: true, content: { "application/json": { schema: collaboratorUpdateInput } } },
     },
     responses: {
       200: {

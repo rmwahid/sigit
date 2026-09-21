@@ -75,7 +75,7 @@ invitationRoutes.openapi(
     tags: ["Invitations"],
     summary: "Invite a user by email (admin only)",
     request: {
-      body: { content: { "application/json": { schema: invitationCreateInput } } },
+      body: { required: true, content: { "application/json": { schema: invitationCreateInput } } },
     },
     responses: {
       201: {

@@ -88,7 +88,7 @@ tokenRoutes.openapi(
     tags: ["Tokens"],
     summary: "Create a git token (shown only once)",
     request: {
-      body: { content: { "application/json": { schema: tokenCreateInput } } },
+      body: { required: true, content: { "application/json": { schema: tokenCreateInput } } },
     },
     responses: {
       201: {

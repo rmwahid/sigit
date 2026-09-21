@@ -138,6 +138,43 @@ describe("branch endpoints", () => {
     expect(await resolveBranchRef(barePath, "feature/x")).toBeNull();
   });
 
+  it("rejects a create body that was never parsed as JSON", async () => {
+    const projectId = await createProjectRow(`branches-body-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const adminId = await createUserRow(`branches-body-${suffix}@sigit.test`, "admin");
+    const { token } = await createSession(adminId);
+
+    // Without a JSON content type the validator used to be skipped, the handler
+    // read `name` off an empty object, and the repo gained refs/heads/undefined.
+    const noType = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: cookieHeader(token),
+      body: JSON.stringify({ name: "should/not/exist", fromBranch: "main" }),
+    });
+    expect(noType.status).toBe(400);
+
+    const wrongType = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: new Headers({ Cookie: `${SESSION_COOKIE}=${token}`, "Content-Type": "text/plain" }),
+      body: JSON.stringify({ name: "should/not/exist", fromBranch: "main" }),
+    });
+    expect(wrongType.status).toBe(400);
+
+    expect(await listBranches(barePath)).toEqual(["main"]);
+
+    // The same request with a JSON content type still works.
+    const ok = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ name: "feature/ok", fromBranch: "main" }),
+    });
+    expect(ok.status).toBe(201);
+    expect(await listBranches(barePath)).toContain("feature/ok");
+  });
+
   it("enforces push permission and validation", async () => {
     const projectId = await createProjectRow(`branches-perm-${suffix}`);
     const barePath = projectRepoPath(projectId);

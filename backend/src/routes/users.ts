@@ -53,7 +53,7 @@ userRoutes.openapi(
     summary: "Reset a user password (admin only)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: resetPasswordInput } } },
+      body: { required: true, content: { "application/json": { schema: resetPasswordInput } } },
     },
     responses: {
       200: {

@@ -130,7 +130,7 @@ authRoutes.openapi(
     tags: ["Auth"],
     summary: "Login with email and password",
     request: {
-      body: { content: { "application/json": { schema: loginSchema } } },
+      body: { required: true, content: { "application/json": { schema: loginSchema } } },
     },
     responses: {
       200: {
@@ -206,7 +206,7 @@ authRoutes.openapi(
     tags: ["Auth"],
     summary: "Revoke all sessions (except current) after verifying password",
     request: {
-      body: { content: { "application/json": { schema: passwordSchema } } },
+      body: { required: true, content: { "application/json": { schema: passwordSchema } } },
     },
     responses: {
       200: {
@@ -242,7 +242,7 @@ authRoutes.openapi(
     tags: ["Auth"],
     summary: "Change password and revoke all other sessions",
     request: {
-      body: { content: { "application/json": { schema: changePasswordSchema } } },
+      body: { required: true, content: { "application/json": { schema: changePasswordSchema } } },
     },
     responses: {
       200: {
@@ -313,6 +313,7 @@ authRoutes.openapi(
     summary: "Accept an invitation and set the password (auto-login)",
     request: {
       body: {
+        required: true,
         content: {
           "application/json": {
             schema: z.object({ token: z.string(), password: z.string().min(MIN_PASSWORD_LENGTH) }),

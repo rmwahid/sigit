@@ -151,7 +151,7 @@ branchProtectionRoutes.openapi(
     summary: "Create a branch protection rule (admin only)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: protectionInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: protectionInputSchema } } },
     },
     responses: {
       201: { description: "Created rule", content: { "application/json": { schema: ruleResponse } } },
@@ -204,7 +204,7 @@ branchProtectionRoutes.openapi(
     summary: "Update a branch protection rule (admin only)",
     request: {
       params: idParamSchema.extend({ ruleId: z.string().uuid() }),
-      body: { content: { "application/json": { schema: protectionPatchSchema } } },
+      body: { required: true, content: { "application/json": { schema: protectionPatchSchema } } },
     },
     responses: {
       200: { description: "Updated rule", content: { "application/json": { schema: ruleResponse } } },

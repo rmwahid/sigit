@@ -218,7 +218,7 @@ pullRequestRoutes.openapi(
     path: "/:id/pull-requests",
     tags: ["Pull requests"],
     summary: "Create a pull request (push permission)",
-    request: { params: idParamSchema, body: { content: { "application/json": { schema: prInputSchema } } } },
+    request: { params: idParamSchema, body: { required: true, content: { "application/json": { schema: prInputSchema } } } },
     responses: {
       201: { description: "Created PR", content: { "application/json": { schema: prCreatedResponse } } },
       400: { description: "Invalid PR", content: { "application/json": { schema: errorSchema } } },
@@ -362,7 +362,7 @@ pullRequestRoutes.openapi(
     summary: "Update title/description or status (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prUpdateSchema } } },
+      body: { required: true, content: { "application/json": { schema: prUpdateSchema } } },
     },
     responses: {
       200: { description: "Updated PR", content: { "application/json": { schema: prCreatedResponse } } },
@@ -450,7 +450,7 @@ pullRequestRoutes.openapi(
     summary: "Merge a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prMergeInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prMergeInputSchema } } },
     },
     responses: {
       200: { description: "Merged PR", content: { "application/json": { schema: prCreatedResponse } } },
@@ -587,7 +587,7 @@ pullRequestRoutes.openapi(
     summary: "Add a comment to a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prCommentInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prCommentInputSchema } } },
     },
     responses: {
       201: { description: "Created comment", content: { "application/json": { schema: z.object({ data: prCommentSchema }).openapi("PrCommentResponse") } } },
@@ -651,7 +651,7 @@ pullRequestRoutes.openapi(
     summary: "Submit a review on a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prReviewInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prReviewInputSchema } } },
     },
     responses: {
       201: { description: "Created review", content: { "application/json": { schema: z.object({ data: prReviewSchema }).openapi("PrReviewResponse") } } },
