@@ -121,3 +121,14 @@ export const STORAGE_MAX_SOCKETS = 16;
 // container memory limit. Downloads count against the same gate as uploads
 // because both buffer the object in the shared process.
 export const MAX_LFS_CONCURRENT_TRANSFERS = 4;
+
+// Login attempts are bounded twice: per account (whatever address asks) and per
+// client address (whatever account is asked). The account budget is the one a
+// successful login clears, so a mistyping owner is forgiven while a valid account
+// cannot buy guesses against anybody else; the address budget is never cleared
+// and only stops one address from spraying many accounts.
+export const RATE_LIMIT_LOGIN_ADDRESS_MAX = 50;
+// Buckets kept in the in-process rate limiter. Every distinct identity creates
+// one entry, so the map needs a ceiling of its own: past it, expired entries are
+// swept first and then the entry closest to expiring is dropped.
+export const MAX_RATE_LIMIT_BUCKETS = 10000;

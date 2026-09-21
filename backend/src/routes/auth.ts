@@ -1,4 +1,10 @@
-import { MIN_PASSWORD_LENGTH, RATE_LIMIT_INVITE_ACCEPT_MAX, RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_PASSWORD_MAX } from "@/constants/limits";
+import {
+  MIN_PASSWORD_LENGTH,
+  RATE_LIMIT_INVITE_ACCEPT_MAX,
+  RATE_LIMIT_LOGIN_ADDRESS_MAX,
+  RATE_LIMIT_LOGIN_MAX,
+  RATE_LIMIT_PASSWORD_MAX,
+} from "@/constants/limits";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -42,16 +48,26 @@ export function isSecureRequest(c: Parameters<typeof requireUser>[0]): boolean {
   return true;
 }
 
-// Credential-guessing budgets. Keyed per client address: reaching them returns
-// 429 with Retry-After instead of continuing to spend argon2id work.
+// Credential-guessing budgets. Reaching one returns 429 with Retry-After
+// instead of continuing to spend argon2id work.
+//
+// Login is bounded twice. The account budget (keyed by the email being asked
+// about) is what a successful login clears, so the owner's own typos are
+// forgiven while a holder of any valid account cannot buy guesses against
+// somebody else's. The address budget is a second, never-cleared bound that
+// stops one client from spraying many accounts from one place.
 const LOGIN_RULE: RateLimitRule = { name: "auth.login", max: RATE_LIMIT_LOGIN_MAX };
+const LOGIN_ADDRESS_RULE: RateLimitRule = { name: "auth.login_address", max: RATE_LIMIT_LOGIN_ADDRESS_MAX };
 const INVITE_ACCEPT_RULE: RateLimitRule = { name: "auth.invite_accept", max: RATE_LIMIT_INVITE_ACCEPT_MAX };
 const PASSWORD_RULE: RateLimitRule = { name: "auth.password", max: RATE_LIMIT_PASSWORD_MAX };
 
 // Returns a 429 response when the budget for this identity is exhausted.
 // Failed attempts are audited so the admin log view surfaces brute force.
-function checkRateLimit(c: Parameters<typeof requireUser>[0], rule: RateLimitRule): Response | null {
-  const identity = clientIdentity(c.req.raw.headers);
+function checkRateLimit(
+  c: Parameters<typeof requireUser>[0],
+  rule: RateLimitRule,
+  identity = clientIdentity(c.req.raw.headers)
+): Response | null {
   const blocked = throttleRequest(c, rule, identity);
   if (!blocked) return null;
   log.warn("auth", "rate limit exceeded", { rule: rule.name, identity });
@@ -132,9 +148,12 @@ authRoutes.openapi(
     },
   }),
   async (c) => {
-    const limited = checkRateLimit(c, LOGIN_RULE);
-    if (limited) return limited as never;
     const { email, password } = c.req.valid("json");
+    const accountIdentity = email.trim().toLowerCase();
+    const addressLimited = checkRateLimit(c, LOGIN_ADDRESS_RULE);
+    if (addressLimited) return addressLimited as never;
+    const accountLimited = checkRateLimit(c, LOGIN_RULE, accountIdentity);
+    if (accountLimited) return accountLimited as never;
     const user = await getUserByEmail(email);
     if (!user) {
       audit(AUDIT_EVENTS.AUTH_LOGIN_FAILED, { email, reason: "unknown_email" });
@@ -147,8 +166,11 @@ authRoutes.openapi(
     }
 
     const { token } = await createSession(user.id);
-    // Successful login clears the window so a mistyping user is not throttled.
-    resetRateLimit(LOGIN_RULE, clientIdentity(c.req.raw.headers));
+    // A successful login forgives this account's own failures. The address-wide
+    // budget is deliberately left standing: clearing it let any holder of one
+    // valid account keep guessing other accounts' passwords from the same
+    // address, since every success refilled the shared window.
+    resetRateLimit(LOGIN_RULE, accountIdentity);
     c.header("Set-Cookie", sessionCookie(token, SESSION_MAX_AGE_SECONDS, isSecureRequest(c)));
     audit(AUDIT_EVENTS.AUTH_LOGIN, { userId: user.id, email: user.email });
     return c.json({ data: { id: user.id, email: user.email, role: user.role } });
