@@ -66,6 +66,12 @@ export const LFS_PATTERN_PATTERN = `^${LFS_PATTERN_ELEMENT}( *, *${LFS_PATTERN_E
 export const BRANCH_NAME_MAX_LENGTH = 200;
 export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";
 
+// Longest a git http-backend child may live (modules/git/server.ts). It is a
+// backstop, not a policy: a legitimate clone of a large repository over a slow
+// link is a long transfer, so the value only has to bound a child that would
+// otherwise live until the process restarts.
+export const GIT_CHILD_MAX_LIFETIME_MS = 30 * 60 * 1000;
+
 // Branch protection: pattern that selects the branches a rule applies to.
 // Wildcard is a trailing "*" (git refspec-style), e.g. "feature/*" or "*".
 export const BRANCH_PATTERN_MAX_LENGTH = 200;

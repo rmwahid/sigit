@@ -1,5 +1,6 @@
 import { describe, expect, it, afterAll, mock } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { Readable } from "node:stream";
 import fs from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -126,6 +127,45 @@ describe("git smart http CGI header parsing", () => {
     }
     expect(message).toBe("git http-backend returned no headers");
   });
+
+  it("cancelling the body releases the pipe its child is writing to", async () => {
+    // Stands in for a git child that keeps writing while nobody drains it: it
+    // exits as soon as its stdout goes away, and hangs forever if nothing
+    // cancels the reader that owns the pipe.
+    const scriptPath = path.join(tmpdir(), `sigit-cgi-writer-${Date.now()}.js`);
+    fs.writeFileSync(
+      scriptPath,
+      [
+        'process.stdout.on("error", () => process.exit(0));',
+        'process.stdout.write("Status: 200 OK\\r\\nContent-Type: text/plain\\r\\n\\r\\n");',
+        'const chunk = "x".repeat(65536);',
+        "const write = () => {",
+        '  if (!process.stdout.write(chunk)) process.stdout.once("drain", write);',
+        "  else write();",
+        "};",
+        "write();",
+        "setInterval(() => {}, 1000);",
+      ].join("\n")
+    );
+    const child = spawn(process.execPath, [scriptPath], { stdio: ["ignore", "pipe", "inherit"] });
+    const exited = new Promise<void>((resolve) => child.on("exit", () => resolve()));
+    try {
+      const { body } = await parseCgiHeaders(Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>);
+      const reader = body.getReader();
+      await reader.read();
+      // Abandon the response the way a closed client socket does.
+      await reader.cancel();
+
+      const finished = await Promise.race([
+        exited.then(() => "exited" as const),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 5000)),
+      ]);
+      expect(finished).toBe("exited");
+    } finally {
+      child.kill("SIGKILL");
+      fs.rmSync(scriptPath, { force: true });
+    }
+  }, 15000);
 });
 
 // Full object lifecycle against local MinIO (bucket sigit-test):

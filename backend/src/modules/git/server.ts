@@ -1,6 +1,7 @@
 import { REMOTE_USER } from "@/constants/protocol";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
+import { GIT_CHILD_MAX_LIFETIME_MS } from "@/constants/limits";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { env } from "@/config/env";
@@ -95,6 +96,14 @@ export async function parseCgiHeaders(
       if (done) controller.close();
       else controller.enqueue(value);
     },
+    // Early termination (client disconnect, aborted response, downstream error)
+    // has to reach the source pipe. A git child that keeps writing to a pipe
+    // nobody reads blocks forever, and it is a process in the shared container
+    // that serves every project; cancelling the reader destroys child.stdout, so
+    // the child gets SIGPIPE and exits.
+    async cancel() {
+      await reader.cancel().catch(() => {});
+    },
   });
 
   return { status, headers, body };
@@ -126,6 +135,27 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
   };
 
   const child = spawn("git", ["http-backend"], { env });
+
+  // A client that goes away mid-response must not leave a git child behind: the
+  // kill closes the child's stdout, which releases the pipe its abandoned reader
+  // would otherwise leave blocked.
+  const abortChild = () => child.kill("SIGKILL");
+  if (c.req.raw.signal.aborted) child.kill("SIGKILL");
+  else c.req.raw.signal.addEventListener("abort", abortChild);
+
+  // Backstop for a child nothing else reaps (a wedged child, or an exit that no
+  // cancel reaches). The lifetime is generous on purpose: a legitimate clone of a
+  // large repository over a slow link is a long transfer, and this only has to
+  // bound a child that would otherwise live until the process restarts.
+  const childDeadline = setTimeout(() => {
+    log.warn("git", "git child outlived its deadline, killing it", { projectId: project.id });
+    child.kill("SIGKILL");
+  }, GIT_CHILD_MAX_LIFETIME_MS);
+
+  child.on("close", () => {
+    clearTimeout(childDeadline);
+    c.req.raw.signal.removeEventListener("abort", abortChild);
+  });
 
   // A git child can exit before it drains the body: http-backend answers 415 to
   // a POST without the service content type and 404 for an unknown service,
