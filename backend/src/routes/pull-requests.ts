@@ -29,7 +29,7 @@ import { getProject, projectRepoPath } from "@/modules/projects/projects";
 import { getDiff } from "@/modules/projects/git";
 import { prDiff, resolveRef, validatePrBranches } from "@/modules/pull-requests/pr";
 import { mergePullRequest, refreshOpenPrMergeability, type MergeMethod } from "@/modules/pull-requests/merge";
-import { MergeBlockedError, assertPrMergeAllowed } from "@/modules/pull-requests/protection";
+import { MergeBlockedError, assertPrMergeAllowed, isVotingReview } from "@/modules/pull-requests/protection";
 import { audit } from "@/lib/logger";
 import { sanitizeRichText } from "@/lib/sanitize";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
@@ -667,6 +667,16 @@ pullRequestRoutes.openapi(
     if (!pr) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Pull request not found" } }, 404) as never;
     if (pr.status !== PR_STATUSES.OPEN.slug) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests accept reviews" } }, 400) as never;
+    }
+    // requiredApprovals is meant to be satisfied by other principals. Counting
+    // the author's own vote let a single push-capable principal clear the gate
+    // with their own action, so a voting review from the author is refused.
+    // Comments stay open to the author: they carry no weight.
+    if (pr.authorId === access.user.id && isVotingReview(body.state)) {
+      return c.json(
+        { error: { code: ERROR_CODES.FORBIDDEN, message: `You cannot submit a "${body.state}" review on your own pull request` } },
+        403
+      ) as never;
     }
 
     const rows = await db

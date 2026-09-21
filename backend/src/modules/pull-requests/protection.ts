@@ -1,7 +1,10 @@
 // Branch protection enforcement at PR merge time. Push-time rules are handled
 // by the pre-receive hook; these checks run in the API where approvals and
 // reviews live: required approvals, blocking on request-changes, merge user
-// whitelist, and the admin bypass option. Pure DB logic, unit-testable.
+// whitelist, and the admin bypass option. requiredApprovals is a
+// second-principal requirement, which is why the reviews route refuses an
+// approve or request-changes from the pull request author (isVotingReview).
+// Pure DB logic, unit-testable.
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { prReviews, users } from "@/db/schema/auth";
@@ -27,6 +30,12 @@ export const APPROVAL_WEIGHTS: Record<string, number> = {
 };
 
 export type ReviewLike = { state: string };
+
+// Whether a review state carries a vote (approve / request changes). A comment
+// weighs nothing. Derived from APPROVAL_WEIGHTS so the two cannot drift.
+export function isVotingReview(state: string): boolean {
+  return (APPROVAL_WEIGHTS[state] ?? 0) !== 0;
+}
 
 export function scoreReviews(reviews: ReviewLike[]): number {
   return reviews.reduce((sum, r) => sum + (APPROVAL_WEIGHTS[r.state] ?? 0), 0);
