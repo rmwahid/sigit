@@ -476,8 +476,12 @@ pullRequestRoutes.openapi(
 
     // Branch protection gates (approvals, request-changes, merge whitelist,
     // admin bypass) are enforced here; the pre-receive hook cannot see the DB.
+    // The gates speak about the revision that will actually land, so the live
+    // head tip is resolved here: if a push moved the branch after the approvals
+    // were cast, those approvals no longer count for this merge.
+    const liveHeadSha = await resolveRef(repo.repoPath, pr.headBranch).catch(() => "");
     try {
-      await assertPrMergeAllowed(id, pr, access.user.id);
+      await assertPrMergeAllowed(id, pr, access.user.id, liveHeadSha);
     } catch (err) {
       if (err instanceof MergeBlockedError) {
         return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: err.message } }, 403) as never;
@@ -679,9 +683,19 @@ pullRequestRoutes.openapi(
       ) as never;
     }
 
+    // The revision this vote speaks about: the head tip as it stands right now.
+    // The merge gate counts a vote only while the head still matches it, so a
+    // later push dismisses the vote instead of carrying it forward.
+    const reviewedHeadSha = await resolveRef(repo.repoPath, pr.headBranch).catch(() => null);
     const rows = await db
       .insert(prReviews)
-      .values({ prId: pr.id, userId: access.user.id, state: body.state, body: body.body ? sanitizeRichText(body.body) : null })
+      .values({
+        prId: pr.id,
+        userId: access.user.id,
+        state: body.state,
+        body: body.body ? sanitizeRichText(body.body) : null,
+        headSha: reviewedHeadSha,
+      })
       .returning();
     const review = rows[0];
     audit(AUDIT_EVENTS.PULL_REQUEST_REVIEW, {

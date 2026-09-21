@@ -807,4 +807,72 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(merged.status).toBe(200);
   });
+
+  it("dismisses approvals when the head revision moves", async () => {
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("rev", { requiredApprovals: 1 });
+    const barePath = projectRepoPath(projectId);
+
+    // Approve the revision as it stands: with the approval in place the merge
+    // gate is satisfied.
+    const approve = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(approve.status).toBe(201);
+    const firstMerge = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(firstMerge.status).toBe(200);
+
+    // A second pull request, approved and then overtaken by a push to its head
+    // branch: the approval speaks about the older revision, so the merge must be
+    // refused until somebody approves the revision that would actually land.
+    const second = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ title: "Moves", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(second.status).toBe(201);
+    const approveSecond = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(approveSecond.status).toBe(201);
+
+    const workPath = path.join(tmpdir(), `sigit-pr-rev-${suffix}-${Math.random().toString(36).slice(2)}`);
+    tmpDirs.push(workPath);
+    await fs.mkdir(workPath, { recursive: true });
+    sh(`git clone -q "${barePath}" "${workPath}"`, tmpdir());
+    sh('git config user.email "test@local"', workPath);
+    sh('git config user.name "Test"', workPath);
+    sh("git checkout feature/x -q", workPath);
+    await fs.writeFile(path.join(workPath, "after-approval.txt"), "pushed after the approval");
+    sh("git add -A && git commit -m \"test: commit after approval\" -q", workPath);
+    sh("git push origin feature/x -q", workPath);
+
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+
+    // An approval that names the new revision unblocks it.
+    const reapprove = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(reapprove.status).toBe(201);
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+  }, TEST_TIMEOUT);
 });

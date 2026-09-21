@@ -45,7 +45,7 @@ export function hasChangesRequested(reviews: ReviewLike[]): boolean {
   return scoreReviews(reviews) < 0;
 }
 
-type ReviewRow = { userId: string; createdAt: Date; state: string };
+type ReviewRow = { userId: string; createdAt: Date; state: string; headSha?: string | null };
 
 // Effective votes: one per user, the latest submission wins. Reviews are
 // append-only (every submission is a new row), so the latest row per user
@@ -67,6 +67,23 @@ export async function reviewScore(prId: string): Promise<number> {
     .from(prReviews)
     .where(eq(prReviews.prId, prId));
   return scoreReviews(latestReviewsPerUser(rows));
+}
+
+// Approvals that still speak about the revision under review. A review is a
+// statement about the commit the reviewer read, so a vote cast against an
+// earlier head is dismissed by the push that moved the branch: counting it
+// would let an approved revision carry unreviewed commits into the merge. A row
+// that names no revision counts for nothing (fail closed for older rows).
+export function scoreReviewsForRevision(rows: ReviewRow[], headSha: string): number {
+  return scoreReviews(latestReviewsPerUser(rows).filter((r) => r.headSha === headSha));
+}
+
+export async function approvalsForRevision(prId: string, headSha: string): Promise<number> {
+  const rows = await db
+    .select({ userId: prReviews.userId, createdAt: prReviews.createdAt, state: prReviews.state, headSha: prReviews.headSha })
+    .from(prReviews)
+    .where(eq(prReviews.prId, prId));
+  return scoreReviewsForRevision(rows, headSha);
 }
 
 // Whether any outstanding review requests changes (weighted score < 0).
@@ -101,16 +118,21 @@ export async function canMergeUser(
 export async function checkPrMergeAllowed(
   projectId: string,
   pr: { id: string; baseBranch: string },
-  userId: string
+  userId: string,
+  headSha: string
 ): Promise<MergeCheckResult> {
   const rules = await listProtectionRules(projectId);
   const rule = findProtectionRule(rules, pr.baseBranch);
   if (!rule) return { ok: true, rule: null };
 
   if (rule.requiredApprovals > 0) {
-    const score = await reviewScore(pr.id);
+    const score = await approvalsForRevision(pr.id, headSha);
     if (score < rule.requiredApprovals) {
-      return { ok: false, code: "REQUIRED_APPROVALS", reason: `${rule.requiredApprovals} approval(s) required before merging; current score ${score}` };
+      return {
+        ok: false,
+        code: "REQUIRED_APPROVALS",
+        reason: `${rule.requiredApprovals} approval(s) required for the current revision; current score ${score}. Approvals cast against an earlier revision were dismissed by the push that changed it`,
+      };
     }
   }
   if (rule.blockOnRequestChanges && (await hasOutstandingRequestChanges(pr.id))) {
@@ -130,7 +152,12 @@ export class MergeBlockedError extends Error {
   }
 }
 
-export async function assertPrMergeAllowed(projectId: string, pr: { id: string; baseBranch: string }, userId: string): Promise<void> {
-  const res = await checkPrMergeAllowed(projectId, pr, userId);
+export async function assertPrMergeAllowed(
+  projectId: string,
+  pr: { id: string; baseBranch: string },
+  userId: string,
+  headSha: string
+): Promise<void> {
+  const res = await checkPrMergeAllowed(projectId, pr, userId, headSha);
   if (!res.ok) throw new MergeBlockedError(res.code, res.reason);
 }
