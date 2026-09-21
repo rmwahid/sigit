@@ -115,10 +115,12 @@ export async function handleGitRequest(c: Context, projectName: string, pathInfo
     REQUEST_METHOD: c.req.method,
     CONTENT_TYPE: c.req.header("Content-Type") ?? "",
     REMOTE_USER,
-    // Identity for the pre-receive hook: the authenticated token's owner.
-    // SIGIT_SERVER_PUSH marks pushes performed by the server itself (PR merge
-    // via worktree), which bypass the hook's direct-push checks - those are
-    // enforced in the API instead (approvals, merge whitelist, admin bypass).
+    // Identity for the pre-receive hook: the authenticated token's owner. A
+    // request that carries a ref update always presents a token, so the hook's
+    // checks are never bypassed through this variable. (A server-side PR merge
+    // does not come through here at all: it merges inside a worktree of the
+    // same repo, which moves the shared refs/heads entry, leaving the push
+    // that follows with nothing to send.)
     GITPUSH_USER_ID: token?.userId ?? "",
     SIGIT_SERVER_PUSH: token ? "" : "1",
   };
