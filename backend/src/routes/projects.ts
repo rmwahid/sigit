@@ -8,6 +8,7 @@ import { getCommitFiles, getDiff, isValidCommitHash } from "@/modules/projects/g
 import { backupProject, restoreProject, assertBundleNotBehindLocal } from "@/modules/projects/backup";
 import { getConnection } from "@/modules/storage/connections";
 import { assertConnectionBindable } from "@/modules/projects/storage-binding";
+import { validateStorageEndpoint } from "@/modules/storage/endpoint";
 import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
 import { HttpError } from "@/lib/http-error";
 import { audit, log } from "@/lib/logger";
@@ -148,6 +149,15 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
+    // The endpoint on this inline connection is a destination the server will
+    // dial with these credentials, so it is checked as an authorization
+    // decision: a non-admin caller may only point it at a public host, while the
+    // admin who runs the deployment may reach private storage (the compose stack
+    // talks to MinIO over an internal name).
+    const endpointProblem = await validateStorageEndpoint(body.connection.endpoint, { allowPrivate: isSiteAdmin(user) });
+    if (endpointProblem) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: endpointProblem } }, 400) as never;
+    }
     const { project } = await createProjectWithConnection(body);
     if (!isSiteAdmin(user)) {
       await db.insert(projectCollaborators).values({

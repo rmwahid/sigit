@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { validateStorageEndpointSyntax } from "@/modules/storage/endpoint";
 import { DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
 
 // Project name = safe slug for the git URL (/projects/<name>.git):
@@ -45,7 +46,11 @@ export const projectWithConnectionSchema = z.object({
   description: z.string().optional(),
   connection: z.object({
     name: z.string().min(1).openapi({ example: "Hetzner" }),
-    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
+    endpoint: z
+      .string()
+      .min(1)
+      .refine((value: string) => validateStorageEndpointSyntax(value) === null, "Endpoint must be an absolute http(s) URL without credentials")
+      .openapi({ example: "https://fsn1.your-objectstorage.com" }),
     region: z.string().min(1).openapi({ example: "eu-central" }),
     accessKeyId: z.string().min(1),
     secretAccessKey: z.string().min(1),

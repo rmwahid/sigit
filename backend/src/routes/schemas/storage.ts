@@ -1,11 +1,16 @@
 import { z } from "@hono/zod-openapi";
+import { validateStorageEndpointSyntax } from "@/modules/storage/endpoint";
 
 export const connectionSchema = z
   .object({
     id: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
     name: z.string().min(1).openapi({ example: "Hetzner" }),
     provider: z.string().default("s3"),
-    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
+    endpoint: z
+    .string()
+    .min(1)
+    .refine((value: string) => validateStorageEndpointSyntax(value) === null, "Endpoint must be an absolute http(s) URL without credentials")
+    .openapi({ example: "https://fsn1.your-objectstorage.com" }),
     region: z.string().min(1).openapi({ example: "eu-central" }),
     accessKeyId: z.string().min(1),
     secretMasked: z.string().openapi({ example: "abcd***wxyz" }),
