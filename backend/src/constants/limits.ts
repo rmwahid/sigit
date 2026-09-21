@@ -113,3 +113,11 @@ export const MAX_BACKUP_BUNDLE_BYTES = 256 * 1024 * 1024;
 export const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
 export const STORAGE_CONNECTION_TIMEOUT_MS = 5_000;
 export const STORAGE_MAX_SOCKETS = 16;
+
+// How many LFS object transfers one backend process may hold at once. Each
+// admitted transfer keeps several copies of its payload (the received body, the
+// concatenated buffer, and the ciphertext) until its storage request settles, so
+// without this bound a handful of concurrent uploads or downloads crosses the
+// container memory limit. Downloads count against the same gate as uploads
+// because both buffer the object in the shared process.
+export const MAX_LFS_CONCURRENT_TRANSFERS = 4;
