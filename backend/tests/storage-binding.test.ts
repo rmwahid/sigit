@@ -137,6 +137,18 @@ describe("assertConnectionBindable", () => {
     expect(err?.status).toBe(403);
   });
 
+  it("refuses a collaborator row that grants no permissions", async () => {
+    const connectionId = await createConnection();
+    const projectId = await createProject(`bind-empty-${suffix}`, connectionId);
+    const actorId = await createUser(`bind-empty-actor-${suffix}@local.test`, DEFAULT_ROLE);
+    // A row whose permission set normalizes to nothing is not access: row
+    // presence alone must not let the actor bind a project to this connection.
+    await db.insert(projectCollaborators).values({ projectId, userId: actorId, permissions: [] });
+
+    const err = await refusal(assertConnectionBindable({ id: actorId, role: DEFAULT_ROLE }, connectionId));
+    expect(err?.status).toBe(403);
+  });
+
   it("lets a collaborator reuse a connection that backs a project they can reach", async () => {
     const connectionId = await createConnection();
     const sharedProjectId = await createProject(`bind-shared-${suffix}`, connectionId);

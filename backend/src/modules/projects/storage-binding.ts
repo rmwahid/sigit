@@ -17,7 +17,8 @@ import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
 import { ERROR_CODES } from "@/constants/errors";
 import { HttpError } from "@/lib/http-error";
-import { isSiteAdmin, listAccessibleProjectIds } from "@/modules/auth/access";
+import { isSiteAdmin, normalizePermissions } from "@/modules/auth/access";
+import { projectCollaborators } from "@/db/schema/auth";
 import { getConnection } from "@/modules/storage/connections";
 
 const REFUSED = "You cannot bind a project to this storage connection";
@@ -41,8 +42,22 @@ export async function assertConnectionBindable(
     // regular user has no claim on it.
     throw new HttpError(403, ERROR_CODES.FORBIDDEN, REFUSED);
   }
-  const reachable = new Set(await listAccessibleProjectIds(actor.id));
+  const reachable = await reachableProjectIds(actor.id);
   if (!bound.some((p) => reachable.has(p.id))) {
     throw new HttpError(403, ERROR_CODES.FORBIDDEN, REFUSED);
   }
+}
+
+// Projects the actor can actually reach: a collaborator row whose permission set
+// normalizes to nothing grants nothing, so row presence alone is not access.
+// (listAccessibleProjectIds counts rows; that is the right question for a list
+// of projects to show, and the wrong one for an authorization decision.)
+async function reachableProjectIds(userId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ projectId: projectCollaborators.projectId, permissions: projectCollaborators.permissions })
+    .from(projectCollaborators)
+    .where(eq(projectCollaborators.userId, userId));
+  return new Set(
+    rows.filter((row) => normalizePermissions(row.permissions ?? []).length > 0).map((row) => row.projectId)
+  );
 }
