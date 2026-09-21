@@ -11,7 +11,7 @@ import {
   throttleRequest,
   type RateLimitRule,
 } from "@/lib/rate-limit";
-import { RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
+import { MAX_RATE_LIMIT_BUCKETS, RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
 import { ERROR_CODES } from "@/constants/errors";
 
 const RULE: RateLimitRule = { name: "test.rule", max: 3 };
@@ -65,6 +65,17 @@ describe("rate limiter", () => {
     expect(consumeRateLimit(tiny, "a", start).allowed).toBe(true);
     expect(consumeRateLimit(tiny, "a", start).allowed).toBe(false);
     expect(consumeRateLimit(tiny, "a", start + 1001).allowed).toBe(true);
+  });
+
+  it("keeps the bucket map under its ceiling when identities keep arriving", () => {
+    // An identity that can be varied (a spoofable forwarding header, a rotating
+    // account name) must not be able to grow the map without bound.
+    const start = 9_000_000;
+    for (let i = 0; i < MAX_RATE_LIMIT_BUCKETS + 100; i++) {
+      consumeRateLimit(RULE, `flood-${i}`, start);
+    }
+    expect(rateLimitBucketCount()).toBeLessThanOrEqual(MAX_RATE_LIMIT_BUCKETS);
+    resetAllRateLimits();
   });
 
   it("does not grow unboundedly when windows roll over", () => {
