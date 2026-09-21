@@ -4,6 +4,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { writeProtectionSnapshot } from "@/modules/projects/protection-snapshot";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
 import { storageConnections } from "@/db/schema/storage";
@@ -31,6 +33,10 @@ const suffix = Date.now().toString(36);
 const createdProjectIds: string[] = [];
 const createdConnectionIds: string[] = [];
 const tmpDirs: string[] = [];
+
+// Rule block for main that only the hook can enforce (no direct pushes).
+const SNAPSHOT_REQUIRE_PR_MAIN =
+  "pattern=main\nrequirePr=true\nrequiredApprovals=0\nblockOnRequestChanges=false\nblockForcePush=false\nblockDeletion=false\nrestrictPushUserIds=\nrestrictMergeUserIds=\nallowAdminBypass=false\n\n";
 
 function sh(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: "utf8" });
@@ -172,8 +178,11 @@ describe("backup / restore", () => {
       // Wipe the repo, then restore from storage.
       await fs.rm(projectRepoPath(project.id), { recursive: true, force: true });
       await restoreProject(project, stored);
-      const content = await fs.readFile(path.join(projectRepoPath(project.id), "notes.txt"), "utf8");
+      // The restored repo is bare (the project directory IS the git dir), so
+      // the content lives in the object store and there is no work tree.
+      const content = sh("git show main:notes.txt", projectRepoPath(project.id));
       expect(content).toBe("restore me");
+      expect(sh("git show-ref --verify --hash refs/heads/main", projectRepoPath(project.id)).trim()).toHaveLength(40);
     },
     TEST_TIMEOUT
   );
@@ -251,12 +260,41 @@ describe("backup / restore", () => {
 
       await fs.rm(projectRepoPath(project.id), { recursive: true, force: true });
       await restoreProject(project, stored);
+      const repoPath = projectRepoPath(project.id);
 
-      // Must be bare again and the pre-receive hook must exist (else pushes are unguarded).
-      const config = await fs.readFile(path.join(projectRepoPath(project.id), "config"), "utf8");
-      expect(config).toContain("bare = true");
-      const hook = await fs.stat(path.join(projectRepoPath(project.id), "hooks", "pre-receive"));
+      // Surface paths alone prove nothing: the broken layout (a non-bare clone
+      // with a bare shell initialized over it) also has a config that says
+      // bare = true and a hook file at hooks/pre-receive, while git resolves
+      // the repository to the nested .git and never runs that hook. What has
+      // to hold is that the project directory IS the git dir.
+      expect(sh("git rev-parse --is-bare-repository", repoPath).trim()).toBe("true");
+      expect(sh("git rev-parse --git-dir", repoPath).trim()).toBe(".");
+      expect(existsSync(path.join(repoPath, ".git"))).toBe(false);
+      const hook = await fs.stat(path.join(repoPath, "hooks", "pre-receive"));
       expect(hook.isFile()).toBe(true);
+
+      // Decisive check: the generated hook now actually runs on a push.
+      const work = path.join(tmpdir(), `sigit-backup-hookwork-${suffix}`);
+      tmpDirs.push(work);
+      sh(`git clone -q "${repoPath}" "${work}"`, tmpdir());
+      sh('git config user.email "test@local"', work);
+      sh('git config user.name "Test"', work);
+      await fs.writeFile(path.join(work, "b.txt"), "b");
+      sh('git add . && git commit -m "test: after restore" -q', work);
+      // Control: with no rule covering main the same push is accepted, so a
+      // rejection below can only come from the hook reading the snapshot.
+      sh("git push origin main -q", work);
+
+      await writeProtectionSnapshot(repoPath, SNAPSHOT_REQUIRE_PR_MAIN);
+      await fs.writeFile(path.join(work, "b.txt"), "b2");
+      sh('git add . && git commit -m "test: after restore 2" -q', work);
+      let rejected = false;
+      try {
+        sh("git push origin main", work);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
     },
     TEST_TIMEOUT
   );

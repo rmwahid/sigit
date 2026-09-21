@@ -122,9 +122,16 @@ export async function restoreProject(
   await fs.writeFile(tmpFile, bundle);
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
-    await fs.mkdir(repoPath, { recursive: true });
-    await execGit(repoPath, ["clone", tmpFile, "."]);
+    // Rebuild the bare repo FIRST and import the bundle into it, so the
+    // project directory stays the git dir. Cloning the bundle into the project
+    // directory instead produced a non-bare repository whose real git dir was
+    // <repoPath>/.git: git reads hooks from the effective git dir, so the
+    // generated pre-receive hook at <repoPath>/hooks/pre-receive was never
+    // executed and the LFS size gate and every branch protection rule were
+    // silently off for the restored project. initRepo also installs the hook,
+    // so it must run before the refs arrive.
     await initRepo(repoPath, project.lfsSizeThreshold);
+    await execGit(repoPath, ["fetch", tmpFile, "+refs/*:refs/*"]);
   } catch (err) {
     log.error("restore", "restoreProject failed", {
       projectId: project.id,
