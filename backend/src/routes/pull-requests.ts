@@ -399,8 +399,16 @@ pullRequestRoutes.openapi(
       if (pr.status !== PR_STATUSES.OPEN.slug) {
         return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Terminal pull requests cannot be reopened" } }, 400) as never;
       }
-      if (![PR_STATUSES.ABANDONED.slug, PR_STATUSES.MERGED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
-        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid status transition to "${body.status}"` } }, 400) as never;
+      // `merged` is deliberately absent: it is the outcome of the merge endpoint,
+      // which proves the git work was done and consults the branch-protection
+      // gate (required approvals, request changes, merge allow-list). Accepting it
+      // here would record a merge that never happened, with no merge commit, and
+      // leave the pull request permanently terminal.
+      if (![PR_STATUSES.ABANDONED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
+        return c.json(
+          { error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid status transition to "${body.status}"` } },
+          400
+        ) as never;
       }
     }
 

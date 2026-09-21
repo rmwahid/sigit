@@ -15,6 +15,7 @@ import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import { createSession } from "@/modules/auth/auth";
 import { pullRequestRoutes } from "@/routes/pull-requests";
+import { userRoutes } from "@/routes/users";
 import { rulesSnapshot } from "@/modules/projects/branch-protection";
 import { writeProtectionSnapshot } from "@/modules/projects/protection-snapshot";
 import {
@@ -202,6 +203,18 @@ describe("pull request endpoints", () => {
     expect(diffRes.status).toBe(200);
     const diff = ((await diffRes.json()) as { diff: string }).diff;
     expect(diff).toContain("feature.txt");
+
+    // The merged state is the merge endpoint's outcome, never a PATCH target: a
+    // PATCH to merged would record a merge with no merge commit, no git work and
+    // no branch-protection gate, and the row could not be repaired afterwards.
+    const forged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ status: "merged" }),
+    });
+    expect(forged.status).toBe(400);
+    const stillOpen = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    expect(((await stillOpen.json()) as { data: { status: string } }).data.status).toBe("open");
 
     // Only open PRs can be deleted: terminal PRs keep their conversation.
     const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
@@ -545,7 +558,7 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(created.status).toBe(201);
 
-    return { projectId, adminHeaders, collabHeaders };
+    return { projectId, adminHeaders, collabHeaders, collabId };
   }
 
   it("blocks the merge until the required approvals are met", async () => {
@@ -577,6 +590,39 @@ describe("pull request branch protection (merge gates)", () => {
     expect(body.data.status).toBe("merged");
     expect(body.data.mergeCommitSha).not.toBeNull();
   });
+
+  it("refuses to delete an account whose review still gates an open pull request", async () => {
+    const { projectId, adminHeaders, collabHeaders, collabId } = await setupProtected("delreview", {
+      requiredApprovals: 1,
+      blockOnRequestChanges: true,
+    });
+
+    // The collaborator's request-changes is the only thing standing between this
+    // pull request and a merge.
+    const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "request_changes" }),
+    });
+    expect(review.status).toBe(201);
+
+    // Their rows cascade with the account, so deleting it would clear the gate on
+    // a pull request nobody re-reviewed.
+    const refused = await userRoutes.request(`/${collabId}`, { method: "DELETE", headers: adminHeaders });
+    expect(refused.status).toBe(400);
+    const refusal = (await refused.json()) as { error: { message: string } };
+    expect(refusal.error.message).toContain("open pull requests");
+
+    // Closing the pull request releases the account.
+    const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({ status: "abandoned" }),
+    });
+    expect(closed.status).toBe(200);
+    const deleted = await userRoutes.request(`/${collabId}`, { method: "DELETE", headers: adminHeaders });
+    expect(deleted.status).toBe(200);
+  }, 30000);
 
   it("keeps showing the PR diff after it is merged (no-ff merge)", async () => {
     const { projectId, adminHeaders, collabHeaders } = await setupProtected("diffpost", { requiredApprovals: 1 });

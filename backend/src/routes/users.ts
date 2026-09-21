@@ -5,6 +5,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { deleteUser, listUsers, setUserPassword } from "@/modules/auth/auth";
 import { ROLE_SLUGS } from "@/constants/roles";
 import { requireAdmin, type AuthEnv } from "@/middleware/auth";
+import { outstandingReviewsFor } from "@/modules/pull-requests/protection";
 import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 
@@ -105,6 +106,25 @@ userRoutes.openapi(
     const { id } = c.req.valid("param");
     if (id === admin.id) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Cannot delete yourself" } }, 400) as never;
+    }
+    // The account's review rows cascade with it, and the merge gate recomputes
+    // its verdict from the rows that exist: deleting a reviewer would clear an
+    // outstanding request-changes (or drop an approval) on a pull request nobody
+    // re-reviewed. Refuse while such a vote is outstanding.
+    const outstanding = await outstandingReviewsFor(id);
+    if (outstanding.length > 0) {
+      const listed = outstanding
+        .map((review) => `${review.projectName}#${review.number} (${review.state})`)
+        .join(", ");
+      return c.json(
+        {
+          error: {
+            code: ERROR_CODES.BAD_REQUEST,
+            message: `This account has reviews on open pull requests: ${listed}. Merge, close or abandon those pull requests first.`,
+          },
+        },
+        400
+      ) as never;
     }
     const deleted = await deleteUser(id);
     if (!deleted) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404) as never;

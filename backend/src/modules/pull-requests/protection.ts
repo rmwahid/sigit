@@ -5,10 +5,11 @@
 // second-principal requirement, which is why the reviews route refuses an
 // approve or request-changes from the pull request author (isVotingReview).
 // Pure DB logic, unit-testable.
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/config/db";
-import { prReviews, users } from "@/db/schema/auth";
-import { REVIEW_STATES } from "@/constants/pull-requests";
+import { prReviews, pullRequests, users } from "@/db/schema/auth";
+import { projects } from "@/db/schema/projects";
+import { PR_STATUSES, REVIEW_STATES } from "@/constants/pull-requests";
 import { ADMIN_ROLE } from "@/constants/roles";
 import {
   findProtectionRule,
@@ -95,11 +96,58 @@ export async function hasOutstandingRequestChanges(prId: string): Promise<boolea
   return hasChangesRequested(latestReviewsPerUser(rows));
 }
 
+// Open pull requests where this user holds the effective vote. The merge gate
+// recomputes its verdict from the review rows that exist, so deleting the
+// account would cascade the rows away and change the verdict of a pull request
+// nobody re-reviewed: an outstanding request-changes would clear itself and an
+// approval someone is waiting on would vanish. Account deletion is refused while
+// one of these exists; resolving the pull request is the operator's decision.
+export type OutstandingReview = { projectName: string; number: number; state: string };
+
+export async function outstandingReviewsFor(userId: string): Promise<OutstandingReview[]> {
+  const mine = await db
+    .select({
+      prId: prReviews.prId,
+      number: pullRequests.number,
+      projectName: projects.name,
+      state: prReviews.state,
+      createdAt: prReviews.createdAt,
+    })
+    .from(prReviews)
+    .innerJoin(pullRequests, eq(prReviews.prId, pullRequests.id))
+    .innerJoin(projects, eq(pullRequests.projectId, projects.id))
+    .where(and(eq(pullRequests.status, PR_STATUSES.OPEN.slug), eq(prReviews.userId, userId)));
+  if (mine.length === 0) return [];
+
+  // A later review by the same user replaces their earlier vote, so the verdict
+  // has to be read from every review of those pull requests, not just this
+  // user's rows.
+  const prIds = [...new Set(mine.map((row) => row.prId))];
+  const rows = await db
+    .select({ prId: prReviews.prId, userId: prReviews.userId, state: prReviews.state, createdAt: prReviews.createdAt })
+    .from(prReviews)
+    .where(inArray(prReviews.prId, prIds));
+  const byPr = new Map<string, ReviewRow[]>();
+  for (const row of rows) {
+    const list = byPr.get(row.prId);
+    if (list) list.push(row);
+    else byPr.set(row.prId, [row]);
+  }
+
+  const outstanding: OutstandingReview[] = [];
+  for (const row of mine) {
+    const effective = latestReviewsPerUser(byPr.get(row.prId) ?? []).find((review) => review.userId === userId);
+    if (effective && isVotingReview(effective.state)) {
+      outstanding.push({ projectName: row.projectName, number: row.number, state: effective.state });
+    }
+  }
+  return outstanding;
+}
+
 // Whether the user is allowed to merge a PR that is protected. Admin bypasses
 // (either site-admin, or the rule's allowAdminBypass) when the whitelist is
 // set; without a whitelist anyone with push may merge.
-export async function canMergeUser(
-  rule: BranchProtectionRule,
+export async function canMergeUser(  rule: BranchProtectionRule,
   userId: string
 ): Promise<boolean> {
   if (rule.restrictMergeUserIds && rule.restrictMergeUserIds.length > 0) {
