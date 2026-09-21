@@ -96,3 +96,20 @@ export const MAX_ACTIVITY_PROJECTS = 25;
 export const MAX_AUTH_BODY_BYTES = 16 * 1024;
 // LFS JSON bodies (batch / verify): a full batch of 1000 objects is ~110 KB.
 export const MAX_LFS_REQUEST_BYTES = 1024 * 1024;
+
+// Stored-object read cap for the per-push backup bundle. The bundle holds the
+// whole repository history in one object, so it is the largest thing the server
+// ever pulls into memory: the read path holds the ciphertext, the decrypted
+// plaintext and the decrypt buffer (about three copies), and the write path
+// peaks near seven times the bundle size. 256 MiB keeps one restore read around
+// 768 MiB and leaves room for concurrent work under the 2g container limit;
+// raise this only together with mem_limit in compose.yaml.
+export const MAX_BACKUP_BUNDLE_BYTES = 256 * 1024 * 1024;
+
+// Outbound storage request bounds. The storage endpoint is user input (the
+// project's connection row), so a slow or hostile destination must not be able
+// to hold a request open indefinitely: the deadline converts a stall into a
+// failed operation and the socket cap bounds how many run at once.
+export const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
+export const STORAGE_CONNECTION_TIMEOUT_MS = 5_000;
+export const STORAGE_MAX_SOCKETS = 16;

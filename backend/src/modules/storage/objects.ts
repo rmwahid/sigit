@@ -36,13 +36,38 @@ export async function listObjects(connection: StorageConnection, prefix?: string
   }));
 }
 
-export async function getObject(connection: StorageConnection, key: string): Promise<Buffer> {
+// Raised when a stored object is larger than the caller's bound. The bound is
+// enforced against the bytes actually read, not only against the size the
+// destination advertises: a project's bucket is chosen by its owner, so the
+// header cannot be trusted to describe the body it serves.
+export class ObjectTooLargeError extends Error {
+  constructor(public readonly limit: number) {
+    super(`Object exceeds the ${limit} byte limit`);
+    this.name = "ObjectTooLargeError";
+  }
+}
+
+// Downloads an object into memory. A caller that knows how large the object may
+// legitimately be passes maxBytes, which bounds the advertised size before any
+// body byte is read and the streamed bytes afterwards, so an endpoint that
+// understates the size is bounded too.
+export async function getObject(connection: StorageConnection, key: string, maxBytes?: number): Promise<Buffer> {
   const client = createS3Client(connection);
   const response = await client.send(new GetObjectCommand({ Bucket: connection.bucket, Key: key }));
   const stream = response.Body;
   if (!stream) throw new Error("Empty object body");
+  if (maxBytes !== undefined && (response.ContentLength ?? 0) > maxBytes) {
+    (stream as { destroy?: () => void }).destroy?.();
+    throw new ObjectTooLargeError(maxBytes);
+  }
   const chunks: Uint8Array[] = [];
+  let total = 0;
   for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+    total += chunk.byteLength;
+    if (maxBytes !== undefined && total > maxBytes) {
+      (stream as { destroy?: () => void }).destroy?.();
+      throw new ObjectTooLargeError(maxBytes);
+    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
