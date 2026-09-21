@@ -72,6 +72,11 @@ export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";
 // otherwise live until the process restarts.
 export const GIT_CHILD_MAX_LIFETIME_MS = 30 * 60 * 1000;
 
+// Projects one token may be scoped to. Every item is resolved against the
+// database when the token is created, so the array length must not be
+// caller-controlled; the UI selects a handful.
+export const MAX_TOKEN_PROJECTS = 100;
+
 // Branch protection: pattern that selects the branches a rule applies to.
 // Wildcard is a trailing "*" (git refspec-style), e.g. "feature/*" or "*".
 export const BRANCH_PATTERN_MAX_LENGTH = 200;

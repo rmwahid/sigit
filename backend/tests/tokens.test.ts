@@ -1,8 +1,10 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
-import { tokenProjectSchema } from "@/routes/tokens";
+import { tokenCreateInput, tokenProjectSchema } from "@/routes/tokens";
+import { MAX_TOKEN_PROJECTS } from "@/constants/limits";
 import {
   createToken,
   listTokens,
@@ -14,6 +16,9 @@ import {
 } from "@/modules/auth/tokens";
 import { createConnectionFromInput, deleteConnection } from "@/modules/storage/connections";
 import { createProject, hardDeleteProject } from "@/modules/projects/projects";
+import { createSession } from "@/modules/auth/auth";
+import { SESSION_COOKIE } from "@/constants/protocol";
+import { tokenRoutes } from "@/routes/tokens";
 
 // Per-project token scopes: dev DB `sigit` (no MinIO, no S3 operations here).
 const TEST_TIMEOUT = 30000;
@@ -22,6 +27,7 @@ const suffix = Date.now().toString(36);
 const createdProjectIds: string[] = [];
 const createdConnectionIds: string[] = [];
 const createdTokenIds: string[] = [];
+const createdUserIds: string[] = [];
 
 async function adminUser() {
   const rows = await db.select().from(users).limit(1);
@@ -79,6 +85,13 @@ async function cleanup() {
       // best effort
     }
   }
+  for (const id of createdUserIds) {
+    try {
+      await db.delete(users).where(eq(users.id, id));
+    } catch {
+      // best effort
+    }
+  }
 }
 
 afterAll(async () => {
@@ -100,6 +113,52 @@ describe("token create schema", () => {
   it("rejects unknown scopes and malformed ids", () => {
     expect(() => tokenProjectSchema.parse({ projectId: randomUUID(), scope: "admin" })).toThrow();
     expect(() => tokenProjectSchema.parse({ projectId: "nope", scope: "read" })).toThrow();
+  });
+
+  it("bounds the project list a single token may carry", () => {
+    // Every item is resolved against the database, so the array length is a
+    // bound on the work one request can ask for.
+    const projectId = randomUUID();
+    const entry = { projectId, scope: "read" as const };
+    const atCap = Array.from({ length: MAX_TOKEN_PROJECTS }, () => entry);
+    expect(tokenCreateInput.parse({ name: "t", projects: atCap, expiresInDays: 7 }).projects).toHaveLength(MAX_TOKEN_PROJECTS);
+
+    const overCap = Array.from({ length: MAX_TOKEN_PROJECTS + 1 }, () => entry);
+    expect(() => tokenCreateInput.parse({ name: "t", projects: overCap, expiresInDays: 7 })).toThrow();
+  });
+});
+
+describe("token create route", () => {
+  it("refuses a caller with no access before it resolves the projects", async () => {
+    const { projectId } = await makeProject(`tok-authz-${suffix}`);
+    const [collab] = await db
+      .insert(users)
+      .values({ email: `tok-collab-${suffix}@sigit.test`, passwordHash: "x", role: "collaborator" })
+      .returning();
+    createdUserIds.push(collab.id);
+    const { token } = await createSession(collab.id);
+
+    const headers = new Headers({ Cookie: `${SESSION_COOKIE}=${token}`, "Content-Type": "application/json" });
+    const body = (id: string) => JSON.stringify({ name: "t", projects: [{ projectId: id, scope: "read" }], expiresInDays: 7 });
+
+    // A project that exists but is not theirs, and one that does not exist at
+    // all: both answer 403, so the response does not tell them apart.
+    const foreign = await tokenRoutes.request("/", { method: "POST", headers, body: body(projectId) });
+    expect(foreign.status).toBe(403);
+    const ghost = await tokenRoutes.request("/", { method: "POST", headers, body: body(randomUUID()) });
+    expect(ghost.status).toBe(403);
+  });
+
+  it("still reports a missing project to an admin", async () => {
+    const admin = await adminUser();
+    if (!admin) throw new Error("no admin user in DB");
+    const { token } = await createSession(admin.id);
+    const res = await tokenRoutes.request("/", {
+      method: "POST",
+      headers: new Headers({ Cookie: `${SESSION_COOKIE}=${token}`, "Content-Type": "application/json" }),
+      body: JSON.stringify({ name: "t", projects: [{ projectId: randomUUID(), scope: "read" }], expiresInDays: 7 }),
+    });
+    expect(res.status).toBe(400);
   });
 });
 

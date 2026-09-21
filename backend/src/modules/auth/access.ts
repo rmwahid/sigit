@@ -50,6 +50,26 @@ export function hasPermission(access: ProjectPermission[] | null, perm: ProjectP
   return access === null || access.includes(perm);
 }
 
+// Access for many projects at once, in two queries instead of two per project.
+// A caller that supplies the project list (token creation) needs a decision per
+// item, and doing it one at a time turns a caller-supplied array length into
+// caller-supplied database work. Projects without a row are absent from the map.
+export async function getProjectAccessMap(
+  userId: string,
+  projectIds: string[]
+): Promise<Map<string, ProjectPermission[]>> {
+  const map = new Map<string, ProjectPermission[]>();
+  if (projectIds.length === 0) return map;
+  const rows = await db
+    .select({ projectId: projectCollaborators.projectId, permissions: projectCollaborators.permissions })
+    .from(projectCollaborators)
+    .where(and(eq(projectCollaborators.userId, userId), inArray(projectCollaborators.projectId, projectIds)));
+  for (const row of rows) {
+    map.set(row.projectId, normalizePermissions(row.permissions ?? []));
+  }
+  return map;
+}
+
 export async function userCan(userId: string, projectId: string, perm: ProjectPermission): Promise<boolean> {
   return hasPermission(await getProjectAccess(userId, projectId), perm);
 }

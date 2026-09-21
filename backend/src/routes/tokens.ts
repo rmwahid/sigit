@@ -2,7 +2,7 @@ import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { getProject } from "@/modules/projects/projects";
-import { getProjectAccess, tokenScopeForUser } from "@/modules/auth/access";
+import { getProjectAccessMap, tokenScopeForUser, type ProjectPermission } from "@/modules/auth/access";
 import { requireUser, type AuthEnv } from "@/middleware/auth";
 import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
@@ -13,7 +13,8 @@ import {
   setTokenProjectScopes,
 } from "@/modules/auth/tokens";
 import { TOKEN_SCOPE_SLUGS, type TokenScope } from "@/constants/scopes";
-import { TOKEN_MAX_EXPIRY_DAYS, TOKEN_MIN_EXPIRY_DAYS, TOKEN_NAME_MAX_LENGTH } from "@/constants/limits";
+import { ADMIN_ROLE } from "@/constants/roles";
+import { MAX_TOKEN_PROJECTS, TOKEN_MAX_EXPIRY_DAYS, TOKEN_MIN_EXPIRY_DAYS, TOKEN_NAME_MAX_LENGTH } from "@/constants/limits";
 
 export const tokenProjectSchema = z.object({
   projectId: z.string().uuid(),
@@ -32,10 +33,12 @@ const tokenSchema = z
   .openapi("Token");
 
 const tokenListResponse = z.object({ data: z.array(tokenSchema) });
-const tokenCreateInput = z.object({
+export const tokenCreateInput = z.object({
   name: z.string().min(1).max(TOKEN_NAME_MAX_LENGTH),
   // Per-project access: the token only works for the selected projects ("write" includes "read").
-  projects: z.array(tokenProjectSchema).min(1),
+  // Bounded: every item is resolved against the database, so the array length
+  // must not be caller-controlled.
+  projects: z.array(tokenProjectSchema).min(1).max(MAX_TOKEN_PROJECTS),
   // Flexible (1-30 days), capped at 30 days for token security.
   expiresInDays: z.coerce.number().int().min(TOKEN_MIN_EXPIRY_DAYS).max(TOKEN_MAX_EXPIRY_DAYS),
 });
@@ -113,17 +116,22 @@ tokenRoutes.openapi(
     if (new Set(projectIds).size !== projectIds.length) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "projects must not contain duplicates" } }, 400) as never;
     }
-    const found = await Promise.all(projects.map((p) => getProject(p.projectId)));
-    if (found.some((p) => !p)) {
-      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "One or more projects do not exist" } }, 400) as never;
-    }
+    // Authorization first, and in one lookup for the whole list: a request whose
+    // items the caller may not touch must not reach the per-item project lookups,
+    // and the database work must not scale with a caller-supplied array length.
     // Token permissions are DERIVED: they can never exceed the owner's access
     // (read needs clone, write needs push; admin bypasses).
+    const isAdmin = user.role === ADMIN_ROLE;
+    const accessByProject = isAdmin ? new Map<string, ProjectPermission[]>() : await getProjectAccessMap(user.id, projectIds);
     for (const p of projects) {
-      const access = await getProjectAccess(user.id, p.projectId);
+      const access = isAdmin ? null : accessByProject.get(p.projectId) ?? [];
       if (!tokenScopeForUser(access, p.scope)) {
         return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "No access to this project" } }, 403) as never;
       }
+    }
+    const found = await Promise.all(projects.map((p) => getProject(p.projectId)));
+    if (found.some((p) => !p)) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "One or more projects do not exist" } }, 400) as never;
     }
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
     const { token, id } = await createToken(user.id, name, expiresAt);
