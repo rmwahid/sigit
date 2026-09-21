@@ -7,6 +7,7 @@ import { db } from "@/config/db";
 import { getCommitFiles, getDiff, isValidCommitHash } from "@/modules/projects/git";
 import { backupProject, restoreProject, assertBundleNotBehindLocal } from "@/modules/projects/backup";
 import { getConnection } from "@/modules/storage/connections";
+import { assertConnectionBindable } from "@/modules/projects/storage-binding";
 import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
 import { HttpError } from "@/lib/http-error";
 import { audit, log } from "@/lib/logger";
@@ -110,6 +111,10 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
+    // The connection a project is bound to is an authorization decision: an
+    // admin may reuse any connection, a regular user only one that already
+    // backs a project they can reach, and an unknown id is refused outright.
+    await assertConnectionBindable(user, body.storageConnectionId);
     const project = await createProject(body);
     // Non-admin creators become collaborators with full (non-management) access.
     if (!isSiteAdmin(user)) {
@@ -220,6 +225,11 @@ projectRoutes.openapi(
         ? await getConnection(project.storageConnectionId)
         : undefined;
       await assertStorageDisconnectAllowed(project, connection, body.confirmStorageDisconnect);
+    }
+    // Rebinding is admin only, so this only has to fail closed on an unknown
+    // id instead of persisting a reference to a connection that is not there.
+    if (typeof body.storageConnectionId === "string") {
+      await assertConnectionBindable(admin, body.storageConnectionId);
     }
     const updated = await updateProject(id, body);
     if (!updated) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
