@@ -139,6 +139,35 @@ export function getRingBuffer(limit = 200): LogEntry[] {
   return ring.slice(-limit);
 }
 
+// Reads the newest `window` audit entries belonging to one project, without
+// parsing the whole rotated log the way readAuditLog does. Files are walked
+// newest first and parsing stops as soon as the window is full, so a per-project
+// feed costs what its response asks for instead of the size of the install's
+// whole audit history. Entries come back newest first.
+export function readProjectAuditWindow(projectId: string, window: number): Record<string, unknown>[] {
+  const files = [AUDIT_FILE, ...Array.from({ length: AUDIT_MAX_FILES }, (_, i) => `${AUDIT_FILE}.${i + 1}`)];
+  const out: Record<string, unknown>[] = [];
+  for (const file of files) {
+    if (out.length >= window) break;
+    if (!existsSync(file)) continue;
+    let lines: string[];
+    try {
+      lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+    } catch {
+      continue;
+    }
+    for (let i = lines.length - 1; i >= 0 && out.length < window; i -= 1) {
+      try {
+        const parsed = JSON.parse(lines[i]) as Record<string, unknown>;
+        if (parsed.projectId === projectId) out.push(parsed);
+      } catch {
+        // skip an unparsable line
+      }
+    }
+  }
+  return out;
+}
+
 // owner is the session that opened the stream (the sha256 of its cookie), and
 // onRevoked runs when that session ends so the caller can close its connection.
 export function subscribe(owner: string, fn: (entry: LogEntry) => void, onRevoked?: () => void): () => void {
