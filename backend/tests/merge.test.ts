@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
+import { env } from "@/config/env";
 import { projects } from "@/db/schema/projects";
 import { pullRequests, users } from "@/db/schema/auth";
 import { SESSION_COOKIE } from "@/constants/protocol";
@@ -12,7 +15,7 @@ import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import { createSession } from "@/modules/auth/auth";
 import { pullRequestRoutes } from "@/routes/pull-requests";
-import { mergePullRequest, checkMergeable } from "@/modules/pull-requests/merge";
+import { mergePullRequest, checkMergeable, removeProjectWorktrees, sweepWorktrees } from "@/modules/pull-requests/merge";
 
 // Integration test for PR merging (routes + worktree merge) against real bare
 // repos. Each case builds main + feature/x, creates a PR via the API, merges
@@ -303,4 +306,46 @@ describe("pull request merge", () => {
     });
     expect(denied.status).toBe(403);
   });
+});
+
+describe("worktree reaping", () => {
+  // A merge interrupted by a killed process leaves its worktree behind: a full
+  // checkout of the project's repository that nothing used to remove.
+  async function leaveWorktree(projectId: string): Promise<string> {
+    const bare = projectRepoPath(projectId);
+    const dir = path.join(path.resolve(env.SIGIT_PROJECTS_ROOT, "_worktrees"), `pr-${projectId}-${randomUUID()}`);
+    await fs.mkdir(path.dirname(dir), { recursive: true });
+    sh(`git worktree add --detach "${dir}" HEAD`, bare);
+    expect(existsSync(dir)).toBe(true);
+    return dir;
+  }
+
+  it("reaps a leftover worktree and the registration it left", async () => {
+    const projectId = await createProjectRow(`merge-sweep-${suffix}`);
+    const bare = projectRepoPath(projectId);
+    await initRepo(bare);
+    await seedRepo(bare);
+    const leftover = await leaveWorktree(projectId);
+
+    const swept = await sweepWorktrees();
+    expect(swept.removedDirs).toBeGreaterThanOrEqual(1);
+    expect(existsSync(leftover)).toBe(false);
+    // The stale registration went with the directory.
+    expect(sh("git worktree list --porcelain", bare)).not.toContain(leftover);
+  }, 30000);
+
+  it("removes only the deleted project's worktrees", async () => {
+    const deletedId = await createProjectRow(`merge-del-a-${suffix}`);
+    const keptId = await createProjectRow(`merge-del-b-${suffix}`);
+    for (const id of [deletedId, keptId]) {
+      await initRepo(projectRepoPath(id));
+      await seedRepo(projectRepoPath(id));
+    }
+    const deletedWorktree = await leaveWorktree(deletedId);
+    const keptWorktree = await leaveWorktree(keptId);
+
+    await removeProjectWorktrees(deletedId);
+    expect(existsSync(deletedWorktree)).toBe(false);
+    expect(existsSync(keptWorktree)).toBe(true);
+  }, 30000);
 });

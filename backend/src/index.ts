@@ -25,6 +25,7 @@ import { tokenRoutes } from "./routes/tokens";
 import { requireAuth, type AuthEnv } from "./middleware/auth";
 import { errorResponse } from "./lib/http-error";
 import { log } from "./lib/logger";
+import { sweepWorktrees } from "./modules/pull-requests/merge";
 
 const app = new OpenAPIHono<AuthEnv>();
 
@@ -136,6 +137,16 @@ app.route("/users", userRoutes);
 app.route("/invitations", invitationRoutes);
 app.route("/email-settings", emailSettingsRoutes);
 
+// Leftover pull request worktrees belong to requests that are gone: nothing can
+// be in flight before the server starts, so this is the safe moment to reap
+// them, together with the registrations they left in their bare repos.
+sweepWorktrees()
+  .then(({ removedDirs }) => {
+    if (removedDirs > 0) log.warn("startup", "reaped leftover worktrees", { removedDirs });
+  })
+  .catch((err) => {
+    log.warn("startup", "worktree sweep failed", { error: err instanceof Error ? err.message : String(err) });
+  });
 export default {
   port: Number(env.PORT),
   fetch: app.fetch,
