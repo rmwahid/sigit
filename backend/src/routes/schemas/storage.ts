@@ -28,7 +28,21 @@ export const connectionInputSchema = z.object({
   forcePathStyle: z.boolean().default(true),
 });
 
-export const connectionUpdateSchema = connectionInputSchema.partial();
+// No defaults, and still partial, for the same reason as the branch protection
+// update schema: deriving this from connectionInputSchema would carry
+// forcePathStyle's create-time default into every PATCH, so a request that does
+// not mention the field would write it back and silently revert a stored false.
+export const connectionUpdateSchema = z
+  .object({
+    name: z.string().min(1),
+    endpoint: z.string().min(1),
+    region: z.string().min(1),
+    accessKeyId: z.string().min(1),
+    secretAccessKey: z.string().min(1),
+    bucket: z.string().min(1),
+    forcePathStyle: z.boolean(),
+  })
+  .partial();
 
 export const keyParamSchema = z.object({
   id: z.string().uuid(),
