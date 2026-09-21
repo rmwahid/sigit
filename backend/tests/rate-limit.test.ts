@@ -98,9 +98,13 @@ describe("rate limiter", () => {
 });
 
 describe("clientIdentity", () => {
-  it("prefers the first x-forwarded-for entry", () => {
-    const h = new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" });
+  it("takes the entry the nearest proxy appended", () => {
+    // A proxy appends what it saw, so the last entry is the one a client cannot
+    // choose; the first is whatever the client sent.
+    const h = new Headers({ "x-forwarded-for": "1.2.3.4, 203.0.113.7" });
     expect(clientIdentity(h)).toBe("203.0.113.7");
+    expect(clientIdentity(new Headers({ "x-forwarded-for": "203.0.113.7" }))).toBe("203.0.113.7");
+    expect(clientIdentity(new Headers({ "x-forwarded-for": "1.2.3.4, 203.0.113.7 , " }))).toBe("203.0.113.7");
   });
 
   it("falls back to x-real-ip", () => {
