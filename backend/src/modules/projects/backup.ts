@@ -5,15 +5,19 @@ import { getConnection } from "@/modules/storage/connections";
 import { getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { ObjectTooLargeError, getObject, objectMeta } from "@/modules/storage/objects";
 import { projectRepoPath } from "./projects";
+import { env } from "@/config/env";
 import { execGit, gitErrorMessage, initRepo } from "./git";
 import { HttpError } from "@/lib/http-error";
 import { log } from "@/lib/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type { Project } from "@/db/schema/projects";
 import type { StorageConnection } from "@/db/schema/storage";
+
+// Resolved because the scratch path is passed to git, which resolves a relative
+// path against the repository it runs in (see PROJECTS_ROOT in modules/git/server.ts).
+const PROJECTS_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT);
 
 // S3 object metadata key that stores the repo HEAD sha the bundle was created
 // from (backupProject). Used by the restore guard to reject restoring a bundle
@@ -32,12 +36,25 @@ export class BundleTooLargeError extends Error {
   }
 }
 
+// Scratch path for a bundle file. It lives on the projects volume rather than in
+// the OS temp directory (a tmpfs in the container deployment, where the file is
+// charged to the container memory limit as well) and carries a random suffix, so
+// two operations on one project never collide on the same name.
+function scratchPath(projectId: string, label: string): string {
+  return path.join(PROJECTS_ROOT, `.bundle-${projectId}-${crypto.randomUUID()}-${label}`);
+}
+
 export async function createBundle(project: Project): Promise<Buffer> {
   const repoPath = projectRepoPath(project.id);
   // One file per attempt: two accepted pushes on one project run their backup at
   // the same time, and a fixed path made them collide on git's own lock file, so
   // the push that lost the race never refreshed the stored backup.
-  const tmpFile = path.join(os.tmpdir(), `${project.id}-${crypto.randomUUID()}.bundle`);
+  //
+  // The bundle is written next to the repositories rather than in the OS temp
+  // directory: os.tmpdir() is a tmpfs in the container deployment, so every byte
+  // of the bundle would be charged to the container's memory limit as well for
+  // as long as the file exists.
+  const tmpFile = scratchPath(project.id, "create");
   await execGit(repoPath, ["bundle", "create", tmpFile, "--all"]);
   // The bundle is the whole repository history in one file and nothing in the
   // tree bounds a repository's total size (the hook bounds single blobs), so the
@@ -131,11 +148,11 @@ export async function assertBundleNotBehindLocal(
   if (!(await getStoredBackupInfo(project, connection))) return;
 
   const bundle = await readBundleWithinLimit(project, connection);
-  const tmpFile = path.join(os.tmpdir(), `${project.id}-guard.bundle`);
+  const tmpFile = scratchPath(project.id, "guard.bundle");
   await fs.writeFile(tmpFile, bundle);
   // A scratch repository that holds only the bundle objects, so "contained in
   // the backup" is exactly what git can answer about the local commits.
-  const scratch = path.join(os.tmpdir(), `${project.id}-guard-check`);
+  const scratch = scratchPath(project.id, "guard-check");
   await fs.rm(scratch, { recursive: true, force: true });
   await initRepo(scratch);
   try {
@@ -198,7 +215,7 @@ export async function restoreProject(
 ): Promise<void> {
   const bundle = await readBundleWithinLimit(project, connection);
   const repoPath = projectRepoPath(project.id);
-  const tmpFile = path.join(os.tmpdir(), `${project.id}-restore.bundle`);
+  const tmpFile = scratchPath(project.id, "restore.bundle");
   await fs.writeFile(tmpFile, bundle);
   try {
     await fs.rm(repoPath, { recursive: true, force: true });

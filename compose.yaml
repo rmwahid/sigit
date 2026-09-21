@@ -30,14 +30,21 @@ services:
       - ALL
     read_only: true
     # Bound the container so memory pressure from concurrent requests restarts
-    # this one service instead of exhausting the host. Two per-operation bounds
-    # in the source decide the size: MAX_LFS_OBJECT_BYTES caps an LFS object at
-    # 128 MiB (the transfer holds roughly 4x that while it runs), and
-    # MAX_BACKUP_BUNDLE_BYTES caps the per-push repository bundle at 256 MiB (the
-    # bundle is the whole history in a single object and the read path holds
-    # about 3x). 2g covers one operation of either kind with room to spare.
+    # this one service instead of exhausting the host. Two per-operation bounds in
+    # the source decide the size, and the numbers are the measured cost of each
+    # path (the measurements behind the audit that set these values):
+    #   - MAX_LFS_OBJECT_BYTES caps an LFS object at 128 MiB and a transfer holds
+    #     about 4x that while it runs, so 2 concurrent transfers
+    #     (MAX_LFS_CONCURRENT_TRANSFERS) reach about 1 GiB.
+    #   - MAX_BACKUP_BUNDLE_BYTES caps the per-push repository bundle at 256 MiB;
+    #     the complete write path (bundle, read, encrypt, upload) peaks near 7x, so
+    #     one capped backup reaches about 1.7 GiB. The bundle file is written to
+    #     the projects volume rather than to the /tmp tmpfs, so its bytes are not
+    #     charged here.
+    # 3g covers either class; the sum is the residual, which the healthcheck and
+    # restart policy turn into a brief restart rather than a host-level event.
     # Raise this together with those constants.
-    mem_limit: 2g
+    mem_limit: 3g
     # A git child that is never reaped must not be able to fill the process
     # table: past this many processes a spawn is refused and the request fails
     # visibly instead of the container degrading quietly.

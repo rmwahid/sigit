@@ -124,8 +124,8 @@ export const MAX_LFS_REQUEST_BYTES = 1024 * 1024;
 // ever pulls into memory: the read path holds the ciphertext, the decrypted
 // plaintext and the decrypt buffer (about three copies), and the write path
 // peaks near seven times the bundle size. 256 MiB keeps one restore read around
-// 768 MiB and leaves room for concurrent work under the 2g container limit;
-// raise this only together with mem_limit in compose.yaml.
+// 768 MiB and one capped backup near 1.7 GiB; raise this only together with
+// mem_limit in compose.yaml.
 export const MAX_BACKUP_BUNDLE_BYTES = 256 * 1024 * 1024;
 
 // Outbound storage request bounds. The storage endpoint is user input (the
@@ -142,7 +142,7 @@ export const STORAGE_MAX_SOCKETS = 16;
 // without this bound a handful of concurrent uploads or downloads crosses the
 // container memory limit. Downloads count against the same gate as uploads
 // because both buffer the object in the shared process.
-export const MAX_LFS_CONCURRENT_TRANSFERS = 4;
+export const MAX_LFS_CONCURRENT_TRANSFERS = 2;
 
 // Login attempts are bounded twice: per account (whatever address asks) and per
 // client address (whatever account is asked). The account budget is the one a
