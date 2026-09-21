@@ -144,7 +144,9 @@ export async function verifyObject(
   }
   const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
   if (plaintextSize !== size) {
-    log.warn("lfs", `verify size mismatch for ${key}`, { stored: plaintextSize, declared: size });
+    // The client-facing wording is LFS_MESSAGES.SIZE_MISMATCH (single source);
+    // this log line is phrased so that text stays in exactly one place.
+    log.warn("lfs", `verify rejected for ${key}: stored size differs from the declared size`, { stored: plaintextSize, declared: size });
     return { ok: false, error: LFS_MESSAGES.SIZE_MISMATCH };
   }
   return { ok: true };
