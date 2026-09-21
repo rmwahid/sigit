@@ -61,6 +61,11 @@ const LOGIN_ADDRESS_RULE: RateLimitRule = { name: "auth.login_address", max: RAT
 const INVITE_ACCEPT_RULE: RateLimitRule = { name: "auth.invite_accept", max: RATE_LIMIT_INVITE_ACCEPT_MAX };
 const PASSWORD_RULE: RateLimitRule = { name: "auth.password", max: RATE_LIMIT_PASSWORD_MAX };
 
+// Content type a browser form submission cannot produce (it can only send
+// urlencoded, multipart or text/plain), which is what makes a route that reads
+// nothing from the body still unforgeable from another site.
+const JSON_CONTENT_TYPE = /^application\/([a-z-.+]+\+)?json/i;
+
 // Returns a 429 response when the budget for this identity is exhausted.
 // Failed attempts are audited so the admin log view surfaces brute force.
 function checkRateLimit(
@@ -183,6 +188,15 @@ authRoutes.openapi(
     path: "/logout",
     tags: ["Auth"],
     summary: "Logout current session",
+    request: {
+      // Logout is a cookie-authenticated mutation with nothing else to check, so
+      // the request shape is what makes it unforgeable from another site: a form
+      // submission cannot set a JSON content type without a CORS preflight, which
+      // this app never grants. The handler enforces the content type because a
+      // declared body only rejects a request whose value fails the schema, and an
+      // empty object never does.
+      body: { required: true, content: { "application/json": { schema: z.object({}).openapi("LogoutInput") } } },
+    },
     responses: {
       200: {
         description: "Logged out",
@@ -191,6 +205,13 @@ authRoutes.openapi(
     },
   }),
   async (c) => {
+    // A browser form submission can only send urlencoded, multipart or text
+    // content, so requiring a JSON request keeps a third-party page from ending
+    // this session even in browsers that still send a SameSite=Lax cookie on a
+    // cross-site top-level POST.
+    if (!JSON_CONTENT_TYPE.test(c.req.header("Content-Type") ?? "")) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Expected a JSON request body" } }, 400) as never;
+    }
     const token = getSessionTokenFromCookie(c.req.header("Cookie"));
     if (token) await deleteSession(token);
     c.header("Set-Cookie", sessionCookie("", 0, isSecureRequest(c)));

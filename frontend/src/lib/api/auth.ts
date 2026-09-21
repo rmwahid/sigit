@@ -19,7 +19,9 @@ export async function login(email: string, password: string) {
 }
 
 export async function logout() {
-  return api<{ message: string }>(API_PATHS.AUTH_LOGOUT, { method: "POST" });
+  // The route requires a JSON body so a cross-site form POST cannot reach it, so
+  // the call carries one even though the server reads nothing from it.
+  return api<{ message: string }>(API_PATHS.AUTH_LOGOUT, { method: "POST", body: "{}" });
 }
 
 export async function revokeAllSessions(password: string) {

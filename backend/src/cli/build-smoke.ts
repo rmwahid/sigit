@@ -453,7 +453,7 @@ async function runSuite(sql: postgres.Sql): Promise<void> {
   ok("DELETE /storage/connections/:id", r.status === 200, String(r.status));
   r = await call("GET", "/storage/connections");
   ok("connections list empty again", r.json?.data?.length === 0);
-  r = await call("POST", "/auth/logout");
+  r = await call("POST", "/auth/logout", {});
   ok("POST /auth/logout", r.status === 200, String(r.status));
   r = await call("GET", "/auth/me");
   ok("GET /auth/me after logout -> 401", r.status === 401, String(r.status));
