@@ -15,7 +15,10 @@ export const projectSchema = z
     id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
     name: projectNameSchema.openapi({ example: "notes-app" }),
     description: z.string().optional(),
-    storageConnectionId: z.string().uuid().nullable(),
+    // Optional because this field is operator surface: an admin response carries
+    // the storage binding, a collaborator response omits it (toProjectResponse
+    // in routes/projects.ts).
+    storageConnectionId: z.string().uuid().nullable().optional(),
     lfsSizeThreshold: z.number().int().min(1).default(DEFAULT_LFS_SIZE_THRESHOLD),
     lfsPatterns: z.string().nullable().optional(),
     createdAt: z.string().datetime().optional(),

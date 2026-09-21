@@ -35,7 +35,9 @@ export type Project = {
   id: string;
   name: string;
   description?: string;
-  storageConnectionId: string | null;
+  // Operator surface: the API omits the storage binding from a collaborator's
+  // response and includes it for an admin (the Settings tab is its only reader).
+  storageConnectionId?: string | null;
   lfsSizeThreshold: number;
   lfsPatterns?: string;
   isPublic?: boolean;

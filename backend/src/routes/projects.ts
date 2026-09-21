@@ -50,10 +50,18 @@ import type { Project } from "@/db/schema/projects";
 
 export const projectRoutes = new OpenAPIHono<AuthEnv>();
 
-// API responses must never expose the per-project encryption key columns.
-function toProjectResponse(p: Project) {
+// API responses must never expose the per-project encryption key columns, and
+// the storage binding belongs to the operator surface: every /storage/connections
+// route is admin-only, and the binding is the handle that decides where the
+// server writes. A collaborator response therefore drops it while an admin
+// response keeps it (the settings tab is the only screen that resolves it). The
+// LFS sizing fields stay for everyone: the project page renders them as the setup
+// snippet for signed-in viewers.
+function toProjectResponse(p: Project, options: { includeStorageBinding?: boolean } = {}) {
   const { encryptionKeyEncrypted: _key, encryptionKeyId: _keyId, ...safe } = p;
-  return safe;
+  if (options.includeStorageBinding) return safe;
+  const { storageConnectionId: _connection, ...collaboratorSafe } = safe;
+  return collaboratorSafe;
 }
 
 // 403 guard for actions that require a specific permission (admin bypasses).
@@ -88,7 +96,7 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const data = await listAccessibleProjects(user.id);
-    return c.json({ data: data.map(toProjectResponse) });
+    return c.json({ data: data.map((project) => toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) })) });
   }
 );
 
@@ -125,7 +133,7 @@ projectRoutes.openapi(
         permissions: [...ALL_PROJECT_PERMISSIONS],
       });
     }
-    return c.json({ data: toProjectResponse(project) }, 201);
+    return c.json({ data: toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) }) }, 201);
   }
 );
 
@@ -167,7 +175,7 @@ projectRoutes.openapi(
       });
     }
     audit(AUDIT_EVENTS.PROJECT_CREATE_WITH_CONNECTION, { projectId: project.id, name: project.name });
-    return c.json({ data: toProjectResponse(project) }, 201);
+    return c.json({ data: toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) }) }, 201);
   }
 );
 
@@ -196,7 +204,12 @@ projectRoutes.openapi(
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     // myPermissions: null = admin (everything), otherwise the granted set.
-    return c.json({ data: { ...toProjectResponse(project), myPermissions: guard.access } });
+    return c.json({
+      data: {
+        ...toProjectResponse(project, { includeStorageBinding: isSiteAdmin(guard.user) }),
+        myPermissions: guard.access,
+      },
+    });
   }
 );
 
@@ -244,7 +257,7 @@ projectRoutes.openapi(
     const updated = await updateProject(id, body);
     if (!updated) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     audit(AUDIT_EVENTS.PROJECT_UPDATE, { projectId: id, name: updated.name });
-    return c.json({ data: toProjectResponse(updated) });
+    return c.json({ data: toProjectResponse(updated, { includeStorageBinding: true }) });
   }
 );
 

@@ -181,6 +181,32 @@ describe("POST /projects storage binding", () => {
     expect(row ?? null).toBeNull();
   });
 
+  it("keeps the storage binding out of a collaborator's project response", async () => {
+    const connectionId = await createConnection();
+    const projectId = await createProject(`bind-hide-${suffix}`, connectionId);
+    const collaboratorId = await createUser(`bind-hide-collab-${suffix}@local.test`, DEFAULT_ROLE);
+    await db.insert(projectCollaborators).values({ projectId, userId: collaboratorId, permissions: ["view"] });
+    const collaboratorSession = await createSession(collaboratorId);
+
+    const seenByCollaborator = await projectRoutes.fetch(
+      new Request(`http://localhost/${projectId}`, { headers: cookie(collaboratorSession.token) })
+    );
+    expect(seenByCollaborator.status).toBe(200);
+    const collaboratorBody = (await seenByCollaborator.json()) as { data: Record<string, unknown> };
+    // The handle of an admin-managed resource is operator surface.
+    expect(Object.prototype.hasOwnProperty.call(collaboratorBody.data, "storageConnectionId")).toBe(false);
+    // The LFS fields stay: the project page renders them for signed-in viewers.
+    expect(Object.prototype.hasOwnProperty.call(collaboratorBody.data, "lfsSizeThreshold")).toBe(true);
+
+    const adminId = await createUser(`bind-hide-admin-${suffix}@local.test`, ADMIN_ROLE);
+    const adminSession = await createSession(adminId);
+    const seenByAdmin = await projectRoutes.fetch(
+      new Request(`http://localhost/${projectId}`, { headers: cookie(adminSession.token) })
+    );
+    const adminBody = (await seenByAdmin.json()) as { data: { storageConnectionId?: string } };
+    expect(adminBody.data.storageConnectionId).toBe(connectionId);
+  });
+
   it("still lets an admin create a project with a connection", async () => {
     const connectionId = await createConnection();
     const adminId = await createUser(`bind-route-admin-${suffix}@local.test`, ADMIN_ROLE);
