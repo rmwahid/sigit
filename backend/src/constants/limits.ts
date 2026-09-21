@@ -50,6 +50,17 @@ export const MAX_LFS_OBJECT_BYTES = 128 * 1024 * 1024;
 // LFS batch request: max objects per batch (spec-ish sanity cap).
 export const MAX_LFS_BATCH_OBJECTS = 1000;
 
+// LFS patterns: comma separated gitattributes-style globs. The value is rendered
+// as a `git lfs track "<pattern>"` line in the project page's copy-paste setup
+// block (frontend/src/lib/snippet.ts), so only characters that carry no shell
+// meaning are accepted here; quoting alone would not contain a closing quote, a
+// newline, `;`, `$( )`, a backtick or a history expansion. A pattern starts with
+// a non-space character and may contain spaces after it, so a path with a space
+// in it still works.
+export const LFS_PATTERN_MAX_LENGTH = 200;
+export const LFS_PATTERN_ELEMENT = "[A-Za-z0-9*._/-][A-Za-z0-9 *._/-]*";
+export const LFS_PATTERN_PATTERN = `^${LFS_PATTERN_ELEMENT}( *, *${LFS_PATTERN_ELEMENT})*$`;
+
 // Branch names (git check-ref-format --branch is the final authority at
 // create time; this pre-filter is mirrored by the frontend for parity).
 export const BRANCH_NAME_MAX_LENGTH = 200;
