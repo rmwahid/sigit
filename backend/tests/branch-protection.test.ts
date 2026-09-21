@@ -297,7 +297,15 @@ describe("branch protection routes", () => {
     // Reading the policy is allowed: a restricted principal may know its rules.
     const read = await request(branchProtectionRoutes, req("GET", base, collabCookie));
     expect(read.status).toBe(200);
-    expect(((await read.json()) as { data: unknown[] }).data).toHaveLength(1);
+    const readRules = ((await read.json()) as { data: Record<string, unknown>[] }).data;
+    expect(readRules).toHaveLength(1);
+    // But the account allow-lists are governance data: they name who may push or
+    // merge into a protected branch, and this caller can resolve an id to an
+    // address through the PR list, so they are not part of the response.
+    expect(readRules[0].restrictPushUserIds).toBeUndefined();
+    expect(readRules[0].restrictMergeUserIds).toBeUndefined();
+    expect(readRules[0].allowAdminBypass).toBeUndefined();
+    expect(readRules[0].requirePr).toBe(true);
 
     // Lifting the restriction is not.
     const created2 = await request(branchProtectionRoutes, req("POST", base, collabCookie, { ...body, branchPattern: "release/*" }));
@@ -307,12 +315,16 @@ describe("branch protection routes", () => {
     const deleted = await request(branchProtectionRoutes, req("DELETE", `${base}/${ruleId}`, collabCookie));
     expect(deleted.status).toBe(403);
 
-    // The rule survived all three attempts.
+    // The rule survived all three attempts, and the admin still sees the
+    // governance fields the collaborator response omits.
     const after = await request(branchProtectionRoutes, req("GET", base, cookie));
-    const rules = ((await after.json()) as { data: { requirePr: boolean; blockDeletion: boolean }[] }).data;
+    const rules = ((await after.json()) as { data: Record<string, unknown>[] }).data;
     expect(rules).toHaveLength(1);
     expect(rules[0].requirePr).toBe(true);
     expect(rules[0].blockDeletion).toBe(true);
+    expect(rules[0].allowAdminBypass).toBe(false);
+    expect(rules[0].restrictPushUserIds).toEqual([]);
+    expect(rules[0].restrictMergeUserIds).toEqual([]);
   });
 });
 

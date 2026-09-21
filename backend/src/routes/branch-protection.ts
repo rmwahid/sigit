@@ -10,6 +10,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { branchProtectionRules } from "@/db/schema/auth";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
+import { ADMIN_ROLE } from "@/constants/roles";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import {
   BRANCH_PATTERN_MAX_LENGTH,
@@ -67,6 +68,8 @@ const protectionPatchSchema = z
   })
   .partial();
 
+// The three governance fields are absent from a list response served to a
+// caller without governance rights (toRuleFor), so they are optional here.
 const protectionRuleSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -76,9 +79,9 @@ const protectionRuleSchema = z.object({
   blockOnRequestChanges: z.boolean(),
   blockForcePush: z.boolean(),
   blockDeletion: z.boolean(),
-  restrictPushUserIds: z.array(z.string().uuid()),
-  restrictMergeUserIds: z.array(z.string().uuid()),
-  allowAdminBypass: z.boolean(),
+  restrictPushUserIds: z.array(z.string().uuid()).optional(),
+  restrictMergeUserIds: z.array(z.string().uuid()).optional(),
+  allowAdminBypass: z.boolean().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -114,6 +117,16 @@ function toRule(row: typeof branchProtectionRules.$inferSelect) {
   };
 }
 
+// Governance fields answer "who is allowed to push or merge here", and the same
+// caller can resolve an id to an address through the pull request list, so a
+// caller without governance rights reads the policy without them.
+function toRuleFor(row: typeof branchProtectionRules.$inferSelect, canGovern: boolean) {
+  const rule = toRule(row);
+  if (canGovern) return rule;
+  const { restrictPushUserIds: _push, restrictMergeUserIds: _merge, allowAdminBypass: _bypass, ...policy } = rule;
+  return policy;
+}
+
 // Keeps the hook snapshot in sync after any rule change.
 async function refreshSnapshot(projectId: string, repoPath: string) {
   const rules = await listProtectionRules(projectId);
@@ -139,7 +152,8 @@ branchProtectionRoutes.openapi(
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
     const rules = await listProtectionRules(id);
-    return c.json({ data: rules.map(toRule) });
+    const canGovern = access.user.role === ADMIN_ROLE;
+    return c.json({ data: rules.map((rule) => toRuleFor(rule, canGovern)) });
   }
 );
 
