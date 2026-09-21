@@ -11,14 +11,16 @@ export type PrGitValidation = {
 
 // Ref names must exist in the repo. base === head is rejected (a PR needs two
 // distinct branches); merge-base existence keeps PRs meaningful (the branches
-// must have diverged at some point).
+// must have diverged at some point). Both fields are resolved through
+// resolveRef, which is an exact ref lookup: a value like `main~1` or `main^{}`
+// is not a branch here, it is a different revision than the one it names.
 export async function validatePrBranches(repoPath: string, base: string, head: string): Promise<PrGitValidation> {
   if (base === head) {
     return { ok: false, error: "Base and head branch must be different" };
   }
   for (const ref of [base, head]) {
     try {
-      await execGit(repoPath, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`]);
+      await resolveRef(repoPath, ref);
     } catch {
       return { ok: false, error: `Branch "${ref}" does not exist` };
     }
@@ -62,8 +64,11 @@ export async function prDiff(
   }
 }
 
-// Resolves a branch name to its commit sha (or throws when missing).
+// Resolves a branch name to the commit it points at (or throws when missing).
+// show-ref resolves the ref itself rather than a revision: `rev-parse --verify`
+// would also accept the revision operators (~, ^, {}) and dash-prefixed values
+// under refs/heads/, so a stored field could name one branch and act on another.
 export async function resolveRef(repoPath: string, ref: string): Promise<string> {
-  const { stdout } = await execGit(repoPath, ["rev-parse", "--verify", `refs/heads/${ref}^{commit}`]);
+  const { stdout } = await execGit(repoPath, ["show-ref", "--verify", "--hash", `refs/heads/${ref}`]);
   return stdout.toString("utf8").trim();
 }

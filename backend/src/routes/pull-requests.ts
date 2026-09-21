@@ -22,6 +22,7 @@ import {
   type PrStatus,
 } from "@/constants/pull-requests";
 import { ERROR_CODES } from "@/constants/errors";
+import { BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "@/constants/limits";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { requireProjectAccess, type AuthEnv } from "@/middleware/auth";
@@ -37,11 +38,23 @@ import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 // Rich text fields carry HTML (Tiptap output). Sanitization is the server's
 // job: every stored value passes through sanitizeRichText before insert or
 // update, so the API response is safe to render verbatim on the frontend.
+//
+// Branch fields are stored and later used as git refs (diff range, trial merge,
+// checkout -B, push refspec), so they are validated as branch names here: the
+// revision operators ~ ^ {} and a leading dash are outside the shared pattern,
+// and '..' is refused the same way the branch API refuses it.
+const prBranchSchema = z
+  .string()
+  .min(1)
+  .max(BRANCH_NAME_MAX_LENGTH)
+  .regex(new RegExp(BRANCH_NAME_PATTERN), "Invalid branch name")
+  .refine((name: string) => !name.includes(".."), "Invalid branch name");
+
 const prInputSchema = z.object({
   title: z.string().min(1).max(255),
   description: z.string().max(10000).optional(),
-  baseBranch: z.string().min(1).max(255),
-  headBranch: z.string().min(1).max(255),
+  baseBranch: prBranchSchema,
+  headBranch: prBranchSchema,
 });
 
 const prUpdateSchema = z.object({
