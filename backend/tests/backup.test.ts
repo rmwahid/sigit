@@ -16,6 +16,7 @@ import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import {
   assertBundleNotBehindLocal,
+  backupObjectKey,
   backupProject,
   BUNDLE_HEAD_METADATA,
   createBundle,
@@ -24,6 +25,8 @@ import {
   restoreProject,
 } from "@/modules/projects/backup";
 import { getObject } from "@/modules/storage/objects";
+import { putEncrypted } from "@/modules/encryption/at-rest";
+import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 
 // Integration test for backup/restore (git bundle + encrypted storage) against
 // dev DB `sigit` + local MinIO (bucket sigit-test). Rows carry a unique suffix
@@ -81,6 +84,23 @@ async function pushCommit(barePath: string, file: string, content: string): Prom
   await fs.writeFile(path.join(work, file), content);
   sh("git add -A && git commit -m \"test: extra commit\" -q", work);
   sh("git push -f sigit main -q", work);
+}
+
+// Adds a commit to one named branch of the bare repo. pushCommit targets main,
+// and the guard tests need a branch that is not the default one.
+async function pushBranchCommit(barePath: string, branch: string, file: string, content: string): Promise<void> {
+  const work = path.join(tmpdir(), `sigit-backup-branch-${suffix}-${Math.random().toString(36).slice(2)}`);
+  tmpDirs.push(work);
+  await fs.mkdir(work, { recursive: true });
+  sh("git init -b main", work);
+  sh('git config user.email "test@local"', work);
+  sh('git config user.name "Test"', work);
+  sh(`git remote add sigit ${barePath}`, work);
+  sh(`git fetch sigit ${branch} -q`, work);
+  sh(`git checkout -b ${branch} sigit/${branch} -q`, work);
+  await fs.writeFile(path.join(work, file), content);
+  sh('git add -A && git commit -m "test: branch commit" -q', work);
+  sh(`git push sigit ${branch} -q`, work);
 }
 
 async function createProjectRow(name: string, withConnection = true) {
@@ -245,6 +265,82 @@ describe("backup / restore", () => {
 
       // Must not throw: the bundle contains the local HEAD.
       await assertBundleNotBehindLocal(project, stored);
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
+    "refuses a restore that would drop a branch other than HEAD",
+    async () => {
+      const project = await createProjectRow(`backup-branch-${suffix}`);
+      const repoPath = projectRepoPath(project.id);
+      await initRepo(repoPath);
+      await seedRepo(repoPath, "a.txt", "a");
+      // A second branch that the bundle will contain.
+      sh("git branch feature/x main", repoPath);
+      await backupProject(project);
+      const stored = (await db.query.storageConnections.findFirst({ where: (t, { eq }) => eq(t.id, project.storageConnectionId!) }))!;
+
+      // Advance ONLY feature/x: HEAD is still contained in the bundle, so the
+      // old guard (which compared HEAD alone) allowed this restore and dropped
+      // the branch.
+      await pushBranchCommit(repoPath, "feature/x", "b.txt", "b");
+
+      let message = "";
+      try {
+        await assertBundleNotBehindLocal(project, stored);
+      } catch (err) {
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).status).toBe(409);
+        message = (err as HttpError).message;
+      }
+      expect(message).toContain("feature/x");
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
+    "refuses a stale restore even when the stored bundle names no head",
+    async () => {
+      const project = await createProjectRow(`backup-nometa-${suffix}`);
+      const repoPath = projectRepoPath(project.id);
+      await initRepo(repoPath);
+      await seedRepo(repoPath, "a.txt", "a");
+      const stored = (await db.query.storageConnections.findFirst({ where: (t, { eq }) => eq(t.id, project.storageConnectionId!) }))!;
+
+      // Re-store the same bundle without the head metadata, as an object written
+      // by another tool or one whose metadata was lost. "Cannot compare" must not
+      // read as permission to overwrite newer local history.
+      const bundle = await createBundle(project);
+      await putEncrypted(project, stored, backupObjectKey(project.id), bundle, CONTENT_TYPE_OCTET_STREAM, {});
+      await pushCommit(repoPath, "b.txt", "b");
+
+      let rejected = false;
+      try {
+        await assertBundleNotBehindLocal(project, stored);
+      } catch (err) {
+        rejected = true;
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).status).toBe(409);
+      }
+      expect(rejected).toBe(true);
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
+    "gives each backup attempt its own bundle file",
+    async () => {
+      const project = await createProjectRow(`backup-tmp-${suffix}`);
+      await initRepo(projectRepoPath(project.id));
+      await seedRepo(projectRepoPath(project.id), "a.txt", "a");
+
+      // Two accepted pushes on one project run their backup at the same time.
+      // With one fixed temp path they collided on git's own lock file, and the
+      // attempt that lost the race never refreshed the stored backup.
+      const [first, second] = await Promise.all([createBundle(project), createBundle(project)]);
+      expect(first.length).toBeGreaterThan(0);
+      expect(second.length).toBeGreaterThan(0);
     },
     TEST_TIMEOUT
   );
