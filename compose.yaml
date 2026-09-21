@@ -30,12 +30,27 @@ services:
       - ALL
     read_only: true
     # Bound the container so memory pressure from concurrent requests restarts
-    # this one service instead of exhausting the host. Sized against the largest
-    # single legitimate operation: the LFS paths hold roughly six times the
-    # object size until they stream, and MAX_LFS_OBJECT_BYTES caps an object at
-    # 128 MiB, so one request peaks near 768 MB and 2g leaves room for several.
-    # Raise this together with MAX_LFS_OBJECT_BYTES.
+    # this one service instead of exhausting the host. Two per-operation bounds
+    # in the source decide the size: MAX_LFS_OBJECT_BYTES caps an LFS object at
+    # 128 MiB (the transfer holds roughly 4x that while it runs), and
+    # MAX_BACKUP_BUNDLE_BYTES caps the per-push repository bundle at 256 MiB (the
+    # bundle is the whole history in a single object and the read path holds
+    # about 3x). 2g covers one operation of either kind with room to spare.
+    # Raise this together with those constants.
     mem_limit: 2g
+    # A git child that is never reaped must not be able to fill the process
+    # table: past this many processes a spawn is refused and the request fails
+    # visibly instead of the container degrading quietly.
+    pids_limit: 512
+    # Liveness for an operator: /app-info answers without a session, so the probe
+    # needs no credential. The port is read from the container environment, so
+    # changing PORT in backend/.env needs no second edit here.
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"const r = await fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/app-info'); if (!r.ok) process.exit(1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     tmpfs:
       - /tmp
     logging:
