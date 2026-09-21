@@ -114,4 +114,25 @@ describe("prDiff", () => {
     expect(diff).toContain("b.txt");
     expect(diff).toContain("+b");
   });
+
+  it("truncates a diff past the caller cap instead of failing", async () => {
+    const dir = await makeRepo();
+    const lines = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
+    await fs.writeFile(path.join(dir, "a.txt"), "a");
+    sh("git add -A && git commit -m \"test: base\" -q", dir);
+    sh("git branch feature/x", dir);
+    sh("git checkout feature/x -q", dir);
+    await fs.writeFile(path.join(dir, "big.txt"), `${lines}\n`);
+    sh("git add -A && git commit -m \"test: big head\" -q", dir);
+    const head = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+    sh("git checkout main -q", dir);
+
+    // Branch range and merged-PR (single commit) both honour the cap.
+    const branchCapped = await prDiff(dir, "main", "feature/x", 512);
+    expect(branchCapped).toContain("[diff truncated at 512 bytes]");
+    expect(branchCapped.length).toBeLessThan(4096);
+
+    const commitCapped = await prDiff(dir, head, undefined, 512);
+    expect(commitCapped).toContain("[diff truncated at 512 bytes]");
+  });
 });

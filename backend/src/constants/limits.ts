@@ -132,3 +132,14 @@ export const RATE_LIMIT_LOGIN_ADDRESS_MAX = 50;
 // one entry, so the map needs a ceiling of its own: past it, expired entries are
 // swept first and then the entry closest to expiring is dropped.
 export const MAX_RATE_LIMIT_BUCKETS = 10000;
+
+// Concurrent archive generations one backend process may run. An archive is
+// built and buffered by git (up to execGit's 32 MiB output cap per generation),
+// so the request budget alone let several of them run at once and hold their
+// archives together in memory.
+export const MAX_CONCURRENT_ARCHIVES = 4;
+// Largest diff payload a read route will hand to the client. A diff is rendered
+// synchronously by the browser, so an unbounded one costs the opening user a
+// frozen tab and the server a buffered response; past the cap the diff is
+// truncated and marked rather than delivered whole.
+export const MAX_DIFF_BYTES = 4 * 1024 * 1024;

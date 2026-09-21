@@ -1,4 +1,4 @@
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
+import { DEFAULT_HISTORY_LIMIT, MAX_DIFF_BYTES, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
 import { HOOK_MESSAGES } from "@/constants/lfs-messages";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -221,10 +221,27 @@ export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT, of
     });
 }
 
-export async function getDiff(repoPath: string, a?: string, b?: string): Promise<string> {
+export async function getDiff(
+  repoPath: string,
+  a?: string,
+  b?: string,
+  maxBytes = MAX_DIFF_BYTES
+): Promise<string> {
   const range = a && b ? `${a}..${b}` : a ? await diffRangeForCommit(repoPath, a) : "HEAD";
-  const { stdout } = await execGit(repoPath, ["diff", range]);
-  return stdout.toString("utf8");
+  try {
+    const { stdout } = await execGit(repoPath, ["diff", range], maxBytes);
+    return stdout.toString("utf8");
+  } catch (err) {
+    // execGit kills the child once its output passes maxBuffer but still hands
+    // back what fitted: return the truncated diff with a marker instead of
+    // failing the request, so a large diff degrades instead of 500ing and the
+    // client never receives more than the cap.
+    const partial = (err as { stdout?: Buffer | string }).stdout;
+    if (partial && /maxBuffer/i.test(String((err as Error).message))) {
+      return `${Buffer.from(partial).toString("utf8")}\n\n[diff truncated at ${maxBytes} bytes]\n`;
+    }
+    throw err;
+  }
 }
 
 // Empty tree hash: the diff baseline for root commits (they have no parent,

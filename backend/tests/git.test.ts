@@ -78,6 +78,33 @@ describe("git module (bare repo)", () => {
     }
   });
 
+  it("truncates a diff past the caller cap instead of failing", async () => {
+    const capBare = path.join(tmpdir(), `sigit-cap-${Date.now()}`);
+    const capWork = path.join(tmpdir(), `sigit-cap-work-${Date.now()}`);
+    try {
+      await initRepo(capBare);
+      await fs.mkdir(capWork, { recursive: true });
+      sh("git init -b main", capWork);
+      sh('git config user.email "t@l"', capWork);
+      sh('git config user.name "T"', capWork);
+      const lines = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
+      await fs.writeFile(path.join(capWork, "big.txt"), `${lines}\n`);
+      sh("git add . && git commit -m \"test: many lines\" -q", capWork);
+      sh(`git remote add sigit ${capBare}`, capWork);
+      sh("git push sigit main -q", capWork);
+
+      const full = await getDiff(capBare, "HEAD");
+      const capped = await getDiff(capBare, "HEAD", undefined, 512);
+      // Degrades to a marked partial diff instead of throwing, and never hands
+      // back the whole payload.
+      expect(capped).toContain("[diff truncated at 512 bytes]");
+      expect(capped.length).toBeLessThan(full.length);
+    } finally {
+      await fs.rm(capBare, { recursive: true, force: true });
+      await fs.rm(capWork, { recursive: true, force: true });
+    }
+  });
+
   it("pre-receive hook rejects blobs above the threshold", async () => {
     const smallBare = path.join(tmpdir(), `sigit-hook-${Date.now()}`);
     const smallWork = path.join(tmpdir(), `sigit-hook-work-${Date.now()}`);

@@ -2,6 +2,7 @@
 // module stays unit-testable (like modules/lfs/server.ts); the route layer
 // handles permissions, numbering, and persistence.
 import { execGit, getDiff } from "@/modules/projects/git";
+import { MAX_DIFF_BYTES } from "@/constants/limits";
 
 export type PrGitValidation = {
   ok: boolean;
@@ -38,12 +39,27 @@ export async function validatePrBranches(repoPath: string, base: string, head: s
 //   commit itself (parent..commit). The base branch contains the head after a
 //   merge, so a branch range would come back empty; the stored merge commit
 //   is the exact source of truth for what this PR brought in.
-export async function prDiff(repoPath: string, base: string, head?: string): Promise<string> {
+export async function prDiff(
+  repoPath: string,
+  base: string,
+  head?: string,
+  maxBytes = MAX_DIFF_BYTES
+): Promise<string> {
   if (head === undefined) {
-    return getDiff(repoPath, `${base}~1`, base);
+    return getDiff(repoPath, `${base}~1`, base, maxBytes);
   }
-  const { stdout } = await execGit(repoPath, ["diff", `refs/heads/${base}...refs/heads/${head}`]);
-  return stdout.toString("utf8");
+  try {
+    const { stdout } = await execGit(repoPath, ["diff", `refs/heads/${base}...refs/heads/${head}`], maxBytes);
+    return stdout.toString("utf8");
+  } catch (err) {
+    // Same bargain as getDiff: a diff past the cap comes back truncated and
+    // marked rather than failing the request.
+    const partial = (err as { stdout?: Buffer | string }).stdout;
+    if (partial && /maxBuffer/i.test(String((err as Error).message))) {
+      return `${Buffer.from(partial).toString("utf8")}\n\n[diff truncated at ${maxBytes} bytes]\n`;
+    }
+    throw err;
+  }
 }
 
 // Resolves a branch name to its commit sha (or throws when missing).
