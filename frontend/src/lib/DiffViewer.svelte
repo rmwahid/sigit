@@ -41,8 +41,19 @@
       matching: "lines",
       fileListToggle: false,
     });
-    ui.draw();
-    wireCollapse();
+    // diff2html resolves a file's data-lang (its extension) with
+    // `languagesToExt[ext] ?? "plaintext"` over a prototype-inheriting object, so
+    // a committed file named e.g. notes.toString yields an Object.prototype
+    // member and the highlight pass throws on the non-string. The diff HTML is
+    // already in the container by then, so the failure must not escape the
+    // effect and cancel the other updates queued in the same flush.
+    try {
+      ui.draw();
+    } catch (error) {
+      console.warn("diff highlight pass failed", error);
+    } finally {
+      wireCollapse();
+    }
   }
 
   // Runs after mount and whenever a different diff arrives (component reuse).
