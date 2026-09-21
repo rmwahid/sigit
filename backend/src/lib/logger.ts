@@ -20,8 +20,12 @@ type LogEntry = { ts: string; level: Level; scope: string; message: string; [k: 
 const RING_SIZE = Number(env.LOG_RING_SIZE);
 const ring: LogEntry[] = [];
 
-// SSE subscribers (callbacks to push live log lines).
-const subscribers = new Set<(entry: LogEntry) => void>();
+// SSE subscribers. Each one carries the session that opened it, so the streams a
+// session opened can be detached when that session ends: a live stream otherwise
+// keeps receiving admin-only lines after a logout, a revoke-all or a deleted
+// account, since nothing re-checks the session after the connection is accepted.
+type Subscriber = { owner: string; fn: (entry: LogEntry) => void; onRevoked?: () => void };
+const subscribers = new Set<Subscriber>();
 
 function ts(): string {
   return new Date().toISOString();
@@ -33,9 +37,9 @@ function emit(level: Level, scope: string, message: string, meta?: Record<string
   ring.push(entry);
   if (ring.length > RING_SIZE) ring.shift();
   // Notify SSE subscribers
-  for (const fn of subscribers) {
+  for (const subscriber of subscribers) {
     try {
-      fn(entry);
+      subscriber.fn(entry);
     } catch {
       // ignore subscriber errors
     }
@@ -135,7 +139,35 @@ export function getRingBuffer(limit = 200): LogEntry[] {
   return ring.slice(-limit);
 }
 
-export function subscribe(fn: (entry: LogEntry) => void): () => void {
-  subscribers.add(fn);
-  return () => subscribers.delete(fn);
+// owner is the session that opened the stream (the sha256 of its cookie), and
+// onRevoked runs when that session ends so the caller can close its connection.
+export function subscribe(owner: string, fn: (entry: LogEntry) => void, onRevoked?: () => void): () => void {
+  const subscriber: Subscriber = { owner, fn, onRevoked };
+  subscribers.add(subscriber);
+  return () => {
+    subscribers.delete(subscriber);
+  };
+}
+
+// Detaches every stream a session opened and reports how many there were. Every
+// path that ends a session calls this, so a revoked session stops receiving the
+// admin-only feed instead of streaming until the client disconnects.
+export function unsubscribeOwner(owner: string): number {
+  let detached = 0;
+  for (const subscriber of [...subscribers]) {
+    if (subscriber.owner !== owner) continue;
+    subscribers.delete(subscriber);
+    detached += 1;
+    try {
+      subscriber.onRevoked?.();
+    } catch {
+      // Closing a stream must never fail the revoke that triggered it.
+    }
+  }
+  return detached;
+}
+
+// Live stream count, for tests and for an operator-facing metric.
+export function subscriberCount(): number {
+  return subscribers.size;
 }

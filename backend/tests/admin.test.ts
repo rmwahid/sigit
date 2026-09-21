@@ -1,12 +1,11 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
-import { createSession } from "@/modules/auth/auth";
-import { deleteUser } from "@/modules/auth/auth";
+import { createSession, deleteSession, deleteUser } from "@/modules/auth/auth";
 import { adminRoutes } from "@/routes/admin";
 import { SESSION_COOKIE } from "@/constants/protocol";
 import { ADMIN_ROLE } from "@/constants/roles";
-import { log } from "@/lib/logger";
+import { log, subscriberCount, subscribe, unsubscribeOwner } from "@/lib/logger";
 
 // Integration test for the admin routes (log endpoints) against dev DB `sigit`.
 const suffix = Date.now().toString(36);
@@ -57,5 +56,52 @@ describe("admin routes", () => {
     const { token } = await createSession(row.id);
     const res = await adminRoutes.request("/logs", { headers: cookie(token) });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("admin log stream lifecycle", () => {
+  // The subscriber registry is process-global, so every assertion is relative to
+  // what was already attached when the test started.
+  it("detaches a live stream when the session that opened it ends", async () => {
+    const before = subscriberCount();
+    const token = await adminToken();
+    const res = await adminRoutes.request("/logs/stream", { headers: cookie(token) });
+    expect(res.status).toBe(200);
+    // The stream registers its subscriber inside the SSE callback.
+    for (let i = 0; i < 20 && subscriberCount() !== before + 1; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(subscriberCount()).toBe(before + 1);
+
+    // Logging out must end the stream, not just the cookie: without this the
+    // connection keeps receiving admin-only lines after its authority is gone.
+    await deleteSession(token);
+    expect(subscriberCount()).toBe(before);
+  });
+
+  it("does not attach a subscriber for an already-aborted request", async () => {
+    const before = subscriberCount();
+    const token = await adminToken();
+    const controller = new AbortController();
+    controller.abort();
+
+    // A request that is already aborted never fires its abort event again, so a
+    // subscriber registered here would be unreachable forever.
+    const res = await adminRoutes.request("/logs/stream", { headers: cookie(token), signal: controller.signal });
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(subscriberCount()).toBe(before);
+  });
+
+  it("reports the live stream count and detaches by owner", () => {
+    const before = subscriberCount();
+    const detach = subscribe("owner-a", () => {});
+    subscribe("owner-b", () => {});
+    expect(subscriberCount()).toBe(before + 2);
+    detach();
+    expect(subscriberCount()).toBe(before + 1);
+    // Detaching one owner leaves the other attached.
+    expect(unsubscribeOwner("owner-b")).toBe(1);
+    expect(subscriberCount()).toBe(before);
+    // An owner with nothing attached detaches nothing.
+    expect(unsubscribeOwner("owner-b")).toBe(0);
   });
 });

@@ -4,6 +4,8 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import { requireAdmin } from "@/middleware/auth";
 import { getRingBuffer, log, readAuditLog, subscribe } from "@/lib/logger";
+import { getSessionTokenFromCookie } from "@/modules/auth/auth";
+import { sha256 } from "@/lib/hash";
 import { errorSchema } from "./schemas/common";
 import type { AuthEnv } from "@/middleware/auth";
 
@@ -82,18 +84,44 @@ adminRoutes.openapi(
   async (c) => {
     const admin = await requireAdmin(c);
     if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
+    // The stream is bound to the session that opened it (its cookie hash), so
+    // ending that session detaches the subscriber and closes the connection.
+    const sessionToken = getSessionTokenFromCookie(c.req.header("Cookie"));
+    const owner = sessionToken ? sha256(sessionToken) : "";
     log.info("admin", "log stream started");
     return streamSSE(c, async (stream) => {
-      const unsubscribe = subscribe((entry) => {
-        stream.writeSSE({ data: JSON.stringify(entry) });
+      const signal = c.req.raw.signal;
+      // A request that is already aborted never fires its abort event again, so
+      // registering a subscriber here would leave one that nothing can reach.
+      if (signal.aborted) return;
+
+      let detach = () => {};
+      let resolveClosed = () => {};
+      const closed = new Promise<void>((resolve) => {
+        resolveClosed = resolve;
       });
-      c.req.raw.signal.addEventListener("abort", () => unsubscribe());
-      // Keep the stream open
-      await stream.onAbort(() => unsubscribe());
-      // Block until aborted (prevent handler from returning immediately)
-      await new Promise<void>((resolve) => {
-        c.req.raw.signal.addEventListener("abort", () => resolve());
-      });
+      const finish = () => {
+        detach();
+        resolveClosed();
+      };
+
+      detach = subscribe(
+        owner,
+        (entry) => {
+          // A failed write means the client is gone: detach instead of keeping a
+          // subscriber whose lines cannot be delivered.
+          stream.writeSSE({ data: JSON.stringify(entry) }).catch(finish);
+        },
+        () => {
+          // The session ended: close the connection so it does not outlive the
+          // authority that opened it.
+          stream.close().catch(() => {});
+          finish();
+        }
+      );
+      signal.addEventListener("abort", finish);
+      // Block until the client leaves or the session is revoked.
+      await closed;
     });
   }
 );
