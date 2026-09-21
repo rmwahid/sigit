@@ -16,6 +16,11 @@ function escapeHtml(input: string): string {
 const SAFE_LINK_SCHEME = /^(https?:\/\/|mailto:)/i;
 // Any other explicit scheme (javascript:, data:, vbscript:, file:, ...).
 const EXPLICIT_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+// A browser strips tab, LF and CR from anywhere in a URL before resolving it,
+// but the scheme test above sees them: "java\tscript:alert(1)" would pass as a
+// scheme-less path and resolve to a javascript: URL. Anything carrying a control
+// character is refused instead of normalised.
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
 // Returns the href when it is safe to use, otherwise undefined (link becomes
 // plain text, image becomes alt text). Relative paths, fragments and queries
@@ -24,6 +29,7 @@ export function safeHref(href: string | null | undefined): string | undefined {
   if (!href) return undefined;
   const trimmed = href.trim();
   if (!trimmed) return undefined;
+  if (CONTROL_CHARACTER.test(trimmed)) return undefined;
   if (SAFE_LINK_SCHEME.test(trimmed)) return trimmed;
   if (EXPLICIT_SCHEME.test(trimmed)) return undefined;
   if (trimmed.startsWith("//")) return undefined; // protocol-relative
