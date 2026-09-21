@@ -37,9 +37,15 @@ export const TOKEN_NAME_MAX_LENGTH = 100;
 // Lives in constants/limits.ts (not db/schema) because it is a domain rule.
 export const DEFAULT_LFS_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
-// LFS object size cap (2 GiB): PUT route rejects larger bodies and the batch
-// builder omits the upload action.
-export const MAX_LFS_OBJECT_BYTES = 2 * 1024 * 1024 * 1024;
+// LFS object size cap. Matches what the server can actually receive: Bun.serve
+// refuses a request body above its own default ceiling (128 MiB) before any
+// route runs, so the previous 2 GiB advertised a size that could never arrive
+// while letting the download path serve an object that costs ~6x its size in
+// memory. The PUT route rejects larger bodies, the batch builder omits the
+// upload action, and the download route refuses to serve an object above it.
+// Raising this value requires raising the runtime body limit AND the container
+// memory limit in compose.yaml together.
+export const MAX_LFS_OBJECT_BYTES = 128 * 1024 * 1024;
 
 // LFS batch request: max objects per batch (spec-ish sanity cap).
 export const MAX_LFS_BATCH_OBJECTS = 1000;
@@ -71,6 +77,17 @@ export const RATE_LIMIT_PASSWORD_MAX = 10;
 // Git/LFS token auth per IP per window: git clients retry, and a legitimate
 // clone can issue several requests, so the budget is higher than for login.
 export const RATE_LIMIT_GIT_TOKEN_MAX = 100;
+
+// Read budgets for the unauthenticated browser routes. Each request spawns a git
+// process and the archive route also builds and buffers the whole repository
+// archive, so neither may be replayed without bound on a public project.
+export const RATE_LIMIT_ARCHIVE_MAX = 10;
+export const RATE_LIMIT_HISTORY_MAX = 120;
+// The public profile activity endpoint spawns one git log per public project on
+// every request, so it needs a request budget AND a cap on how many repositories
+// a single request may scan (the cost otherwise grows with the whole install).
+export const RATE_LIMIT_PUBLIC_ACTIVITY_MAX = 30;
+export const MAX_ACTIVITY_PROJECTS = 25;
 
 // Request-body caps. A body must be bounded BEFORE it is buffered and parsed,
 // because the runtime default (~128 MiB) otherwise lets an anonymous caller make

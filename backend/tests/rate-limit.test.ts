@@ -1,15 +1,18 @@
 // Paired test for lib/rate-limit.ts: the fixed-window limiter that protects
 // login, invite accept, password verification and the git token auth path.
 import { describe, expect, it, beforeEach } from "bun:test";
+import { Hono } from "hono";
 import {
   clientIdentity,
   consumeRateLimit,
   rateLimitBucketCount,
   resetAllRateLimits,
   resetRateLimit,
+  throttleRequest,
   type RateLimitRule,
 } from "@/lib/rate-limit";
 import { RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
+import { ERROR_CODES } from "@/constants/errors";
 
 const RULE: RateLimitRule = { name: "test.rule", max: 3 };
 
@@ -100,5 +103,43 @@ describe("clientIdentity", () => {
 
   it("ignores an empty forwarded header", () => {
     expect(clientIdentity(new Headers({ "x-forwarded-for": "  " }), "direct")).toBe("direct");
+  });
+});
+
+// Every throttled route goes through this helper, so its contract is asserted
+// once here rather than per surface.
+describe("throttleRequest", () => {
+  const rule: RateLimitRule = { name: "test.http", max: 2 };
+  const app = new Hono();
+  app.get("/", (c) => {
+    const blocked = throttleRequest(c, rule);
+    if (blocked) return blocked;
+    return c.json({ ok: true });
+  });
+
+  beforeEach(() => {
+    resetAllRateLimits();
+  });
+
+  it("passes while the budget lasts, then answers 429 with Retry-After", async () => {
+    const headers = { "x-forwarded-for": "203.0.113.9" };
+    expect((await app.request("/", { headers })).status).toBe(200);
+    expect((await app.request("/", { headers })).status).toBe(200);
+
+    const blocked = await app.request("/", { headers });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBeTruthy();
+    const body = (await blocked.json()) as { error: { code: string } };
+    expect(body.error.code).toBe(ERROR_CODES.RATE_LIMITED);
+  });
+
+  it("buckets per client identity", async () => {
+    const spent = { "x-forwarded-for": "203.0.113.11" };
+    await app.request("/", { headers: spent });
+    await app.request("/", { headers: spent });
+    expect((await app.request("/", { headers: spent })).status).toBe(429);
+
+    // A second client keeps its own budget.
+    expect((await app.request("/", { headers: { "x-forwarded-for": "203.0.113.12" } })).status).toBe(200);
   });
 });

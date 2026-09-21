@@ -2,10 +2,17 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getUserActivity } from "@/modules/activity/activity";
 import { listAccessibleProjectIds, listPublicProjects } from "@/modules/auth/access";
 import { getUserByEmail } from "@/modules/auth/auth";
+import { RATE_LIMIT_PUBLIC_ACTIVITY_MAX } from "@/constants/limits";
+import { throttleRequest, type RateLimitRule } from "@/lib/rate-limit";
 
 // Public routes (no auth): explore public projects + user profiles.
 // Mounted OUTSIDE the requireAuth block in index.ts.
 export const exploreRoutes = new OpenAPIHono();
+
+// Budget for the public profile activity endpoint: one request walks the public
+// repositories and spawns a git process per repository, so it is the most
+// expensive anonymous route in the app.
+const PUBLIC_ACTIVITY_RULE: RateLimitRule = { name: "explore.activity", max: RATE_LIMIT_PUBLIC_ACTIVITY_MAX };
 
 const publicProjectSchema = z.object({
   id: z.string().uuid(),
@@ -125,6 +132,8 @@ exploreRoutes.openapi(
     },
   }),
   async (c) => {
+    const blocked = throttleRequest(c, PUBLIC_ACTIVITY_RULE);
+    if (blocked) return blocked as never;
     const { email } = c.req.valid("param");
     const user = await getUserByEmail(email);
     if (!user) {

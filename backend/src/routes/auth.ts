@@ -9,7 +9,7 @@ import { requireUser, type AuthEnv } from "@/middleware/auth";
 import { env } from "@/config/env";
 import { acceptInvitation, validateInvitation } from "@/modules/auth/invitations";
 import { audit, log } from "@/lib/logger";
-import { clientIdentity, consumeRateLimit, resetRateLimit, type RateLimitRule } from "@/lib/rate-limit";
+import { clientIdentity, resetRateLimit, throttleRequest, type RateLimitRule } from "@/lib/rate-limit";
 import { errorSchema, messageSchema } from "./schemas/common";
 import {
   createSession,
@@ -52,15 +52,11 @@ const PASSWORD_RULE: RateLimitRule = { name: "auth.password", max: RATE_LIMIT_PA
 // Failed attempts are audited so the admin log view surfaces brute force.
 function checkRateLimit(c: Parameters<typeof requireUser>[0], rule: RateLimitRule): Response | null {
   const identity = clientIdentity(c.req.raw.headers);
-  const result = consumeRateLimit(rule, identity);
-  if (result.allowed) return null;
+  const blocked = throttleRequest(c, rule, identity);
+  if (!blocked) return null;
   log.warn("auth", "rate limit exceeded", { rule: rule.name, identity });
   audit(AUDIT_EVENTS.AUTH_RATE_LIMITED, { rule: rule.name, identity });
-  c.header("Retry-After", String(result.retryAfterSeconds));
-  return c.json(
-    { error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many attempts. Try again later." } },
-    429
-  );
+  return blocked;
 }
 
 const loginSchema = z.object({
