@@ -1,7 +1,7 @@
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { MAX_LFS_OBJECT_BYTES } from "@/constants/limits";
-import { objectMeta, objectSize } from "@/modules/storage/objects";
-import { PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
+import { ObjectTooLargeError, objectMeta, objectSize } from "@/modules/storage/objects";
+import { AT_REST_OVERHEAD_BYTES, PLAINTEXT_SIZE_METADATA, getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
 import { audit, log } from "@/lib/logger";
 import { sha256 } from "@/lib/hash";
 import { LFS_MESSAGES } from "@/constants/lfs-messages";
@@ -93,8 +93,11 @@ export type DownloadResult = { ok: true; content: Buffer } | { ok: false; reason
 
 // Reads a stored object. The size gate uses the same per-object bound the upload
 // route enforces, so an object the server would refuse to accept can never cost
-// more than that bound to serve. The size comes from the plaintext metadata
-// written by putEncrypted; the ciphertext ContentLength is 28 bytes larger.
+// more than that bound to serve. The gate reads the plaintext size from the
+// metadata putEncrypted wrote, but that number comes from the project's own
+// bucket, so the read is bounded as well: an endpoint that advertises a small
+// size and serves a large body is cut off at the cap instead of being buffered,
+// and both bounds fail closed as "too large".
 export async function downloadObject(
   project: Project,
   connection: StorageConnection,
@@ -106,7 +109,16 @@ export async function downloadObject(
   const plaintextSize = Number(meta.metadata[PLAINTEXT_SIZE_METADATA] ?? meta.size);
   if (plaintextSize > MAX_LFS_OBJECT_BYTES) return { ok: false, reason: "too_large" };
   audit(AUDIT_EVENTS.LFS_DOWNLOAD, { projectId: project.id, oid, size: plaintextSize });
-  return { ok: true, content: await getDecrypted(project, connection, key) };
+  try {
+    const content = await getDecrypted(project, connection, key, MAX_LFS_OBJECT_BYTES + AT_REST_OVERHEAD_BYTES);
+    return { ok: true, content };
+  } catch (err) {
+    if (err instanceof ObjectTooLargeError) {
+      log.warn("lfs", `download refused for ${key}: the stored object is larger than its declared size`, { limit: err.limit });
+      return { ok: false, reason: "too_large" };
+    }
+    throw err;
+  }
 }
 
 // Stores an LFS object: verify the oid first, then putObject (encrypted) to user storage.

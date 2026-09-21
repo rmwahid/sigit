@@ -1,8 +1,9 @@
 import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
+import { MAX_BACKUP_BUNDLE_BYTES } from "@/constants/limits";
 import { ERROR_CODES } from "@/constants/errors";
 import { getConnection } from "@/modules/storage/connections";
 import { getDecrypted, putEncrypted } from "@/modules/encryption/at-rest";
-import { getObject, objectMeta } from "@/modules/storage/objects";
+import { ObjectTooLargeError, getObject, objectMeta } from "@/modules/storage/objects";
 import { projectRepoPath } from "./projects";
 import { execGit, gitErrorMessage, initRepo } from "./git";
 import { HttpError } from "@/lib/http-error";
@@ -23,13 +24,48 @@ export function backupObjectKey(projectId: string): string {
   return `projects/${projectId}/backup.bundle`;
 }
 
+export class BundleTooLargeError extends Error {
+  constructor(public readonly size: number, public readonly limit: number) {
+    super(`Repository bundle is ${size} bytes, above the ${limit} byte limit`);
+    this.name = "BundleTooLargeError";
+  }
+}
+
 export async function createBundle(project: Project): Promise<Buffer> {
   const repoPath = projectRepoPath(project.id);
   const tmpFile = path.join(os.tmpdir(), `${project.id}.bundle`);
   await execGit(repoPath, ["bundle", "create", tmpFile, "--all"]);
+  // The bundle is the whole repository history in one file and nothing in the
+  // tree bounds a repository's total size (the hook bounds single blobs), so the
+  // only place to keep it from being buffered into the shared process is here:
+  // refuse it instead of reading a file the container cannot afford to hold.
+  const { size } = await fs.stat(tmpFile);
+  if (size > MAX_BACKUP_BUNDLE_BYTES) {
+    await fs.unlink(tmpFile).catch(() => {});
+    throw new BundleTooLargeError(size, MAX_BACKUP_BUNDLE_BYTES);
+  }
   const buffer = await fs.readFile(tmpFile);
   await fs.unlink(tmpFile).catch(() => {});
   return buffer;
+}
+
+// Reads the stored bundle under the server cap. The storage layer raises
+// ObjectTooLargeError when the object is bigger than the cap (the destination
+// decides that, not this server), and the admin who pressed Restore should see
+// why nothing happened instead of a 500.
+async function readBundleWithinLimit(project: Project, connection: StorageConnection): Promise<Buffer> {
+  try {
+    return await getDecrypted(project, connection, backupObjectKey(project.id), MAX_BACKUP_BUNDLE_BYTES);
+  } catch (err) {
+    if (err instanceof ObjectTooLargeError) {
+      throw new HttpError(
+        413,
+        ERROR_CODES.BAD_REQUEST,
+        `The stored backup is larger than the ${MAX_BACKUP_BUNDLE_BYTES} byte limit this server enforces; nothing was restored`
+      );
+    }
+    throw err;
+  }
 }
 
 // HEAD sha of the repo (null when the repo has no commits yet).
@@ -87,7 +123,7 @@ export async function assertBundleNotBehindLocal(
   // The bundle was created with `--all`, so its heads are the tips of all
   // branches at backup time. If the local HEAD is not among them, the local
   // repo has commits the bundle does not know - restoring would delete them.
-  const bundle = await getDecrypted(project, connection, backupObjectKey(project.id));
+  const bundle = await readBundleWithinLimit(project, connection);
   const tmpFile = path.join(os.tmpdir(), `${project.id}-guard.bundle`);
   await fs.writeFile(tmpFile, bundle);
   try {
@@ -115,8 +151,7 @@ export async function restoreProject(
   project: Project,
   connection: StorageConnection
 ): Promise<void> {
-  const key = backupObjectKey(project.id);
-  const bundle = await getDecrypted(project, connection, key);
+  const bundle = await readBundleWithinLimit(project, connection);
   const repoPath = projectRepoPath(project.id);
   const tmpFile = path.join(os.tmpdir(), `${project.id}-restore.bundle`);
   await fs.writeFile(tmpFile, bundle);
