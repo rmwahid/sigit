@@ -1,4 +1,4 @@
-import { DEFAULT_HISTORY_LIMIT, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
+import { DEFAULT_HISTORY_LIMIT, MAX_DIFF_BYTES, MAX_FILE_BROWSER_BYTES, DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
 import { HOOK_MESSAGES } from "@/constants/lfs-messages";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -116,9 +116,13 @@ read_rule() {
 
 # --- per-ref checks ---------------------------------------------------------
 while read oldrev newrev ref; do
+  # Branch protection patterns describe branches, so those checks run for
+  # refs/heads only. The LFS size gate further down is NOT branch-specific:
+  # skipping it for other refs let a large blob enter the server repository by
+  # being pushed as a tag, which is the one thing the threshold exists to stop.
+  case "\$ref" in
+  refs/heads/*)
   branch=\${ref#refs/heads/}
-  [ "\$branch" = "\$ref" ] && continue
-
   read_rule "\$branch"
   if [ -n "\$RULE_PATTERN" ]; then
     # block branch deletion (newrev zero)
@@ -136,9 +140,13 @@ while read oldrev newrev ref; do
         fail=1
       fi
     fi
-    # require pull requests: no direct pushes. Server-side merges (the PR
-    # merge button pushes through a worktree) bypass this check - the API
-    # already validated approvals and merge permissions.
+    # require pull requests: no direct pushes. A server-side PR merge never
+    # reaches this hook: it merges inside a worktree of this same repo, and a
+    # worktree shares refs/heads, so the ref moves with the merge and the push
+    # that follows has nothing to send (no receive-pack, no hook). Those merges
+    # are validated in the API instead (approvals, request-changes, merge
+    # whitelist, admin bypass), which is why SIGIT_SERVER_PUSH is not what
+    # exempts them.
     if [ "\$RULE_REQUIRE_PR" = "true" ] && [ "\${SIGIT_SERVER_PUSH:-}" != "1" ]; then
       echo "Branch protection: direct pushes to '\$branch' are not allowed; open a pull request" >&2
       fail=1
@@ -156,8 +164,10 @@ while read oldrev newrev ref; do
       esac
     fi
   fi
+  ;;
+  esac
 
-  # LFS size check
+  # LFS size check, for every ref type that carries objects
   [ "\$newrev" = "\$ZERO" ] && continue
   if [ "\$oldrev" = "\$ZERO" ]; then
     git rev-list --objects "\$newrev" > "\$tmp" 2>/dev/null || continue
@@ -211,10 +221,27 @@ export async function getLog(repoPath: string, limit = DEFAULT_HISTORY_LIMIT, of
     });
 }
 
-export async function getDiff(repoPath: string, a?: string, b?: string): Promise<string> {
+export async function getDiff(
+  repoPath: string,
+  a?: string,
+  b?: string,
+  maxBytes = MAX_DIFF_BYTES
+): Promise<string> {
   const range = a && b ? `${a}..${b}` : a ? await diffRangeForCommit(repoPath, a) : "HEAD";
-  const { stdout } = await execGit(repoPath, ["diff", range]);
-  return stdout.toString("utf8");
+  try {
+    const { stdout } = await execGit(repoPath, ["diff", range], maxBytes);
+    return stdout.toString("utf8");
+  } catch (err) {
+    // execGit kills the child once its output passes maxBuffer but still hands
+    // back what fitted: return the truncated diff with a marker instead of
+    // failing the request, so a large diff degrades instead of 500ing and the
+    // client never receives more than the cap.
+    const partial = (err as { stdout?: Buffer | string }).stdout;
+    if (partial && /maxBuffer/i.test(String((err as Error).message))) {
+      return `${Buffer.from(partial).toString("utf8")}\n\n[diff truncated at ${maxBytes} bytes]\n`;
+    }
+    throw err;
+  }
 }
 
 // Empty tree hash: the diff baseline for root commits (they have no parent,

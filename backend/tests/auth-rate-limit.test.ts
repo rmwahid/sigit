@@ -7,7 +7,7 @@ import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
 import { ADMIN_ROLE } from "@/constants/roles";
 import { ERROR_CODES } from "@/constants/errors";
-import { RATE_LIMIT_LOGIN_MAX } from "@/constants/limits";
+import { RATE_LIMIT_LOGIN_ADDRESS_MAX, RATE_LIMIT_LOGIN_MAX } from "@/constants/limits";
 import { createSession, hashPassword } from "@/modules/auth/auth";
 import { resetAllRateLimits } from "@/lib/rate-limit";
 import { authRoutes, isSecureRequest } from "@/routes/auth";
@@ -66,7 +66,7 @@ describe("login rate limiting", () => {
     expect(body.error.code).toBe(ERROR_CODES.RATE_LIMITED);
   });
 
-  it("does not throttle a different client address", async () => {
+  it("bounds attempts on one account whatever address asks", async () => {
     await createTestUser();
     const attacker = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
     const other = `192.0.2.${Math.floor(Math.random() * 200) + 1}`;
@@ -75,8 +75,52 @@ describe("login rate limiting", () => {
       await authRoutes.fetch(loginRequest(attacker));
     }
     expect((await authRoutes.fetch(loginRequest(attacker))).status).toBe(429);
-    // A different address still gets a normal credential rejection.
-    expect((await authRoutes.fetch(loginRequest(other))).status).toBe(401);
+    // The account budget is keyed by the account, not by the address that asks:
+    // a second address asking about the same account is throttled too. An
+    // address-keyed budget alone let any holder of one valid account keep
+    // guessing another account's password, because every successful login
+    // refilled the shared window.
+    expect((await authRoutes.fetch(loginRequest(other))).status).toBe(429);
+  });
+
+  it("leaves an account that was not the target alone", async () => {
+    await createTestUser();
+    const attacker = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+    const elsewhere = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
+
+    for (let i = 0; i < RATE_LIMIT_LOGIN_MAX + 1; i++) {
+      await authRoutes.fetch(loginRequest(attacker));
+    }
+    expect((await authRoutes.fetch(loginRequest(attacker))).status).toBe(429);
+
+    const otherAccount = new Request("http://localhost/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": elsewhere },
+      body: JSON.stringify({ email: `untargeted-${suffix}@local.test`, password: "wrong-password" }),
+    });
+    expect((await authRoutes.fetch(otherAccount)).status).toBe(401);
+  });
+
+  it("bounds how many accounts one address may ask about", async () => {
+    await createTestUser();
+    const ip = `192.0.2.${Math.floor(Math.random() * 200) + 1}`;
+
+    // One address spraying distinct accounts: each account is under its own
+    // budget, so only the address bound stops the fan-out.
+    for (let i = 0; i < RATE_LIMIT_LOGIN_ADDRESS_MAX; i++) {
+      const spray = new Request("http://localhost/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
+        body: JSON.stringify({ email: `spray-${i}-${suffix}@local.test`, password: "wrong-password" }),
+      });
+      expect((await authRoutes.fetch(spray)).status).toBe(401);
+    }
+    const blocked = new Request("http://localhost/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
+      body: JSON.stringify({ email: `spray-final-${suffix}@local.test`, password: "wrong-password" }),
+    });
+    expect((await authRoutes.fetch(blocked)).status).toBe(429);
   });
 
   it("clears the budget after a successful login", async () => {

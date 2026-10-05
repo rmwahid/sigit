@@ -50,6 +50,26 @@ export function hasPermission(access: ProjectPermission[] | null, perm: ProjectP
   return access === null || access.includes(perm);
 }
 
+// Access for many projects at once, in two queries instead of two per project.
+// A caller that supplies the project list (token creation) needs a decision per
+// item, and doing it one at a time turns a caller-supplied array length into
+// caller-supplied database work. Projects without a row are absent from the map.
+export async function getProjectAccessMap(
+  userId: string,
+  projectIds: string[]
+): Promise<Map<string, ProjectPermission[]>> {
+  const map = new Map<string, ProjectPermission[]>();
+  if (projectIds.length === 0) return map;
+  const rows = await db
+    .select({ projectId: projectCollaborators.projectId, permissions: projectCollaborators.permissions })
+    .from(projectCollaborators)
+    .where(and(eq(projectCollaborators.userId, userId), inArray(projectCollaborators.projectId, projectIds)));
+  for (const row of rows) {
+    map.set(row.projectId, normalizePermissions(row.permissions ?? []));
+  }
+  return map;
+}
+
 export async function userCan(userId: string, projectId: string, perm: ProjectPermission): Promise<boolean> {
   return hasPermission(await getProjectAccess(userId, projectId), perm);
 }
@@ -67,15 +87,22 @@ export function tokenScopeForUser(
     : access.includes(PROJECT_PERMISSIONS.PUSH.slug);
 }
 
+// Collaborator rows that actually grant something: a row whose permission set
+// normalizes to nothing is not access, so it must not put a project in someone's
+// list (or, for an authorization decision, in their reachable set).
+async function grantingProjectIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ projectId: projectCollaborators.projectId, permissions: projectCollaborators.permissions })
+    .from(projectCollaborators)
+    .where(eq(projectCollaborators.userId, userId));
+  return rows.filter((row) => normalizePermissions(row.permissions ?? []).length > 0).map((row) => row.projectId);
+}
+
 export async function listAccessibleProjects(userId: string): Promise<Project[]> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { role: true } });
   if (user?.role === ADMIN_ROLE) return db.select().from(projects);
-  const rows = await db
-    .select({ projectId: projectCollaborators.projectId })
-    .from(projectCollaborators)
-    .where(eq(projectCollaborators.userId, userId));
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.projectId);
+  const ids = await grantingProjectIds(userId);
+  if (ids.length === 0) return [];
   return db.select().from(projects).where(inArray(projects.id, ids));
 }
 
@@ -85,11 +112,7 @@ export async function listAccessibleProjectIds(userId: string): Promise<string[]
     const all = await db.select({ id: projects.id }).from(projects);
     return all.map((p) => p.id);
   }
-  const rows = await db
-    .select({ projectId: projectCollaborators.projectId })
-    .from(projectCollaborators)
-    .where(eq(projectCollaborators.userId, userId));
-  return rows.map((r) => r.projectId);
+  return grantingProjectIds(userId);
 }
 
 // Public projects for the explore page (no auth needed).

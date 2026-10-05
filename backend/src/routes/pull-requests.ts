@@ -22,6 +22,7 @@ import {
   type PrStatus,
 } from "@/constants/pull-requests";
 import { ERROR_CODES } from "@/constants/errors";
+import { BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "@/constants/limits";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import { requireProjectAccess, type AuthEnv } from "@/middleware/auth";
@@ -29,7 +30,7 @@ import { getProject, projectRepoPath } from "@/modules/projects/projects";
 import { getDiff } from "@/modules/projects/git";
 import { prDiff, resolveRef, validatePrBranches } from "@/modules/pull-requests/pr";
 import { mergePullRequest, refreshOpenPrMergeability, type MergeMethod } from "@/modules/pull-requests/merge";
-import { MergeBlockedError, assertPrMergeAllowed } from "@/modules/pull-requests/protection";
+import { MergeBlockedError, assertPrMergeAllowed, isVotingReview } from "@/modules/pull-requests/protection";
 import { audit } from "@/lib/logger";
 import { sanitizeRichText } from "@/lib/sanitize";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
@@ -37,11 +38,23 @@ import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 // Rich text fields carry HTML (Tiptap output). Sanitization is the server's
 // job: every stored value passes through sanitizeRichText before insert or
 // update, so the API response is safe to render verbatim on the frontend.
+//
+// Branch fields are stored and later used as git refs (diff range, trial merge,
+// checkout -B, push refspec), so they are validated as branch names here: the
+// revision operators ~ ^ {} and a leading dash are outside the shared pattern,
+// and '..' is refused the same way the branch API refuses it.
+const prBranchSchema = z
+  .string()
+  .min(1)
+  .max(BRANCH_NAME_MAX_LENGTH)
+  .regex(new RegExp(BRANCH_NAME_PATTERN), "Invalid branch name")
+  .refine((name: string) => !name.includes(".."), "Invalid branch name");
+
 const prInputSchema = z.object({
   title: z.string().min(1).max(255),
   description: z.string().max(10000).optional(),
-  baseBranch: z.string().min(1).max(255),
-  headBranch: z.string().min(1).max(255),
+  baseBranch: prBranchSchema,
+  headBranch: prBranchSchema,
 });
 
 const prUpdateSchema = z.object({
@@ -218,7 +231,7 @@ pullRequestRoutes.openapi(
     path: "/:id/pull-requests",
     tags: ["Pull requests"],
     summary: "Create a pull request (push permission)",
-    request: { params: idParamSchema, body: { content: { "application/json": { schema: prInputSchema } } } },
+    request: { params: idParamSchema, body: { required: true, content: { "application/json": { schema: prInputSchema } } } },
     responses: {
       201: { description: "Created PR", content: { "application/json": { schema: prCreatedResponse } } },
       400: { description: "Invalid PR", content: { "application/json": { schema: errorSchema } } },
@@ -362,7 +375,7 @@ pullRequestRoutes.openapi(
     summary: "Update title/description or status (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prUpdateSchema } } },
+      body: { required: true, content: { "application/json": { schema: prUpdateSchema } } },
     },
     responses: {
       200: { description: "Updated PR", content: { "application/json": { schema: prCreatedResponse } } },
@@ -386,8 +399,16 @@ pullRequestRoutes.openapi(
       if (pr.status !== PR_STATUSES.OPEN.slug) {
         return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Terminal pull requests cannot be reopened" } }, 400) as never;
       }
-      if (![PR_STATUSES.ABANDONED.slug, PR_STATUSES.MERGED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
-        return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid status transition to "${body.status}"` } }, 400) as never;
+      // `merged` is deliberately absent: it is the outcome of the merge endpoint,
+      // which proves the git work was done and consults the branch-protection
+      // gate (required approvals, request changes, merge allow-list). Accepting it
+      // here would record a merge that never happened, with no merge commit, and
+      // leave the pull request permanently terminal.
+      if (![PR_STATUSES.ABANDONED.slug, PR_STATUSES.REJECTED.slug].includes(body.status)) {
+        return c.json(
+          { error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid status transition to "${body.status}"` } },
+          400
+        ) as never;
       }
     }
 
@@ -450,7 +471,7 @@ pullRequestRoutes.openapi(
     summary: "Merge a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prMergeInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prMergeInputSchema } } },
     },
     responses: {
       200: { description: "Merged PR", content: { "application/json": { schema: prCreatedResponse } } },
@@ -476,8 +497,12 @@ pullRequestRoutes.openapi(
 
     // Branch protection gates (approvals, request-changes, merge whitelist,
     // admin bypass) are enforced here; the pre-receive hook cannot see the DB.
+    // The gates speak about the revision that will actually land, so the live
+    // head tip is resolved here: if a push moved the branch after the approvals
+    // were cast, those approvals no longer count for this merge.
+    const liveHeadSha = await resolveRef(repo.repoPath, pr.headBranch).catch(() => "");
     try {
-      await assertPrMergeAllowed(id, pr, access.user.id);
+      await assertPrMergeAllowed(id, pr, access.user.id, liveHeadSha);
     } catch (err) {
       if (err instanceof MergeBlockedError) {
         return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: err.message } }, 403) as never;
@@ -583,7 +608,7 @@ pullRequestRoutes.openapi(
     summary: "Add a comment to a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prCommentInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prCommentInputSchema } } },
     },
     responses: {
       201: { description: "Created comment", content: { "application/json": { schema: z.object({ data: prCommentSchema }).openapi("PrCommentResponse") } } },
@@ -647,7 +672,7 @@ pullRequestRoutes.openapi(
     summary: "Submit a review on a pull request (push permission)",
     request: {
       params: idParamSchema.extend({ number: z.coerce.number().int().positive() }),
-      body: { content: { "application/json": { schema: prReviewInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: prReviewInputSchema } } },
     },
     responses: {
       201: { description: "Created review", content: { "application/json": { schema: z.object({ data: prReviewSchema }).openapi("PrReviewResponse") } } },
@@ -668,10 +693,30 @@ pullRequestRoutes.openapi(
     if (pr.status !== PR_STATUSES.OPEN.slug) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "Only open pull requests accept reviews" } }, 400) as never;
     }
+    // requiredApprovals is meant to be satisfied by other principals. Counting
+    // the author's own vote let a single push-capable principal clear the gate
+    // with their own action, so a voting review from the author is refused.
+    // Comments stay open to the author: they carry no weight.
+    if (pr.authorId === access.user.id && isVotingReview(body.state)) {
+      return c.json(
+        { error: { code: ERROR_CODES.FORBIDDEN, message: `You cannot submit a "${body.state}" review on your own pull request` } },
+        403
+      ) as never;
+    }
 
+    // The revision this vote speaks about: the head tip as it stands right now.
+    // The merge gate counts a vote only while the head still matches it, so a
+    // later push dismisses the vote instead of carrying it forward.
+    const reviewedHeadSha = await resolveRef(repo.repoPath, pr.headBranch).catch(() => null);
     const rows = await db
       .insert(prReviews)
-      .values({ prId: pr.id, userId: access.user.id, state: body.state, body: body.body ? sanitizeRichText(body.body) : null })
+      .values({
+        prId: pr.id,
+        userId: access.user.id,
+        state: body.state,
+        body: body.body ? sanitizeRichText(body.body) : null,
+        headSha: reviewedHeadSha,
+      })
       .returning();
     const review = rows[0];
     audit(AUDIT_EVENTS.PULL_REQUEST_REVIEW, {

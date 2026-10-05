@@ -2,6 +2,7 @@ import { describe, expect, it, afterAll } from "bun:test";
 import crypto from "node:crypto";
 import { createConnectionFromInput, deleteConnection, getConnection } from "@/modules/storage/connections";
 import {
+  ObjectTooLargeError,
   deleteObject,
   deleteObjectsByPrefix,
   getObject,
@@ -53,6 +54,27 @@ describe("storage objects (MinIO)", () => {
 
     const fetched = await getObject(conn, key);
     expect(fetched.equals(content)).toBe(true);
+  }, TEST_TIMEOUT);
+
+  it("refuses an object larger than the caller's cap", async () => {
+    const conn = (await getConnection(connectionId))!;
+    const content = crypto.randomBytes(8192);
+    const key = `${prefix}capped.bin`;
+    await putObject(conn, key, content, "application/octet-stream");
+
+    // Under the cap the read succeeds.
+    expect((await getObject(conn, key, content.length)).length).toBe(content.length);
+
+    // Over it the read is refused instead of buffered. The advertised
+    // ContentLength is what this exercises; the streamed-total check covers an
+    // endpoint that understates it.
+    let refused = false;
+    try {
+      await getObject(conn, key, content.length - 1);
+    } catch (err) {
+      refused = err instanceof ObjectTooLargeError;
+    }
+    expect(refused).toBe(true);
   }, TEST_TIMEOUT);
 
   it("lists objects with a prefix", async () => {

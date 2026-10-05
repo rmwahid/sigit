@@ -83,7 +83,7 @@ bun run dev                  # http://localhost:5173
 
 Then, in the web UI:
 
-1. Create a project and connect your storage (for local MinIO: endpoint `http://127.0.0.1:9000`, force path style, `minioadmin`/`minioadmin`).
+1. Create a project and connect your storage (for the local MinIO profile: endpoint `http://127.0.0.1:9000`, force path style, and the `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` you set in `backend/.env`).
 2. Create a token in **Settings -> Tokens**. The token is your git password.
 3. Push from your machine:
 
@@ -115,7 +115,9 @@ cd ..
 podman-compose --env-file backend/.env up -d --build
 # Docker: docker compose --env-file backend/.env up -d --build
 
-# 3. Optional local storage (MinIO + auto-created bucket, default name "sigit")
+# 3. Optional local storage (MinIO + auto-created bucket, default name "sigit").
+#    Requires MINIO_ROOT_USER/MINIO_ROOT_PASSWORD in backend/.env; the service is
+#    published on 127.0.0.1 only, so reach the console through an SSH tunnel.
 podman-compose --env-file backend/.env --profile minio up -d
 
 # 4. If you skipped ADMIN_EMAIL/ADMIN_PASSWORD, create the admin manually:

@@ -7,6 +7,8 @@ import { db } from "@/config/db";
 import { getCommitFiles, getDiff, isValidCommitHash } from "@/modules/projects/git";
 import { backupProject, restoreProject, assertBundleNotBehindLocal } from "@/modules/projects/backup";
 import { getConnection } from "@/modules/storage/connections";
+import { assertConnectionBindable } from "@/modules/projects/storage-binding";
+import { validateStorageEndpoint } from "@/modules/storage/endpoint";
 import { requireAdmin, requireUser, type AuthEnv } from "@/middleware/auth";
 import { HttpError } from "@/lib/http-error";
 import { audit, log } from "@/lib/logger";
@@ -48,10 +50,18 @@ import type { Project } from "@/db/schema/projects";
 
 export const projectRoutes = new OpenAPIHono<AuthEnv>();
 
-// API responses must never expose the per-project encryption key columns.
-function toProjectResponse(p: Project) {
+// API responses must never expose the per-project encryption key columns, and
+// the storage binding belongs to the operator surface: every /storage/connections
+// route is admin-only, and the binding is the handle that decides where the
+// server writes. A collaborator response therefore drops it while an admin
+// response keeps it (the settings tab is the only screen that resolves it). The
+// LFS sizing fields stay for everyone: the project page renders them as the setup
+// snippet for signed-in viewers.
+function toProjectResponse(p: Project, options: { includeStorageBinding?: boolean } = {}) {
   const { encryptionKeyEncrypted: _key, encryptionKeyId: _keyId, ...safe } = p;
-  return safe;
+  if (options.includeStorageBinding) return safe;
+  const { storageConnectionId: _connection, ...collaboratorSafe } = safe;
+  return collaboratorSafe;
 }
 
 // 403 guard for actions that require a specific permission (admin bypasses).
@@ -86,7 +96,7 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const data = await listAccessibleProjects(user.id);
-    return c.json({ data: data.map(toProjectResponse) });
+    return c.json({ data: data.map((project) => toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) })) });
   }
 );
 
@@ -97,7 +107,7 @@ projectRoutes.openapi(
     tags: ["Projects"],
     summary: "Create a project",
     request: {
-      body: { content: { "application/json": { schema: projectInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectInputSchema } } },
     },
     responses: {
       201: {
@@ -110,6 +120,10 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
+    // The connection a project is bound to is an authorization decision: an
+    // admin may reuse any connection, a regular user only one that already
+    // backs a project they can reach, and an unknown id is refused outright.
+    await assertConnectionBindable(user, body.storageConnectionId);
     const project = await createProject(body);
     // Non-admin creators become collaborators with full (non-management) access.
     if (!isSiteAdmin(user)) {
@@ -119,7 +133,7 @@ projectRoutes.openapi(
         permissions: [...ALL_PROJECT_PERMISSIONS],
       });
     }
-    return c.json({ data: toProjectResponse(project) }, 201);
+    return c.json({ data: toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) }) }, 201);
   }
 );
 
@@ -130,7 +144,7 @@ projectRoutes.openapi(
     tags: ["Projects"],
     summary: "Create a project together with a new storage connection",
     request: {
-      body: { content: { "application/json": { schema: projectWithConnectionSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectWithConnectionSchema } } },
     },
     responses: {
       201: {
@@ -143,6 +157,15 @@ projectRoutes.openapi(
     const user = await requireUser(c);
     if (!user) return c.json({ error: { code: ERROR_CODES.UNAUTHORIZED, message: "Unauthorized" } }, 401) as never;
     const body = c.req.valid("json");
+    // The endpoint on this inline connection is a destination the server will
+    // dial with these credentials, so it is checked as an authorization
+    // decision: a non-admin caller may only point it at a public host, while the
+    // admin who runs the deployment may reach private storage (the compose stack
+    // talks to MinIO over an internal name).
+    const endpointProblem = await validateStorageEndpoint(body.connection.endpoint, { allowPrivate: isSiteAdmin(user) });
+    if (endpointProblem) {
+      return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: endpointProblem } }, 400) as never;
+    }
     const { project } = await createProjectWithConnection(body);
     if (!isSiteAdmin(user)) {
       await db.insert(projectCollaborators).values({
@@ -152,7 +175,7 @@ projectRoutes.openapi(
       });
     }
     audit(AUDIT_EVENTS.PROJECT_CREATE_WITH_CONNECTION, { projectId: project.id, name: project.name });
-    return c.json({ data: toProjectResponse(project) }, 201);
+    return c.json({ data: toProjectResponse(project, { includeStorageBinding: isSiteAdmin(user) }) }, 201);
   }
 );
 
@@ -181,7 +204,12 @@ projectRoutes.openapi(
     const project = await getProject(id);
     if (!project) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     // myPermissions: null = admin (everything), otherwise the granted set.
-    return c.json({ data: { ...toProjectResponse(project), myPermissions: guard.access } });
+    return c.json({
+      data: {
+        ...toProjectResponse(project, { includeStorageBinding: isSiteAdmin(guard.user) }),
+        myPermissions: guard.access,
+      },
+    });
   }
 );
 
@@ -193,7 +221,7 @@ projectRoutes.openapi(
     summary: "Update a project",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: projectUpdateSchema } } },
+      body: { required: true, content: { "application/json": { schema: projectUpdateSchema } } },
     },
     responses: {
       200: {
@@ -221,10 +249,15 @@ projectRoutes.openapi(
         : undefined;
       await assertStorageDisconnectAllowed(project, connection, body.confirmStorageDisconnect);
     }
+    // Rebinding is admin only, so this only has to fail closed on an unknown
+    // id instead of persisting a reference to a connection that is not there.
+    if (typeof body.storageConnectionId === "string") {
+      await assertConnectionBindable(admin, body.storageConnectionId);
+    }
     const updated = await updateProject(id, body);
     if (!updated) return c.json({ error: { code: ERROR_CODES.NOT_FOUND, message: "Not found" } }, 404);
     audit(AUDIT_EVENTS.PROJECT_UPDATE, { projectId: id, name: updated.name });
-    return c.json({ data: toProjectResponse(updated) });
+    return c.json({ data: toProjectResponse(updated, { includeStorageBinding: true }) });
   }
 );
 
@@ -462,7 +495,7 @@ projectRoutes.openapi(
     summary: "Add a collaborator with permissions (admin only)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: collaboratorInput } } },
+      body: { required: true, content: { "application/json": { schema: collaboratorInput } } },
     },
     responses: {
       201: {
@@ -523,7 +556,7 @@ projectRoutes.openapi(
     summary: "Update collaborator permissions (admin only)",
     request: {
       params: z.object({ id: z.string().uuid(), userId: z.string().uuid() }),
-      body: { content: { "application/json": { schema: collaboratorUpdateInput } } },
+      body: { required: true, content: { "application/json": { schema: collaboratorUpdateInput } } },
     },
     responses: {
       200: {

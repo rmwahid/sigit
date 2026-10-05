@@ -89,7 +89,7 @@ storageRoutes.openapi(
     tags: ["Storage Connections"],
     summary: "Create a storage connection",
     request: {
-      body: { content: { "application/json": { schema: connectionInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: connectionInputSchema } } },
     },
     responses: {
       201: {
@@ -144,7 +144,7 @@ storageRoutes.openapi(
     summary: "Update a storage connection",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: connectionUpdateSchema } } },
+      body: { required: true, content: { "application/json": { schema: connectionUpdateSchema } } },
     },
     responses: {
       200: {

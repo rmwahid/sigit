@@ -40,18 +40,35 @@ afterAll(async () => {
 
 describe("storage routes are admin-only", () => {
   it("rejects an anonymous caller with 403 on every endpoint", async () => {
-    const paths: [string, string][] = [
+    // Routes that declare a JSON body declare it as required, so a request
+    // without one is refused by validation before the handler runs; these send a
+    // well-formed body to reach the authorization check the test is about.
+    const connectionBody = JSON.stringify({
+      name: "anon",
+      endpoint: "https://s3.example.com",
+      region: "us-east-1",
+      accessKeyId: "k",
+      secretAccessKey: "s",
+      bucket: "b",
+    });
+    const paths: [string, string, string?][] = [
       ["GET", "/connections"],
-      ["POST", "/connections"],
+      ["POST", "/connections", connectionBody],
       ["GET", "/connections/00000000-0000-4000-8000-000000000000"],
-      ["PATCH", "/connections/00000000-0000-4000-8000-000000000000"],
+      ["PATCH", "/connections/00000000-0000-4000-8000-000000000000", JSON.stringify({ name: "anon" })],
       ["DELETE", "/connections/00000000-0000-4000-8000-000000000000"],
       ["POST", "/connections/00000000-0000-4000-8000-000000000000/test"],
       ["GET", "/connections/00000000-0000-4000-8000-000000000000/objects"],
       ["DELETE", `/connections/00000000-0000-4000-8000-000000000000/objects/${encodeURIComponent("projects/x/backup.bundle")}`],
     ];
-    for (const [method, path] of paths) {
-      const res = await storageRoutes.fetch(new Request(`http://localhost${path}`, { method }));
+    for (const [method, path, body] of paths) {
+      const res = await storageRoutes.fetch(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body,
+        })
+      );
       expect(res.status).toBe(403);
     }
   });

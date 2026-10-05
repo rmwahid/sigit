@@ -1,5 +1,6 @@
 import { z } from "@hono/zod-openapi";
-import { DEFAULT_LFS_SIZE_THRESHOLD } from "@/constants/limits";
+import { validateStorageEndpointSyntax } from "@/modules/storage/endpoint";
+import { DEFAULT_LFS_SIZE_THRESHOLD, LFS_PATTERN_MAX_LENGTH, LFS_PATTERN_PATTERN } from "@/constants/limits";
 
 // Project name = safe slug for the git URL (/projects/<name>.git):
 // Letters, digits, -, _; starts and ends alphanumeric; length 2-64.
@@ -14,7 +15,10 @@ export const projectSchema = z
     id: z.string().uuid().openapi({ example: "a3f0c1a2-0000-4000-8000-000000000001" }),
     name: projectNameSchema.openapi({ example: "notes-app" }),
     description: z.string().optional(),
-    storageConnectionId: z.string().uuid().nullable(),
+    // Optional because this field is operator surface: an admin response carries
+    // the storage binding, a collaborator response omits it (toProjectResponse
+    // in routes/projects.ts).
+    storageConnectionId: z.string().uuid().nullable().optional(),
     lfsSizeThreshold: z.number().int().min(1).default(DEFAULT_LFS_SIZE_THRESHOLD),
     lfsPatterns: z.string().nullable().optional(),
     createdAt: z.string().datetime().optional(),
@@ -22,12 +26,20 @@ export const projectSchema = z
   })
   .openapi("Project");
 
+// Comma separated globs. The value is stored verbatim and later rendered as a
+// `git lfs track` command line on the project page, so shell-significant
+// characters are rejected here rather than escaped at render time.
+export const lfsPatternsSchema = z
+  .string()
+  .max(LFS_PATTERN_MAX_LENGTH)
+  .regex(new RegExp(LFS_PATTERN_PATTERN), "Use plain glob patterns like *.mp4, separated by commas");
+
 export const projectInputSchema = z.object({
   name: projectNameSchema.openapi({ example: "notes-app" }),
   description: z.string().optional(),
   storageConnectionId: z.string().uuid().openapi({ example: "d096dd70-97bb-439e-b04b-646d958185dc" }),
   lfsSizeThreshold: z.number().int().min(1).default(DEFAULT_LFS_SIZE_THRESHOLD),
-  lfsPatterns: z.string().optional(),
+  lfsPatterns: lfsPatternsSchema.optional(),
 });
 
 export const projectUpdateSchema = z.object({
@@ -35,7 +47,7 @@ export const projectUpdateSchema = z.object({
   description: z.string().optional(),
   storageConnectionId: z.string().uuid().nullable().optional(),
   lfsSizeThreshold: z.number().int().min(1).optional(),
-  lfsPatterns: z.string().optional(),
+  lfsPatterns: lfsPatternsSchema.optional(),
   isPublic: z.boolean().optional(),
   confirmStorageDisconnect: z.boolean().optional(),
 });
@@ -45,7 +57,11 @@ export const projectWithConnectionSchema = z.object({
   description: z.string().optional(),
   connection: z.object({
     name: z.string().min(1).openapi({ example: "Hetzner" }),
-    endpoint: z.string().min(1).openapi({ example: "https://fsn1.your-objectstorage.com" }),
+    endpoint: z
+      .string()
+      .min(1)
+      .refine((value: string) => validateStorageEndpointSyntax(value) === null, "Endpoint must be an absolute http(s) URL without credentials")
+      .openapi({ example: "https://fsn1.your-objectstorage.com" }),
     region: z.string().min(1).openapi({ example: "eu-central" }),
     accessKeyId: z.string().min(1),
     secretAccessKey: z.string().min(1),

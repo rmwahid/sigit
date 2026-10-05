@@ -15,6 +15,7 @@ import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import { createSession } from "@/modules/auth/auth";
 import { pullRequestRoutes } from "@/routes/pull-requests";
+import { userRoutes } from "@/routes/users";
 import { rulesSnapshot } from "@/modules/projects/branch-protection";
 import { writeProtectionSnapshot } from "@/modules/projects/protection-snapshot";
 import {
@@ -202,6 +203,18 @@ describe("pull request endpoints", () => {
     expect(diffRes.status).toBe(200);
     const diff = ((await diffRes.json()) as { diff: string }).diff;
     expect(diff).toContain("feature.txt");
+
+    // The merged state is the merge endpoint's outcome, never a PATCH target: a
+    // PATCH to merged would record a merge with no merge commit, no git work and
+    // no branch-protection gate, and the row could not be repaired afterwards.
+    const forged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ status: "merged" }),
+    });
+    expect(forged.status).toBe(400);
+    const stillOpen = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, { headers });
+    expect(((await stillOpen.json()) as { data: { status: string } }).data.status).toBe("open");
 
     // Only open PRs can be deleted: terminal PRs keep their conversation.
     const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
@@ -394,6 +407,15 @@ describe("pull request conversation", () => {
     return { projectId, token, headers };
   }
 
+  // Reviews come from a principal other than the pull request author (a voting
+  // review by the author is refused), so the conversation tests need one.
+  async function addPushCollaborator(projectId: string, label: string): Promise<Headers> {
+    const id = await createUserRow(`prconv-${label}-${suffix}@sigit.test`);
+    await db.insert(projectCollaborators).values({ projectId, userId: id, permissions: ["push"] });
+    const { token } = await createSession(id);
+    return jsonHeaders(token);
+  }
+
   it("adds comments and returns them in the PR detail", async () => {
     const { projectId, headers } = await setupProject("cmt");
 
@@ -425,10 +447,11 @@ describe("pull request conversation", () => {
 
   it("appends reviews (every submission is a new row) and lists them in detail", async () => {
     const { projectId, headers } = await setupProject("review");
+    const reviewerHeaders = await addPushCollaborator(projectId, "review-collab");
 
     const first = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers,
+      headers: reviewerHeaders,
       body: JSON.stringify({ state: "approve", body: "Looks good" }),
     });
     expect(first.status).toBe(201);
@@ -440,7 +463,7 @@ describe("pull request conversation", () => {
     // edit or undo), the previous one stays in the conversation history.
     const second = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers,
+      headers: reviewerHeaders,
       body: JSON.stringify({ state: "request_changes", body: "Needs fixes" }),
     });
     expect(second.status).toBe(201);
@@ -535,11 +558,11 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(created.status).toBe(201);
 
-    return { projectId, adminHeaders, collabHeaders };
+    return { projectId, adminHeaders, collabHeaders, collabId };
   }
 
   it("blocks the merge until the required approvals are met", async () => {
-    const { projectId, adminHeaders } = await setupProtected("appr", { requiredApprovals: 1 });
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("appr", { requiredApprovals: 1 });
 
     // No approvals yet -> 403
     const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
@@ -549,10 +572,11 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(blocked.status).toBe(403);
 
-    // A single approve review satisfies requiredApprovals=1 -> merge succeeds
+    // A single approve satisfies requiredApprovals=1 -> merge succeeds. It has
+    // to come from another principal: a voting review by the author is refused.
     const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: collabHeaders,
       body: JSON.stringify({ state: "approve" }),
     });
     expect(review.status).toBe(201);
@@ -567,12 +591,45 @@ describe("pull request branch protection (merge gates)", () => {
     expect(body.data.mergeCommitSha).not.toBeNull();
   });
 
+  it("refuses to delete an account whose review still gates an open pull request", async () => {
+    const { projectId, adminHeaders, collabHeaders, collabId } = await setupProtected("delreview", {
+      requiredApprovals: 1,
+      blockOnRequestChanges: true,
+    });
+
+    // The collaborator's request-changes is the only thing standing between this
+    // pull request and a merge.
+    const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "request_changes" }),
+    });
+    expect(review.status).toBe(201);
+
+    // Their rows cascade with the account, so deleting it would clear the gate on
+    // a pull request nobody re-reviewed.
+    const refused = await userRoutes.request(`/${collabId}`, { method: "DELETE", headers: adminHeaders });
+    expect(refused.status).toBe(400);
+    const refusal = (await refused.json()) as { error: { message: string } };
+    expect(refusal.error.message).toContain("open pull requests");
+
+    // Closing the pull request releases the account.
+    const closed = await pullRequestRoutes.request(`/${projectId}/pull-requests/1`, {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({ status: "abandoned" }),
+    });
+    expect(closed.status).toBe(200);
+    const deleted = await userRoutes.request(`/${collabId}`, { method: "DELETE", headers: adminHeaders });
+    expect(deleted.status).toBe(200);
+  }, 30000);
+
   it("keeps showing the PR diff after it is merged (no-ff merge)", async () => {
-    const { projectId, adminHeaders } = await setupProtected("diffpost", { requiredApprovals: 1 });
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("diffpost", { requiredApprovals: 1 });
 
     await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: collabHeaders,
       body: JSON.stringify({ state: "approve" }),
     });
     const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
@@ -591,11 +648,13 @@ describe("pull request branch protection (merge gates)", () => {
   });
 
   it("blocks the merge while changes are requested", async () => {
-    const { projectId, adminHeaders } = await setupProtected("reqchg", { blockOnRequestChanges: true });
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("reqchg", { blockOnRequestChanges: true });
 
+    // Requested changes come from another principal: the author cannot raise
+    // them against their own pull request.
     const review = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: collabHeaders,
       body: JSON.stringify({ state: "request_changes" }),
     });
     expect(review.status).toBe(201);
@@ -608,13 +667,63 @@ describe("pull request branch protection (merge gates)", () => {
     expect(blocked.status).toBe(403);
   });
 
+  it("refuses a voting review from the pull request author", async () => {
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("self", { requiredApprovals: 1 });
+
+    // The author cannot approve or request changes on their own PR.
+    for (const state of ["approve", "request_changes"]) {
+      const self = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({ state }),
+      });
+      expect(self.status).toBe(403);
+    }
+
+    // A comment still is accepted: it carries no weight in the gate.
+    const comment = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ state: "comment", body: "Notes on my own change" }),
+    });
+    expect(comment.status).toBe(201);
+
+    // So the author cannot clear requiredApprovals with their own action.
+    const selfMerge = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(selfMerge.status).toBe(403);
+
+    // Another principal satisfies it, and then the merge goes through.
+    await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+  });
+
   it("approvals by different users accumulate, one approve per user", async () => {
     const { projectId, adminHeaders, collabHeaders } = await setupProtected("multi", { requiredApprovals: 2 });
 
-    // admin approves once
+    // requiredApprovals=2 needs two principals other than the author, so a
+    // third push-capable user joins the two the setup already created.
+    const thirdId = await createUserRow(`prprot-multi-third-${suffix}@sigit.test`);
+    await db.insert(projectCollaborators).values({ projectId, userId: thirdId, permissions: ["push"] });
+    const { token: thirdToken } = await createSession(thirdId);
+    const thirdHeaders = jsonHeaders(thirdToken);
+
+    // collab approves once
     await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: collabHeaders,
       body: JSON.stringify({ state: "approve" }),
     });
     // still one approval -> blocked
@@ -625,10 +734,10 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(blocked.status).toBe(403);
 
-    // collab approves -> 2 approvals -> merge allowed
+    // the third user approves -> 2 approvals -> merge allowed
     await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
       method: "POST",
-      headers: collabHeaders,
+      headers: thirdHeaders,
       body: JSON.stringify({ state: "approve" }),
     });
     const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
@@ -744,4 +853,72 @@ describe("pull request branch protection (merge gates)", () => {
     });
     expect(merged.status).toBe(200);
   });
+
+  it("dismisses approvals when the head revision moves", async () => {
+    const { projectId, adminHeaders, collabHeaders } = await setupProtected("rev", { requiredApprovals: 1 });
+    const barePath = projectRepoPath(projectId);
+
+    // Approve the revision as it stands: with the approval in place the merge
+    // gate is satisfied.
+    const approve = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(approve.status).toBe(201);
+    const firstMerge = await pullRequestRoutes.request(`/${projectId}/pull-requests/1/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(firstMerge.status).toBe(200);
+
+    // A second pull request, approved and then overtaken by a push to its head
+    // branch: the approval speaks about the older revision, so the merge must be
+    // refused until somebody approves the revision that would actually land.
+    const second = await pullRequestRoutes.request(`/${projectId}/pull-requests`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ title: "Moves", baseBranch: "main", headBranch: "feature/x" }),
+    });
+    expect(second.status).toBe(201);
+    const approveSecond = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(approveSecond.status).toBe(201);
+
+    const workPath = path.join(tmpdir(), `sigit-pr-rev-${suffix}-${Math.random().toString(36).slice(2)}`);
+    tmpDirs.push(workPath);
+    await fs.mkdir(workPath, { recursive: true });
+    sh(`git clone -q "${barePath}" "${workPath}"`, tmpdir());
+    sh('git config user.email "test@local"', workPath);
+    sh('git config user.name "Test"', workPath);
+    sh("git checkout feature/x -q", workPath);
+    await fs.writeFile(path.join(workPath, "after-approval.txt"), "pushed after the approval");
+    sh("git add -A && git commit -m \"test: commit after approval\" -q", workPath);
+    sh("git push origin feature/x -q", workPath);
+
+    const blocked = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(blocked.status).toBe(403);
+
+    // An approval that names the new revision unblocks it.
+    const reapprove = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/reviews`, {
+      method: "POST",
+      headers: collabHeaders,
+      body: JSON.stringify({ state: "approve" }),
+    });
+    expect(reapprove.status).toBe(201);
+    const merged = await pullRequestRoutes.request(`/${projectId}/pull-requests/2/merge`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({ method: "merge" }),
+    });
+    expect(merged.status).toBe(200);
+  }, TEST_TIMEOUT);
 });

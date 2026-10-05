@@ -176,6 +176,13 @@ export const prReviews = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     state: text("state", { enum: REVIEW_STATE_SLUGS }).notNull(),
     body: text("body"),
+    // The head commit the reviewer was looking at. A vote speaks about the
+    // revision it was cast against: the required-approvals gate counts only
+    // reviews whose head_sha still matches the live head tip, so a push that
+    // moves the branch dismisses the approvals it invalidated. Nullable because
+    // rows written before this column existed cannot name a revision, and a
+    // row that names none must never satisfy an approval requirement.
+    headSha: text("head_sha"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   }

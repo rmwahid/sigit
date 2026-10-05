@@ -4,6 +4,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { writeProtectionSnapshot } from "@/modules/projects/protection-snapshot";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
 import { storageConnections } from "@/db/schema/storage";
@@ -14,6 +16,7 @@ import { initRepo } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import {
   assertBundleNotBehindLocal,
+  backupObjectKey,
   backupProject,
   BUNDLE_HEAD_METADATA,
   createBundle,
@@ -22,6 +25,8 @@ import {
   restoreProject,
 } from "@/modules/projects/backup";
 import { getObject } from "@/modules/storage/objects";
+import { putEncrypted } from "@/modules/encryption/at-rest";
+import { CONTENT_TYPE_OCTET_STREAM } from "@/constants/protocol";
 
 // Integration test for backup/restore (git bundle + encrypted storage) against
 // dev DB `sigit` + local MinIO (bucket sigit-test). Rows carry a unique suffix
@@ -31,6 +36,10 @@ const suffix = Date.now().toString(36);
 const createdProjectIds: string[] = [];
 const createdConnectionIds: string[] = [];
 const tmpDirs: string[] = [];
+
+// Rule block for main that only the hook can enforce (no direct pushes).
+const SNAPSHOT_REQUIRE_PR_MAIN =
+  "pattern=main\nrequirePr=true\nrequiredApprovals=0\nblockOnRequestChanges=false\nblockForcePush=false\nblockDeletion=false\nrestrictPushUserIds=\nrestrictMergeUserIds=\nallowAdminBypass=false\n\n";
 
 function sh(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: "utf8" });
@@ -75,6 +84,23 @@ async function pushCommit(barePath: string, file: string, content: string): Prom
   await fs.writeFile(path.join(work, file), content);
   sh("git add -A && git commit -m \"test: extra commit\" -q", work);
   sh("git push -f sigit main -q", work);
+}
+
+// Adds a commit to one named branch of the bare repo. pushCommit targets main,
+// and the guard tests need a branch that is not the default one.
+async function pushBranchCommit(barePath: string, branch: string, file: string, content: string): Promise<void> {
+  const work = path.join(tmpdir(), `sigit-backup-branch-${suffix}-${Math.random().toString(36).slice(2)}`);
+  tmpDirs.push(work);
+  await fs.mkdir(work, { recursive: true });
+  sh("git init -b main", work);
+  sh('git config user.email "test@local"', work);
+  sh('git config user.name "Test"', work);
+  sh(`git remote add sigit ${barePath}`, work);
+  sh(`git fetch sigit ${branch} -q`, work);
+  sh(`git checkout -b ${branch} sigit/${branch} -q`, work);
+  await fs.writeFile(path.join(work, file), content);
+  sh('git add -A && git commit -m "test: branch commit" -q', work);
+  sh(`git push sigit ${branch} -q`, work);
 }
 
 async function createProjectRow(name: string, withConnection = true) {
@@ -172,8 +198,11 @@ describe("backup / restore", () => {
       // Wipe the repo, then restore from storage.
       await fs.rm(projectRepoPath(project.id), { recursive: true, force: true });
       await restoreProject(project, stored);
-      const content = await fs.readFile(path.join(projectRepoPath(project.id), "notes.txt"), "utf8");
+      // The restored repo is bare (the project directory IS the git dir), so
+      // the content lives in the object store and there is no work tree.
+      const content = sh("git show main:notes.txt", projectRepoPath(project.id));
       expect(content).toBe("restore me");
+      expect(sh("git show-ref --verify --hash refs/heads/main", projectRepoPath(project.id)).trim()).toHaveLength(40);
     },
     TEST_TIMEOUT
   );
@@ -241,6 +270,82 @@ describe("backup / restore", () => {
   );
 
   it(
+    "refuses a restore that would drop a branch other than HEAD",
+    async () => {
+      const project = await createProjectRow(`backup-branch-${suffix}`);
+      const repoPath = projectRepoPath(project.id);
+      await initRepo(repoPath);
+      await seedRepo(repoPath, "a.txt", "a");
+      // A second branch that the bundle will contain.
+      sh("git branch feature/x main", repoPath);
+      await backupProject(project);
+      const stored = (await db.query.storageConnections.findFirst({ where: (t, { eq }) => eq(t.id, project.storageConnectionId!) }))!;
+
+      // Advance ONLY feature/x: HEAD is still contained in the bundle, so the
+      // old guard (which compared HEAD alone) allowed this restore and dropped
+      // the branch.
+      await pushBranchCommit(repoPath, "feature/x", "b.txt", "b");
+
+      let message = "";
+      try {
+        await assertBundleNotBehindLocal(project, stored);
+      } catch (err) {
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).status).toBe(409);
+        message = (err as HttpError).message;
+      }
+      expect(message).toContain("feature/x");
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
+    "refuses a stale restore even when the stored bundle names no head",
+    async () => {
+      const project = await createProjectRow(`backup-nometa-${suffix}`);
+      const repoPath = projectRepoPath(project.id);
+      await initRepo(repoPath);
+      await seedRepo(repoPath, "a.txt", "a");
+      const stored = (await db.query.storageConnections.findFirst({ where: (t, { eq }) => eq(t.id, project.storageConnectionId!) }))!;
+
+      // Re-store the same bundle without the head metadata, as an object written
+      // by another tool or one whose metadata was lost. "Cannot compare" must not
+      // read as permission to overwrite newer local history.
+      const bundle = await createBundle(project);
+      await putEncrypted(project, stored, backupObjectKey(project.id), bundle, CONTENT_TYPE_OCTET_STREAM, {});
+      await pushCommit(repoPath, "b.txt", "b");
+
+      let rejected = false;
+      try {
+        await assertBundleNotBehindLocal(project, stored);
+      } catch (err) {
+        rejected = true;
+        expect(err).toBeInstanceOf(HttpError);
+        expect((err as HttpError).status).toBe(409);
+      }
+      expect(rejected).toBe(true);
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
+    "gives each backup attempt its own bundle file",
+    async () => {
+      const project = await createProjectRow(`backup-tmp-${suffix}`);
+      await initRepo(projectRepoPath(project.id));
+      await seedRepo(projectRepoPath(project.id), "a.txt", "a");
+
+      // Two accepted pushes on one project run their backup at the same time.
+      // With one fixed temp path they collided on git's own lock file, and the
+      // attempt that lost the race never refreshed the stored backup.
+      const [first, second] = await Promise.all([createBundle(project), createBundle(project)]);
+      expect(first.length).toBeGreaterThan(0);
+      expect(second.length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT
+  );
+
+  it(
     "restore rebuilds a bare repo with the pre-receive hook",
     async () => {
       const project = await createProjectRow(`backup-hook-${suffix}`);
@@ -251,12 +356,41 @@ describe("backup / restore", () => {
 
       await fs.rm(projectRepoPath(project.id), { recursive: true, force: true });
       await restoreProject(project, stored);
+      const repoPath = projectRepoPath(project.id);
 
-      // Must be bare again and the pre-receive hook must exist (else pushes are unguarded).
-      const config = await fs.readFile(path.join(projectRepoPath(project.id), "config"), "utf8");
-      expect(config).toContain("bare = true");
-      const hook = await fs.stat(path.join(projectRepoPath(project.id), "hooks", "pre-receive"));
+      // Surface paths alone prove nothing: the broken layout (a non-bare clone
+      // with a bare shell initialized over it) also has a config that says
+      // bare = true and a hook file at hooks/pre-receive, while git resolves
+      // the repository to the nested .git and never runs that hook. What has
+      // to hold is that the project directory IS the git dir.
+      expect(sh("git rev-parse --is-bare-repository", repoPath).trim()).toBe("true");
+      expect(sh("git rev-parse --git-dir", repoPath).trim()).toBe(".");
+      expect(existsSync(path.join(repoPath, ".git"))).toBe(false);
+      const hook = await fs.stat(path.join(repoPath, "hooks", "pre-receive"));
       expect(hook.isFile()).toBe(true);
+
+      // Decisive check: the generated hook now actually runs on a push.
+      const work = path.join(tmpdir(), `sigit-backup-hookwork-${suffix}`);
+      tmpDirs.push(work);
+      sh(`git clone -q "${repoPath}" "${work}"`, tmpdir());
+      sh('git config user.email "test@local"', work);
+      sh('git config user.name "Test"', work);
+      await fs.writeFile(path.join(work, "b.txt"), "b");
+      sh('git add . && git commit -m "test: after restore" -q', work);
+      // Control: with no rule covering main the same push is accepted, so a
+      // rejection below can only come from the hook reading the snapshot.
+      sh("git push origin main -q", work);
+
+      await writeProtectionSnapshot(repoPath, SNAPSHOT_REQUIRE_PR_MAIN);
+      await fs.writeFile(path.join(work, "b.txt"), "b2");
+      sh('git add . && git commit -m "test: after restore 2" -q', work);
+      let rejected = false;
+      try {
+        sh("git push origin main", work);
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).toBe(true);
     },
     TEST_TIMEOUT
   );

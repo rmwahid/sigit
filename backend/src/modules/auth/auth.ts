@@ -6,6 +6,7 @@ import { ADMIN_ROLE, DEFAULT_ROLE, type UserRole } from "@/constants/roles";
 import { COOKIE_ATTRIBUTES, SESSION_COOKIE } from "@/constants/protocol";
 import { sha256 } from "@/lib/hash";
 import { deleteRowById } from "@/lib/db";
+import { unsubscribeOwner } from "@/lib/logger";
 import crypto from "node:crypto";
 import {
   PASSWORD_HASH_MEMORY_COST,
@@ -85,6 +86,9 @@ export async function setUserPassword(id: string, newPassword: string): Promise<
 
 // FK cascade removes sessions, git tokens, and collaborator rows.
 export async function deleteUser(id: string): Promise<boolean> {
+  // The sessions go with the user by FK cascade, so any live stream they opened
+  // has to be detached first: afterwards nothing knows which sessions existed.
+  await detachStreamsForUser(id);
   return deleteRowById(users, id);
 }
 
@@ -105,15 +109,32 @@ export async function validateSessionToken(token: string): Promise<User | null> 
   return row?.user ?? null;
 }
 
+// Ends one session and everything it still holds open: a live admin log stream
+// is registered under the session's token hash (see lib/logger.ts), and without
+// this the connection would keep receiving admin-only lines after the logout.
 export async function deleteSession(token: string): Promise<void> {
   const tokenHash = sha256(token);
   await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
+  unsubscribeOwner(tokenHash);
 }
 
 export async function deleteAllSessions(userId: string, exceptToken?: string): Promise<void> {
+  const keep = exceptToken ? sha256(exceptToken) : undefined;
+  // Read the hashes before deleting: they are the owner keys of the live streams.
+  const rows = await db
+    .select({ tokenHash: sessions.tokenHash })
+    .from(sessions)
+    .where(keep ? and(eq(sessions.userId, userId), ne(sessions.tokenHash, keep)) : eq(sessions.userId, userId));
   const conditions = [eq(sessions.userId, userId)];
-  if (exceptToken) conditions.push(ne(sessions.tokenHash, sha256(exceptToken)));
+  if (keep) conditions.push(ne(sessions.tokenHash, keep));
   await db.delete(sessions).where(and(...conditions));
+  for (const row of rows) unsubscribeOwner(row.tokenHash);
+}
+
+// Every session of one user, used when the account itself goes away.
+async function detachStreamsForUser(userId: string): Promise<void> {
+  const rows = await db.select({ tokenHash: sessions.tokenHash }).from(sessions).where(eq(sessions.userId, userId));
+  for (const row of rows) unsubscribeOwner(row.tokenHash);
 }
 
 export function getSessionTokenFromCookie(cookieHeader: string | undefined): string | null {

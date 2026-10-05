@@ -30,12 +30,34 @@ services:
       - ALL
     read_only: true
     # Bound the container so memory pressure from concurrent requests restarts
-    # this one service instead of exhausting the host. Sized against the largest
-    # single legitimate operation: the LFS paths hold roughly six times the
-    # object size until they stream, and MAX_LFS_OBJECT_BYTES caps an object at
-    # 128 MiB, so one request peaks near 768 MB and 2g leaves room for several.
-    # Raise this together with MAX_LFS_OBJECT_BYTES.
-    mem_limit: 2g
+    # this one service instead of exhausting the host. Two per-operation bounds in
+    # the source decide the size, and the numbers are the measured cost of each
+    # path (the measurements behind the audit that set these values):
+    #   - MAX_LFS_OBJECT_BYTES caps an LFS object at 128 MiB and a transfer holds
+    #     about 4x that while it runs, so 2 concurrent transfers
+    #     (MAX_LFS_CONCURRENT_TRANSFERS) reach about 1 GiB.
+    #   - MAX_BACKUP_BUNDLE_BYTES caps the per-push repository bundle at 256 MiB;
+    #     the complete write path (bundle, read, encrypt, upload) peaks near 7x, so
+    #     one capped backup reaches about 1.7 GiB. The bundle file is written to
+    #     the projects volume rather than to the /tmp tmpfs, so its bytes are not
+    #     charged here.
+    # 3g covers either class; the sum is the residual, which the healthcheck and
+    # restart policy turn into a brief restart rather than a host-level event.
+    # Raise this together with those constants.
+    mem_limit: 3g
+    # A git child that is never reaped must not be able to fill the process
+    # table: past this many processes a spawn is refused and the request fails
+    # visibly instead of the container degrading quietly.
+    pids_limit: 512
+    # Liveness for an operator: /app-info answers without a session, so the probe
+    # needs no credential. The port is read from the container environment, so
+    # changing PORT in backend/.env needs no second edit here.
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"const r = await fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/app-info'); if (!r.ok) process.exit(1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     tmpfs:
       - /tmp
     logging:
@@ -81,16 +103,26 @@ services:
 
   # Optional local storage (profile "minio"). Production users usually point
   # SiGit at their own S3/MinIO/R2 storage instead.
+  #
+  # The ports are bound to the loopback address on purpose: the backend reaches
+  # MinIO over the compose network and LFS traffic is proxied by the backend, so
+  # no host-facing port is needed. Publishing them on every interface would put a
+  # root-credentialed object store and its admin console one hop from any peer
+  # that can reach the host. Uncomment the published ports only to reach the
+  # console from another machine, and set real credentials first.
   minio:
     profiles: ["minio"]
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # No vendor-example fallback: an unset value fails the start instead of
+      # silently provisioning the bucket with minioadmin/minioadmin. Set both in
+      # backend/.env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD).
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in backend/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in backend/.env}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -107,8 +139,8 @@ services:
       minio:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in backend/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in backend/.env}
       MINIO_BUCKET: ${MINIO_BUCKET:-sigit}
     entrypoint: ["/bin/sh", "-c"]
     command:

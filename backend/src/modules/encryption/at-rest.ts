@@ -19,6 +19,10 @@ import type { StorageConnection } from "@/db/schema/storage";
 // client-declared size against this, since the ciphertext is 28 bytes larger).
 export const PLAINTEXT_SIZE_METADATA = "x-sigit-size";
 
+// Bytes the ciphertext adds to the plaintext (iv + auth tag). Callers that bound
+// a stored object by its plaintext size add this to get the object-level cap.
+export const AT_REST_OVERHEAD_BYTES = AES_IV_LENGTH + AES_AUTH_TAG_LENGTH;
+
 // Cache decrypted project keys per project id (one decrypt per project per process).
 const keyCache = new Map<string, Buffer>();
 
@@ -68,12 +72,15 @@ export async function putEncrypted(
   });
 }
 
-// Downloads and decrypts.
+// Downloads and decrypts. maxBytes bounds the stored (ciphertext) object, so a
+// caller that knows how large its object may legitimately be keeps an endpoint
+// that serves something larger from being buffered into the shared process.
 export async function getDecrypted(
   project: Project,
   connection: StorageConnection,
-  key: string
+  key: string,
+  maxBytes?: number
 ): Promise<Buffer> {
-  const ciphertext = await getObject(connection, key);
+  const ciphertext = await getObject(connection, key, maxBytes);
   return decryptProjectBuffer(project, ciphertext);
 }

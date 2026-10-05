@@ -6,6 +6,7 @@ import { createConnectionFromInput, getConnection } from "@/modules/storage/conn
 import { deleteObjectsByPrefix, listAllObjects } from "@/modules/storage/objects";
 import { getLog, initRepo, installPreReceiveHook, resolveHead } from "./git";
 import { protectionSnapshotPath } from "./protection-snapshot";
+import { removeProjectWorktrees } from "@/modules/pull-requests/merge";
 import { deleteRowById } from "@/lib/db";
 import { HttpError } from "@/lib/http-error";
 import { encryptSecret } from "@/lib/secret-encryption";
@@ -194,11 +195,14 @@ export async function hardDeleteProject(id: string): Promise<DeleteProjectResult
     hadStorage: !!project?.storageConnectionId,
   };
 
-  // 2. Delete local repo folder (+ its protection snapshot sibling)
+  // 2. Delete local repo folder (+ its protection snapshot sibling and any pull
+  //    request worktree left behind by an interrupted merge: a worktree is a
+  //    full checkout of this project's repository and must not outlive it)
   const repoPath = projectRepoPath(id);
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
     await fs.rm(protectionSnapshotPath(repoPath), { force: true });
+    await removeProjectWorktrees(id);
     result.deletedRepo = true;
   } catch {
     result.deletedRepo = false;

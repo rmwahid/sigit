@@ -78,10 +78,13 @@ describe("GET /explore/users/:email", () => {
     const owned = await createProjectRow(`explore-owned-${suffix}`, true);
     const other = await createProjectRow(`explore-other-${suffix}`, true);
 
-    // Collaborator row: grants access to `owned` only.
+    // Collaborator row: grants access to `owned` only. The permission set is
+    // explicit because a row that grants nothing is not access, so this project
+    // appears on the profile only while the row carries a permission (see
+    // grantingProjectIds in modules/auth/access.ts).
     const [collab] = await db
       .insert(projectCollaborators)
-      .values({ projectId: owned, userId })
+      .values({ projectId: owned, userId, permissions: ["view"] })
       .returning({ id: projectCollaborators.id });
     createdCollaboratorIds.push(collab.id);
 

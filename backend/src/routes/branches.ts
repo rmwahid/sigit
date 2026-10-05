@@ -13,6 +13,8 @@ import {
   resolveDefaultBranch,
 } from "@/modules/projects/git";
 import { getProject, projectRepoPath } from "@/modules/projects/projects";
+import { listProtectionRules } from "@/modules/projects/branch-protection";
+import { evaluateRefMutation } from "@/modules/projects/ref-policy";
 import { audit } from "@/lib/logger";
 import { errorSchema, idParamSchema, messageSchema } from "./schemas/common";
 import { BRANCH_NAME_MAX_LENGTH, BRANCH_NAME_PATTERN } from "@/constants/limits";
@@ -39,8 +41,9 @@ export const branchListResponseSchema = z.object({
 const createBranchResponseSchema = z.object({ data: z.object({ name: z.string() }) });
 
 // Authed web branch management: create/delete branches in the bare repo via
-// git update-ref. Permission: push (admin bypasses). Branch protection rules
-// (blockDeletion) are enforced once protection lands in Fase 6.
+// git update-ref. Permission: push (admin bypasses). These handlers move refs
+// with update-ref, which never runs the pre-receive hook, so each one applies
+// the rule set itself through evaluateRefMutation before touching the ref.
 export const branchRoutes = new OpenAPIHono<AuthEnv>();
 
 async function loadRepo(c: Parameters<typeof requireProjectAccess>[0], projectId: string) {
@@ -88,7 +91,7 @@ branchRoutes.openapi(
     summary: "Create a branch from a ref (default HEAD)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: createBranchInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: createBranchInputSchema } } },
     },
     responses: {
       201: { description: "Created branch", content: { "application/json": { schema: createBranchResponseSchema } } },
@@ -112,6 +115,15 @@ branchRoutes.openapi(
         return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: `Invalid source ref "${fromBranch}"` } }, 400) as never;
       }
       const fromRef = fromBranch ?? "HEAD";
+      const denied = evaluateRefMutation({
+        rules: await listProtectionRules(id),
+        branch: name,
+        action: "create",
+        actorId: access.user.id,
+      });
+      if (!denied.allowed) {
+        return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: denied.message } }, 403) as never;
+      }
       await createBranch(repo.repoPath, name, fromRef);
       audit(AUDIT_EVENTS.BRANCH_CREATE, {
         projectId: id,
@@ -170,6 +182,15 @@ branchRoutes.openapi(
     const defaultBranch = await resolveDefaultBranch(repo.repoPath);
     if (defaultBranch === branch) {
       return c.json({ error: { code: ERROR_CODES.BAD_REQUEST, message: "The default branch cannot be deleted" } }, 400) as never;
+    }
+    const denied = evaluateRefMutation({
+      rules: await listProtectionRules(id),
+      branch,
+      action: "delete",
+      actorId: access.user.id,
+    });
+    if (!denied.allowed) {
+      return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: denied.message } }, 403) as never;
     }
     await deleteBranch(repo.repoPath, branch);
     audit(AUDIT_EVENTS.BRANCH_DELETE, {

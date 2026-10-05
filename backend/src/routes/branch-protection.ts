@@ -1,18 +1,23 @@
 // Branch protection rules CRUD (Fase 6). Reading a rule set needs view
-// permission; creating/updating/deleting needs push (admin bypasses). The
-// rules are enforced by the git pre-receive hook, which consumes a JSON
-// snapshot written alongside the bare repo (hooks cannot reach the DB).
+// permission; creating/updating/deleting is admin only, like the other
+// governance actions (backup, restore, collaborators, public toggle, delete).
+// It deliberately does NOT accept the push permission: requirePr and
+// restrictPushUserIds constrain push-capable principals, so gating on push let
+// exactly the population the rules exclude edit or delete their own rule. The
+// rules are enforced by the git pre-receive hook, which consumes a snapshot
+// written alongside the bare repo (hooks cannot reach the DB).
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { branchProtectionRules } from "@/db/schema/auth";
 import { AUDIT_EVENTS } from "@/constants/audit-events";
 import { ERROR_CODES } from "@/constants/errors";
+import { ADMIN_ROLE } from "@/constants/roles";
 import { PROJECT_PERMISSIONS } from "@/constants/permissions";
 import {
   BRANCH_PATTERN_MAX_LENGTH,
   BRANCH_PATTERN_PATTERN,
   MAX_PROTECTION_REQUIRED_APPROVALS,
 } from "@/constants/limits";
-import { requireProjectAccess, type AuthEnv } from "@/middleware/auth";
+import { requireAdmin, requireProjectAccess, type AuthEnv } from "@/middleware/auth";
 import { getProject, projectRepoPath } from "@/modules/projects/projects";
 import {
   createProtectionRule,
@@ -44,8 +49,27 @@ const protectionInputSchema = z.object({
   allowAdminBypass: z.boolean().default(false),
 });
 
-const protectionPatchSchema = protectionInputSchema.partial();
+// The update schema must not carry defaults. With .default() on a field,
+// .partial() still materialises that default for an omitted key, so a one-key
+// PATCH body arrives at the handler with every other field already filled in and
+// the handler's own "!== undefined" guards cannot tell the difference. Keeping
+// .partial() over a default-free object makes an omitted field stay omitted.
+const protectionPatchSchema = z
+  .object({
+    branchPattern: branchPatternSchema,
+    requirePr: z.boolean(),
+    requiredApprovals: z.number().int().min(0).max(MAX_PROTECTION_REQUIRED_APPROVALS),
+    blockOnRequestChanges: z.boolean(),
+    blockForcePush: z.boolean(),
+    blockDeletion: z.boolean(),
+    restrictPushUserIds: z.array(z.string().uuid()),
+    restrictMergeUserIds: z.array(z.string().uuid()),
+    allowAdminBypass: z.boolean(),
+  })
+  .partial();
 
+// The three governance fields are absent from a list response served to a
+// caller without governance rights (toRuleFor), so they are optional here.
 const protectionRuleSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -55,9 +79,9 @@ const protectionRuleSchema = z.object({
   blockOnRequestChanges: z.boolean(),
   blockForcePush: z.boolean(),
   blockDeletion: z.boolean(),
-  restrictPushUserIds: z.array(z.string().uuid()),
-  restrictMergeUserIds: z.array(z.string().uuid()),
-  allowAdminBypass: z.boolean(),
+  restrictPushUserIds: z.array(z.string().uuid()).optional(),
+  restrictMergeUserIds: z.array(z.string().uuid()).optional(),
+  allowAdminBypass: z.boolean().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -93,6 +117,16 @@ function toRule(row: typeof branchProtectionRules.$inferSelect) {
   };
 }
 
+// Governance fields answer "who is allowed to push or merge here", and the same
+// caller can resolve an id to an address through the pull request list, so a
+// caller without governance rights reads the policy without them.
+function toRuleFor(row: typeof branchProtectionRules.$inferSelect, canGovern: boolean) {
+  const rule = toRule(row);
+  if (canGovern) return rule;
+  const { restrictPushUserIds: _push, restrictMergeUserIds: _merge, allowAdminBypass: _bypass, ...policy } = rule;
+  return policy;
+}
+
 // Keeps the hook snapshot in sync after any rule change.
 async function refreshSnapshot(projectId: string, repoPath: string) {
   const rules = await listProtectionRules(projectId);
@@ -118,7 +152,8 @@ branchProtectionRoutes.openapi(
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
     const rules = await listProtectionRules(id);
-    return c.json({ data: rules.map(toRule) });
+    const canGovern = access.user.role === ADMIN_ROLE;
+    return c.json({ data: rules.map((rule) => toRuleFor(rule, canGovern)) });
   }
 );
 
@@ -127,10 +162,10 @@ branchProtectionRoutes.openapi(
     method: "post",
     path: "/:id/branch-protection",
     tags: ["Branch protection"],
-    summary: "Create a branch protection rule (push permission)",
+    summary: "Create a branch protection rule (admin only)",
     request: {
       params: idParamSchema,
-      body: { content: { "application/json": { schema: protectionInputSchema } } },
+      body: { required: true, content: { "application/json": { schema: protectionInputSchema } } },
     },
     responses: {
       201: { description: "Created rule", content: { "application/json": { schema: ruleResponse } } },
@@ -141,8 +176,8 @@ branchProtectionRoutes.openapi(
   async (c) => {
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
-    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
-    if (access instanceof Response) return access as never;
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
 
@@ -169,7 +204,7 @@ branchProtectionRoutes.openapi(
       projectId: id,
       projectName: repo.project.name,
       branchPattern: body.branchPattern,
-      by: access.user.email,
+      by: admin.email,
     });
     return c.json({ data: toRule(rule) }, 201);
   }
@@ -180,10 +215,10 @@ branchProtectionRoutes.openapi(
     method: "patch",
     path: "/:id/branch-protection/:ruleId",
     tags: ["Branch protection"],
-    summary: "Update a branch protection rule (push permission)",
+    summary: "Update a branch protection rule (admin only)",
     request: {
       params: idParamSchema.extend({ ruleId: z.string().uuid() }),
-      body: { content: { "application/json": { schema: protectionPatchSchema } } },
+      body: { required: true, content: { "application/json": { schema: protectionPatchSchema } } },
     },
     responses: {
       200: { description: "Updated rule", content: { "application/json": { schema: ruleResponse } } },
@@ -194,8 +229,8 @@ branchProtectionRoutes.openapi(
   async (c) => {
     const { id, ruleId } = c.req.valid("param");
     const body = c.req.valid("json");
-    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
-    if (access instanceof Response) return access as never;
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
 
@@ -219,7 +254,7 @@ branchProtectionRoutes.openapi(
       projectId: id,
       projectName: repo.project.name,
       ruleId,
-      by: access.user.email,
+      by: admin.email,
     });
     return c.json({ data: toRule(rule) });
   }
@@ -230,7 +265,7 @@ branchProtectionRoutes.openapi(
     method: "delete",
     path: "/:id/branch-protection/:ruleId",
     tags: ["Branch protection"],
-    summary: "Delete a branch protection rule (push permission)",
+    summary: "Delete a branch protection rule (admin only)",
     request: { params: idParamSchema.extend({ ruleId: z.string().uuid() }) },
     responses: {
       200: { description: "Deleted", content: { "application/json": { schema: messageSchema } } },
@@ -239,8 +274,8 @@ branchProtectionRoutes.openapi(
   }),
   async (c) => {
     const { id, ruleId } = c.req.valid("param");
-    const access = await requireProjectAccess(c, id, PROJECT_PERMISSIONS.PUSH.slug);
-    if (access instanceof Response) return access as never;
+    const admin = await requireAdmin(c);
+    if (!admin) return c.json({ error: { code: ERROR_CODES.FORBIDDEN, message: "Admin only" } }, 403) as never;
     const repo = await loadProject(c, id);
     if ("response" in repo) return repo.response as never;
 
@@ -253,7 +288,7 @@ branchProtectionRoutes.openapi(
       projectId: id,
       projectName: repo.project.name,
       ruleId,
-      by: access.user.email,
+      by: admin.email,
     });
     return c.json({ message: "Branch protection rule deleted" });
   }

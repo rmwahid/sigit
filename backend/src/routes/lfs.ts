@@ -5,8 +5,14 @@ import { getProjectByName, projectNameFromRouteParam } from "@/modules/projects/
 import { getConnection } from "@/modules/storage/connections";
 import { scopeAllows, scopeForLfsOperation } from "@/modules/auth/scopes";
 import { log } from "@/lib/logger";
-import { MAX_LFS_BATCH_OBJECTS, MAX_LFS_OBJECT_BYTES, MAX_LFS_REQUEST_BYTES } from "@/constants/limits";
+import {
+  MAX_LFS_BATCH_OBJECTS,
+  MAX_LFS_CONCURRENT_TRANSFERS,
+  MAX_LFS_OBJECT_BYTES,
+  MAX_LFS_REQUEST_BYTES,
+} from "@/constants/limits";
 import { LFS_MESSAGES } from "@/constants/lfs-messages";
+import { createInFlightGate } from "@/lib/in-flight";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
@@ -108,21 +114,33 @@ lfsRoutes.post("/:name{.+\.git}/info/lfs/objects/batch", requireGitToken, async 
   });
 });
 
+// Uploads and downloads share one gate: each admitted transfer holds the whole
+// object in the shared process while its storage request runs, so the bound has
+// to cover their combined overlap. A full gate answers 503 instead of queueing,
+// because the client can retry a transfer but cannot see work it is waiting on.
+const objectTransfers = createInFlightGate(MAX_LFS_CONCURRENT_TRANSFERS);
+
 lfsRoutes.get("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c) => {
   const name = projectNameFromRouteParam(c.req.param("name"));
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
-    const project = await loadProject(name);
-    const connection = await loadConnection(project);
-    const result = await downloadObject(project, connection, oid);
-    if (!result.ok) {
-      if (result.reason === "too_large") {
-        throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+    const release = objectTransfers.tryAcquire();
+    if (!release) throw new LfsError(503, "Too many concurrent object transfers, retry shortly");
+    try {
+      const project = await loadProject(name);
+      const connection = await loadConnection(project);
+      const result = await downloadObject(project, connection, oid);
+      if (!result.ok) {
+        if (result.reason === "too_large") {
+          throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+        }
+        throw new LfsError(404, "Object does not exist");
       }
-      throw new LfsError(404, "Object does not exist");
+      return new Response(new Uint8Array(result.content), { headers: { "Content-Type": CONTENT_TYPE_OCTET_STREAM } });
+    } finally {
+      release();
     }
-    return new Response(new Uint8Array(result.content), { headers: { "Content-Type": CONTENT_TYPE_OCTET_STREAM } });
   });
 });
 
@@ -131,22 +149,30 @@ lfsRoutes.put("/:name{.+\.git}/info/lfs/objects/:oid", requireGitToken, async (c
   const oid = c.req.param("oid") ?? "";
   return guard(c, async () => {
     if (!isValidOid(oid)) throw new LfsError(422, "Invalid oid");
-    const project = await loadProject(name);
-    const connection = await loadConnection(project);
-    // Limit the body size: pre-check Content-Length + stream with a cap
-    // (a client can lie about Content-Length, so the cap is also enforced while reading).
-    const declared = Number(c.req.header("Content-Length") ?? "0");
-    if (declared > MAX_LFS_OBJECT_BYTES) {
-      throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+    // Admitted before the body is read: the gate is what keeps the received
+    // bytes and their ciphertext from multiplying across concurrent uploads.
+    const release = objectTransfers.tryAcquire();
+    if (!release) throw new LfsError(503, "Too many concurrent object transfers, retry shortly");
+    try {
+      const project = await loadProject(name);
+      const connection = await loadConnection(project);
+      // Limit the body size: pre-check Content-Length + stream with a cap
+      // (a client can lie about Content-Length, so the cap is also enforced while reading).
+      const declared = Number(c.req.header("Content-Length") ?? "0");
+      if (declared > MAX_LFS_OBJECT_BYTES) {
+        throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+      }
+      const content = await readBodyWithLimit(c, MAX_LFS_OBJECT_BYTES);
+      if (!content) {
+        throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
+      }
+      if (content.length === 0) throw new LfsError(422, "Empty object body");
+      const result = await uploadObject(project, connection, oid, content);
+      if (!result.ok) throw new LfsError(422, result.error ?? "Upload failed");
+      return new Response(null, { status: 200 });
+    } finally {
+      release();
     }
-    const content = await readBodyWithLimit(c, MAX_LFS_OBJECT_BYTES);
-    if (!content) {
-      throw new LfsError(413, `Object exceeds the ${MAX_LFS_OBJECT_BYTES} byte limit`);
-    }
-    if (content.length === 0) throw new LfsError(422, "Empty object body");
-    const result = await uploadObject(project, connection, oid, content);
-    if (!result.ok) throw new LfsError(422, result.error ?? "Upload failed");
-    return new Response(null, { status: 200 });
   });
 });
 

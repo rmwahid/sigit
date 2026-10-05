@@ -8,7 +8,7 @@
 // allocation-free per request.
 import type { Context } from "hono";
 import { ERROR_CODES } from "@/constants/errors";
-import { RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
+import { MAX_RATE_LIMIT_BUCKETS, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
 
 export type RateLimitRule = {
   // Distinct bucket name, e.g. "auth.login".
@@ -35,6 +35,30 @@ function ruleKey(rule: RateLimitRule, identity: string): string {
   return `${rule.name}|${identity}`;
 }
 
+// Keeps the bucket map under its ceiling. Every distinct identity creates an
+// entry and nothing removes an expired one on its own, so without this an
+// attacker who can vary the identity grows the map without limit. Expired
+// entries are swept first; if the map is still full the entry closest to
+// expiring is dropped, which costs at most one identity its counter.
+function makeRoom(now: number): void {
+  if (buckets.size < MAX_RATE_LIMIT_BUCKETS) return;
+  for (const [key, bucket] of buckets) {
+    if (bucket.resetAt <= now) buckets.delete(key);
+  }
+  while (buckets.size >= MAX_RATE_LIMIT_BUCKETS) {
+    let oldestKey: string | null = null;
+    let oldestReset = Number.POSITIVE_INFINITY;
+    for (const [key, bucket] of buckets) {
+      if (bucket.resetAt < oldestReset) {
+        oldestReset = bucket.resetAt;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey === null) return;
+    buckets.delete(oldestKey);
+  }
+}
+
 // Records one attempt and returns whether it is allowed.
 export function consumeRateLimit(rule: RateLimitRule, identity: string, now = Date.now()): RateLimitResult {
   const windowMs = rule.windowMs ?? RATE_LIMIT_WINDOW_MS;
@@ -42,6 +66,7 @@ export function consumeRateLimit(rule: RateLimitRule, identity: string, now = Da
   const bucket = buckets.get(key);
 
   if (!bucket || bucket.resetAt <= now) {
+    if (!bucket) makeRoom(now);
     buckets.set(key, { count: 1, resetAt: now + windowMs });
     return { allowed: true, retryAfterSeconds: 0 };
   }
@@ -80,14 +105,23 @@ export function throttleRequest(c: Context, rule: RateLimitRule, identity = clie
   return c.json({ error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many requests. Try again later." } }, 429);
 }
 
-// Client identity for rate limiting: the forwarded client address when a
-// reverse proxy (Caddy) supplies one, else the direct connection address. The
-// value is only ever a bucket key, never a security decision on its own.
+// Client identity for rate limiting: the address the nearest reverse proxy saw,
+// else the direct connection address. A proxy APPENDS the address it observed to
+// the header it received, so only the last entry is written by a party the client
+// cannot forge; taking the first would let a caller pick its own bucket (and spend
+// another identity's) with a header of its own. The trade is that a chain of
+// trusted proxies keys on the nearest one, which over-throttles rather than
+// under-throttles. The value is only ever a bucket key, never a security decision
+// on its own.
 export function clientIdentity(headers: Headers, fallback = "unknown"): string {
   const forwarded = headers.get("x-forwarded-for");
   if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+    const chain = forwarded
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const nearest = chain[chain.length - 1];
+    if (nearest) return nearest;
   }
   const realIp = headers.get("x-real-ip");
   if (realIp?.trim()) return realIp.trim();

@@ -77,7 +77,7 @@ emailSettingsRoutes.openapi(
     tags: ["Email"],
     summary: "Update email settings (admin only)",
     request: {
-      body: { content: { "application/json": { schema: emailSettingsInput } } },
+      body: { required: true, content: { "application/json": { schema: emailSettingsInput } } },
     },
     responses: {
       200: {

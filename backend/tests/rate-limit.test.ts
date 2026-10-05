@@ -11,7 +11,7 @@ import {
   throttleRequest,
   type RateLimitRule,
 } from "@/lib/rate-limit";
-import { RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
+import { MAX_RATE_LIMIT_BUCKETS, RATE_LIMIT_LOGIN_MAX, RATE_LIMIT_WINDOW_MS } from "@/constants/limits";
 import { ERROR_CODES } from "@/constants/errors";
 
 const RULE: RateLimitRule = { name: "test.rule", max: 3 };
@@ -67,6 +67,17 @@ describe("rate limiter", () => {
     expect(consumeRateLimit(tiny, "a", start + 1001).allowed).toBe(true);
   });
 
+  it("keeps the bucket map under its ceiling when identities keep arriving", () => {
+    // An identity that can be varied (a spoofable forwarding header, a rotating
+    // account name) must not be able to grow the map without bound.
+    const start = 9_000_000;
+    for (let i = 0; i < MAX_RATE_LIMIT_BUCKETS + 100; i++) {
+      consumeRateLimit(RULE, `flood-${i}`, start);
+    }
+    expect(rateLimitBucketCount()).toBeLessThanOrEqual(MAX_RATE_LIMIT_BUCKETS);
+    resetAllRateLimits();
+  });
+
   it("does not grow unboundedly when windows roll over", () => {
     const start = 9_000_000;
     for (let i = 0; i < 50; i++) {
@@ -87,9 +98,13 @@ describe("rate limiter", () => {
 });
 
 describe("clientIdentity", () => {
-  it("prefers the first x-forwarded-for entry", () => {
-    const h = new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" });
+  it("takes the entry the nearest proxy appended", () => {
+    // A proxy appends what it saw, so the last entry is the one a client cannot
+    // choose; the first is whatever the client sent.
+    const h = new Headers({ "x-forwarded-for": "1.2.3.4, 203.0.113.7" });
     expect(clientIdentity(h)).toBe("203.0.113.7");
+    expect(clientIdentity(new Headers({ "x-forwarded-for": "203.0.113.7" }))).toBe("203.0.113.7");
+    expect(clientIdentity(new Headers({ "x-forwarded-for": "1.2.3.4, 203.0.113.7 , " }))).toBe("203.0.113.7");
   });
 
   it("falls back to x-real-ip", () => {

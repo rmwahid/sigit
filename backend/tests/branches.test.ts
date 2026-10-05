@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
-import { projectCollaborators, users } from "@/db/schema/auth";
+import { branchProtectionRules, projectCollaborators, users } from "@/db/schema/auth";
 import { SESSION_COOKIE } from "@/constants/protocol";
 import { initRepo, listBranches, resolveBranchRef, resolveHead } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
@@ -55,6 +56,24 @@ async function createUserRow(email: string, role = "collaborator"): Promise<stri
   return row.id;
 }
 
+// Same field set the route sends to createProtectionRule; overrides tune one
+// rule per case.
+async function addRule(projectId: string, overrides: Partial<typeof branchProtectionRules.$inferInsert> = {}) {
+  await db.insert(branchProtectionRules).values({
+    projectId,
+    branchPattern: "*",
+    requirePr: false,
+    requiredApprovals: 0,
+    blockOnRequestChanges: false,
+    blockForcePush: true,
+    blockDeletion: true,
+    restrictPushUserIds: null,
+    restrictMergeUserIds: null,
+    allowAdminBypass: false,
+    ...overrides,
+  });
+}
+
 function cookieHeader(token: string): Headers {
   return new Headers({ Cookie: `${SESSION_COOKIE}=${token}` });
 }
@@ -68,6 +87,10 @@ function jsonHeaders(token: string): Headers {
 afterAll(async () => {
   try {
     for (const id of createdProjectIds) {
+      // Rules and collaborator rows first: neither is guaranteed to cascade
+      // from the project delete, and this database is shared with dev.
+      await db.delete(branchProtectionRules).where(eq(branchProtectionRules.projectId, id));
+      await db.delete(projectCollaborators).where(eq(projectCollaborators.projectId, id));
       await db.delete(projects).where(eq(projects.id, id));
       await fs.rm(projectRepoPath(id), { recursive: true, force: true }).catch(() => {});
     }
@@ -113,6 +136,43 @@ describe("branch endpoints", () => {
     const deleted = await branchRoutes.request(`/${projectId}/branches?branch=feature/x`, { method: "DELETE", headers });
     expect(deleted.status).toBe(200);
     expect(await resolveBranchRef(barePath, "feature/x")).toBeNull();
+  });
+
+  it("rejects a create body that was never parsed as JSON", async () => {
+    const projectId = await createProjectRow(`branches-body-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const adminId = await createUserRow(`branches-body-${suffix}@sigit.test`, "admin");
+    const { token } = await createSession(adminId);
+
+    // Without a JSON content type the validator used to be skipped, the handler
+    // read `name` off an empty object, and the repo gained refs/heads/undefined.
+    const noType = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: cookieHeader(token),
+      body: JSON.stringify({ name: "should/not/exist", fromBranch: "main" }),
+    });
+    expect(noType.status).toBe(400);
+
+    const wrongType = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: new Headers({ Cookie: `${SESSION_COOKIE}=${token}`, "Content-Type": "text/plain" }),
+      body: JSON.stringify({ name: "should/not/exist", fromBranch: "main" }),
+    });
+    expect(wrongType.status).toBe(400);
+
+    expect(await listBranches(barePath)).toEqual(["main"]);
+
+    // The same request with a JSON content type still works.
+    const ok = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ name: "feature/ok", fromBranch: "main" }),
+    });
+    expect(ok.status).toBe(201);
+    expect(await listBranches(barePath)).toContain("feature/ok");
   });
 
   it("enforces push permission and validation", async () => {
@@ -168,5 +228,71 @@ describe("branch endpoints", () => {
 
     const delDefault = await branchRoutes.request(`/${projectId}/branches?branch=main`, { method: "DELETE", headers: adminHeaders });
     expect(delDefault.status).toBe(400);
+  });
+
+  it("applies branch protection rules to ref updates made through the API", async () => {
+    const projectId = await createProjectRow(`branches-prot-${suffix}`);
+    const barePath = projectRepoPath(projectId);
+    await initRepo(barePath);
+    await seedRepo(barePath);
+
+    const pusherId = await createUserRow(`branches-prot-${suffix}@sigit.test`);
+    await db.insert(projectCollaborators).values({ projectId, userId: pusherId, permissions: ["push"] });
+    const { token } = await createSession(pusherId);
+    const headers = jsonHeaders(token);
+
+    // Branches are created while no rule covers them, then protected, because
+    // the point here is the API path: these handlers call git update-ref, which
+    // never runs the pre-receive hook the rules rely on.
+    const created = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "feature/keep", fromBranch: "main" }),
+    });
+    expect(created.status).toBe(201);
+
+    await addRule(projectId, { branchPattern: "feature/*", blockDeletion: true });
+    const blockedDelete = await branchRoutes.request(`/${projectId}/branches?branch=feature/keep`, { method: "DELETE", headers });
+    expect(blockedDelete.status).toBe(403);
+    expect(await resolveBranchRef(barePath, "feature/keep")).not.toBeNull();
+
+    // A branch no rule covers is still deletable, so the gate is the rule and
+    // not the guard itself.
+    await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "temp/scratch", fromBranch: "main" }),
+    });
+    const allowedDelete = await branchRoutes.request(`/${projectId}/branches?branch=temp/scratch`, { method: "DELETE", headers });
+    expect(allowedDelete.status).toBe(200);
+
+    // Creating a branch under a rule that requires pull requests is the same
+    // write the hook refuses on a push.
+    await addRule(projectId, { branchPattern: "release/*", requirePr: true });
+    const blockedCreate = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "release/1.0", fromBranch: "main" }),
+    });
+    expect(blockedCreate.status).toBe(403);
+    expect(await resolveBranchRef(barePath, "release/1.0")).toBeNull();
+
+    // The push whitelist is read from the same user id the hook gets from
+    // GITPUSH_USER_ID: listed users pass, everyone else is refused.
+    await addRule(projectId, { branchPattern: "wip/*", restrictPushUserIds: [pusherId] });
+    const whitelisted = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "wip/mine", fromBranch: "main" }),
+    });
+    expect(whitelisted.status).toBe(201);
+
+    await addRule(projectId, { branchPattern: "other/*", restrictPushUserIds: [randomUUID()] });
+    const notListed = await branchRoutes.request(`/${projectId}/branches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "other/theirs", fromBranch: "main" }),
+    });
+    expect(notListed.status).toBe(403);
   });
 });

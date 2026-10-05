@@ -11,6 +11,7 @@ import {
   updateConnection,
   type StorageConnectionInput,
 } from "@/modules/storage/connections";
+import { connectionInputSchema, connectionUpdateSchema } from "@/routes/schemas/storage";
 
 // Storage connection module: pure path via an injected fake insert client,
 // DB path via the real dev DB with unique names + cleanup.
@@ -83,6 +84,20 @@ describe("createConnectionFromInput (injected client, pure)", () => {
       fake as never
     );
     expect(connection.forcePathStyle).toBe(false);
+  });
+
+  it("does not inject forcePathStyle into a partial update body", () => {
+    // PATCH is a partial update: only the keys the caller sent may reach the
+    // update payload. The update schema used to be derived from the create
+    // schema, whose forcePathStyle default was then materialised for an omitted
+    // key, so a rename-only body silently rewrote a stored false to true.
+    const parsed = connectionUpdateSchema.parse({ name: `conn-partial-${suffix}` });
+    expect(Object.prototype.hasOwnProperty.call(parsed, "forcePathStyle")).toBe(false);
+    expect(parsed).toEqual({ name: `conn-partial-${suffix}` });
+    // The create schema keeps the default it is meant to have.
+    expect(connectionInputSchema.parse(input(`conn-create-${suffix}`)).forcePathStyle).toBe(true);
+    // An explicit value still travels through the update schema.
+    expect(connectionUpdateSchema.parse({ forcePathStyle: false })).toEqual({ forcePathStyle: false });
   });
 
   it("throws when the insert returns no rows", async () => {

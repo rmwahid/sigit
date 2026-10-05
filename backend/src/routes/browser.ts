@@ -4,6 +4,7 @@ import { optionalAuth, type AuthEnv } from "@/middleware/auth";
 import { ERROR_CODES } from "@/constants/errors";
 import {
   DEFAULT_HISTORY_LIMIT,
+  MAX_CONCURRENT_ARCHIVES,
   MAX_FILE_BROWSER_BYTES,
   MAX_HISTORY_LIMIT,
   RATE_LIMIT_ARCHIVE_MAX,
@@ -25,7 +26,8 @@ import {
   resolveDefaultBranch,
   resolveHead,
 } from "@/modules/projects/git";
-import { readAuditLog } from "@/lib/logger";
+import { readProjectAuditWindow } from "@/lib/logger";
+import { createInFlightGate } from "@/lib/in-flight";
 import type { Project } from "@/db/schema/projects";
 
 // Public file browser powering the project page Code tab (tree, blob, refs,
@@ -65,6 +67,23 @@ async function guard(c: Context<AuthEnv>, projectId: string, perm: ProjectPermis
 // bound. The budgets sit above what browsing a project produces.
 const ARCHIVE_RULE: RateLimitRule = { name: "browser.archive", max: RATE_LIMIT_ARCHIVE_MAX };
 const HISTORY_RULE: RateLimitRule = { name: "browser.history", max: RATE_LIMIT_HISTORY_MAX };
+// Every other read route spawns at least one git process per request (/refs
+// spawns three), so the router applies a budget to all of them: keeping the
+// choice here means a route added later cannot ship without one.
+const READ_RULE: RateLimitRule = { name: "browser.read", max: RATE_LIMIT_HISTORY_MAX };
+
+// The request budget admits archive generations over time; this bounds how many
+// exist at once, because each one holds a whole repository archive in the shared
+// process until its response has been written.
+const archiveGenerations = createInFlightGate(MAX_CONCURRENT_ARCHIVES);
+
+browserRoutes.use("*", async (c, next) => {
+  const path = c.req.path;
+  const rule = path.endsWith("/archive") ? ARCHIVE_RULE : path.endsWith("/history") ? HISTORY_RULE : READ_RULE;
+  const blocked = throttleRequest(c, rule);
+  if (blocked) return blocked;
+  await next();
+});
 
 const treeQuerySchema = z.object({ ref: z.string().optional(), path: z.string().optional() });
 
@@ -136,14 +155,24 @@ const archiveQuerySchema = z.object({ ref: z.string().optional(), format: z.stri
 browserRoutes.get("/:id/archive", async (c) => {
   const project = await guard(c, c.req.param("id"));
   if (project instanceof Response) return project;
-  const blocked = throttleRequest(c, ARCHIVE_RULE);
-  if (blocked) return blocked;
   const q = archiveQuerySchema.safeParse(c.req.query());
   if (!q.success) return error(c, 400, ERROR_CODES.BAD_REQUEST, "Invalid query");
   const ref = q.data.ref ?? "HEAD";
   if (!isValidRefName(ref)) return error(c, 400, ERROR_CODES.BAD_REQUEST, "Invalid ref");
   if (!ARCHIVE_FORMAT_SLUGS.includes(q.data.format as ArchiveFormatSlug)) {
     return error(c, 400, ERROR_CODES.BAD_REQUEST, "Unsupported format");
+  }
+  // Admission is bounded because the whole archive is buffered while this
+  // request runs: the budget above admits generations over time, this bounds how
+  // many hold their buffers at once. A full gate answers 429 rather than
+  // queueing, so the caller can retry instead of waiting behind work it cannot
+  // see.
+  const release = archiveGenerations.tryAcquire();
+  if (!release) {
+    // Same shape as the request limiter answers with, so a client has one thing
+    // to handle for both kinds of pressure.
+    c.header("Retry-After", "30");
+    return c.json({ error: { code: ERROR_CODES.RATE_LIMITED, message: "Too many archive downloads in progress" } }, 429);
   }
   const repoPath = projectRepoPath(project.id);
   try {
@@ -155,6 +184,8 @@ browserRoutes.get("/:id/archive", async (c) => {
     });
   } catch {
     return error(c, 404, ERROR_CODES.NOT_FOUND, "Ref not found");
+  } finally {
+    release();
   }
 });
 
@@ -168,8 +199,6 @@ const historyQuerySchema = activityQuerySchema.extend({ ref: z.string().max(255)
 browserRoutes.get("/:id/history", async (c) => {
   const project = await guard(c, c.req.param("id"), PROJECT_PERMISSIONS.HISTORY.slug);
   if (project instanceof Response) return project;
-  const blocked = throttleRequest(c, HISTORY_RULE);
-  if (blocked) return blocked;
   const q = historyQuerySchema.safeParse(c.req.query());
   const limit = Math.min(Math.max(Number(q.data?.limit) || DEFAULT_HISTORY_LIMIT, 1), MAX_HISTORY_LIMIT);
   const offset = Math.max(Number(q.data?.offset) || 0, 0);
@@ -207,9 +236,9 @@ browserRoutes.get("/:id/activity", async (c) => {
     author: cm.author,
     hash: cm.hash,
   }));
-  const events = readAuditLog(window * 2)
-    .filter((e) => e.projectId === project.id)
-    .map((e) => ({ type: "event", ts: String(e.ts ?? ""), ...e }));
+  // The window is what the response can carry, so reading more of the global
+  // audit log than that only makes every request cost the whole log.
+  const events = readProjectAuditWindow(project.id, window).map((e) => ({ type: "event", ts: String(e.ts ?? ""), ...e }));
 
   const merged = [...commits, ...events].sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
   return c.json({ data: merged.slice(offset, offset + limit) });

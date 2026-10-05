@@ -85,4 +85,16 @@ describe("safeHref", () => {
     expect(safeHref("  https://example.com  ")).toBe("https://example.com");
     expect(safeHref("  javascript:alert(1)  ")).toBeUndefined();
   });
+
+  it("rejects targets carrying control characters", () => {
+    // The URL parser strips tab, LF and CR before reading the scheme, so a tab
+    // inside the scheme would pass the scheme test and still resolve as
+    // javascript: in the browser.
+    for (const value of ["java\tscript:alert(1)", "java\nscript:alert(1)", "java\rscript:alert(1)", "java\u0000script:alert(1)", "\u0007https://example.com"]) {
+      expect(safeHref(value)).toBeUndefined();
+      const out = renderMarkdown(`[click](<${value}>)`);
+      expect(out).not.toContain("href");
+      expect(out).toContain("click");
+    }
+  });
 });

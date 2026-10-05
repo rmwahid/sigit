@@ -50,10 +50,32 @@ export const MAX_LFS_OBJECT_BYTES = 128 * 1024 * 1024;
 // LFS batch request: max objects per batch (spec-ish sanity cap).
 export const MAX_LFS_BATCH_OBJECTS = 1000;
 
+// LFS patterns: comma separated gitattributes-style globs. The value is rendered
+// as a `git lfs track "<pattern>"` line in the project page's copy-paste setup
+// block (frontend/src/lib/snippet.ts), so only characters that carry no shell
+// meaning are accepted here; quoting alone would not contain a closing quote, a
+// newline, `;`, `$( )`, a backtick or a history expansion. A pattern starts with
+// a non-space character and may contain spaces after it, so a path with a space
+// in it still works.
+export const LFS_PATTERN_MAX_LENGTH = 200;
+export const LFS_PATTERN_ELEMENT = "[A-Za-z0-9*._/-][A-Za-z0-9 *._/-]*";
+export const LFS_PATTERN_PATTERN = `^${LFS_PATTERN_ELEMENT}( *, *${LFS_PATTERN_ELEMENT})*$`;
+
 // Branch names (git check-ref-format --branch is the final authority at
 // create time; this pre-filter is mirrored by the frontend for parity).
 export const BRANCH_NAME_MAX_LENGTH = 200;
 export const BRANCH_NAME_PATTERN = "^[A-Za-z0-9][A-Za-z0-9._/-]*$";
+
+// Longest a git http-backend child may live (modules/git/server.ts). It is a
+// backstop, not a policy: a legitimate clone of a large repository over a slow
+// link is a long transfer, so the value only has to bound a child that would
+// otherwise live until the process restarts.
+export const GIT_CHILD_MAX_LIFETIME_MS = 30 * 60 * 1000;
+
+// Projects one token may be scoped to. Every item is resolved against the
+// database when the token is created, so the array length must not be
+// caller-controlled; the UI selects a handful.
+export const MAX_TOKEN_PROJECTS = 100;
 
 // Branch protection: pattern that selects the branches a rule applies to.
 // Wildcard is a trailing "*" (git refspec-style), e.g. "feature/*" or "*".
@@ -96,3 +118,50 @@ export const MAX_ACTIVITY_PROJECTS = 25;
 export const MAX_AUTH_BODY_BYTES = 16 * 1024;
 // LFS JSON bodies (batch / verify): a full batch of 1000 objects is ~110 KB.
 export const MAX_LFS_REQUEST_BYTES = 1024 * 1024;
+
+// Stored-object read cap for the per-push backup bundle. The bundle holds the
+// whole repository history in one object, so it is the largest thing the server
+// ever pulls into memory: the read path holds the ciphertext, the decrypted
+// plaintext and the decrypt buffer (about three copies), and the write path
+// peaks near seven times the bundle size. 256 MiB keeps one restore read around
+// 768 MiB and one capped backup near 1.7 GiB; raise this only together with
+// mem_limit in compose.yaml.
+export const MAX_BACKUP_BUNDLE_BYTES = 256 * 1024 * 1024;
+
+// Outbound storage request bounds. The storage endpoint is user input (the
+// project's connection row), so a slow or hostile destination must not be able
+// to hold a request open indefinitely: the deadline converts a stall into a
+// failed operation and the socket cap bounds how many run at once.
+export const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
+export const STORAGE_CONNECTION_TIMEOUT_MS = 5_000;
+export const STORAGE_MAX_SOCKETS = 16;
+
+// How many LFS object transfers one backend process may hold at once. Each
+// admitted transfer keeps several copies of its payload (the received body, the
+// concatenated buffer, and the ciphertext) until its storage request settles, so
+// without this bound a handful of concurrent uploads or downloads crosses the
+// container memory limit. Downloads count against the same gate as uploads
+// because both buffer the object in the shared process.
+export const MAX_LFS_CONCURRENT_TRANSFERS = 2;
+
+// Login attempts are bounded twice: per account (whatever address asks) and per
+// client address (whatever account is asked). The account budget is the one a
+// successful login clears, so a mistyping owner is forgiven while a valid account
+// cannot buy guesses against anybody else; the address budget is never cleared
+// and only stops one address from spraying many accounts.
+export const RATE_LIMIT_LOGIN_ADDRESS_MAX = 50;
+// Buckets kept in the in-process rate limiter. Every distinct identity creates
+// one entry, so the map needs a ceiling of its own: past it, expired entries are
+// swept first and then the entry closest to expiring is dropped.
+export const MAX_RATE_LIMIT_BUCKETS = 10000;
+
+// Concurrent archive generations one backend process may run. An archive is
+// built and buffered by git (up to execGit's 32 MiB output cap per generation),
+// so the request budget alone let several of them run at once and hold their
+// archives together in memory.
+export const MAX_CONCURRENT_ARCHIVES = 4;
+// Largest diff payload a read route will hand to the client. A diff is rendered
+// synchronously by the browser, so an unbounded one costs the opening user a
+// frozen tab and the server a buffered response; past the cap the diff is
+// truncated and marked rather than delivered whole.
+export const MAX_DIFF_BYTES = 4 * 1024 * 1024;

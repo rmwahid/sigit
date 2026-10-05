@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { users } from "@/db/schema/auth";
+import { SESSION_COOKIE } from "@/constants/protocol";
+import { authRoutes } from "@/routes/auth";
 import {
   createSession,
   deleteSession,
@@ -65,6 +67,39 @@ describe("session lifecycle (DB sigit)", () => {
     expect(validated?.id).toBe(user.id);
 
     await deleteSession(token);
+    expect(await validateSessionToken(token)).toBeNull();
+  }, TEST_TIMEOUT);
+});
+
+describe("logout route", () => {
+  it("refuses a request that is not a JSON call", async () => {
+    const rows = await db.select().from(users).limit(1);
+    const user = rows[0];
+    const { token } = await createSession(user.id);
+    const cookie = `${SESSION_COOKIE}=${token}`;
+
+    // A cross-site form POST can set text/plain but cannot send
+    // application/json without a preflight, so the body requirement is what
+    // keeps a third-party page from ending the session.
+    const forged = await authRoutes.request("/logout", {
+      method: "POST",
+      headers: new Headers({ Cookie: cookie, "Content-Type": "text/plain" }),
+      body: "{}",
+    });
+    expect(forged.status).toBe(400);
+    expect(await validateSessionToken(token)).not.toBeNull();
+
+    const noBody = await authRoutes.request("/logout", { method: "POST", headers: new Headers({ Cookie: cookie }) });
+    expect(noBody.status).toBe(400);
+    expect(await validateSessionToken(token)).not.toBeNull();
+
+    // The JSON call the SPA makes still logs out.
+    const ok = await authRoutes.request("/logout", {
+      method: "POST",
+      headers: new Headers({ Cookie: cookie, "Content-Type": "application/json" }),
+      body: "{}",
+    });
+    expect(ok.status).toBe(200);
     expect(await validateSessionToken(token)).toBeNull();
   }, TEST_TIMEOUT);
 });

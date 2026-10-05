@@ -12,8 +12,14 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { pullRequests } from "@/db/schema/auth";
 import { PR_STATUSES } from "@/constants/pull-requests";
+import { log } from "@/lib/logger";
 
 const WORKTREES_ROOT = path.resolve(env.SIGIT_PROJECTS_ROOT, "_worktrees");
+
+// A worktree directory is named pr-<projectId>-<uuid>: the project id is what
+// makes a leftover attributable, so it can be reaped when that project goes away
+// instead of outliving it as an anonymous checkout.
+const WORKTREE_PREFIX = "pr-";
 
 export type MergeMethod = "merge" | "squash" | "fast_forward";
 
@@ -28,9 +34,12 @@ function gitIdentityArgs(): string[] {
   return ["-c", "user.name=SiGit", "-c", "user.email=sigit@local"];
 }
 
-async function worktreePath(): Promise<string> {
+// The directory name carries the project id: a worktree that survives its
+// request (a killed process) or its project (a delete) can then be attributed
+// and reaped, which a bare pr-<uuid> name made impossible.
+async function worktreePath(barePath: string): Promise<string> {
   await fs.mkdir(WORKTREES_ROOT, { recursive: true });
-  return path.join(WORKTREES_ROOT, `pr-${randomUUID()}`);
+  return path.join(WORKTREES_ROOT, `pr-${path.basename(barePath)}-${randomUUID()}`);
 }
 
 async function cleanupWorktree(dir: string): Promise<void> {
@@ -46,8 +55,8 @@ async function cleanupWorktree(dir: string): Promise<void> {
 // removes the worktree afterwards. The worktree metadata is unregistered via
 // `worktree remove` (not just the directory) so the bare repo does not leak
 // worktree entries.
-async function withWorktree<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await worktreePath();
+async function withWorktree<T>(barePath: string, fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await worktreePath(barePath);
   try {
     return await fn(dir);
   } finally {
@@ -64,7 +73,7 @@ export async function mergePullRequest(
   method: MergeMethod
 ): Promise<MergeResult> {
   try {
-    return await withWorktree(async (dir) => {
+    return await withWorktree(barePath, async (dir) => {
       await execGit(barePath, ["worktree", "add", "--detach", dir, `refs/heads/${base}`]);
       await execGit(dir, ["checkout", "-B", base, `refs/heads/${base}`]);
       // Fast-forward is the only method that does not create a commit: it just
@@ -105,7 +114,7 @@ export async function mergePullRequest(
 // "mergeable" unless git reports conflicts.
 export async function checkMergeable(barePath: string, base: string, head: string): Promise<MergeableStatus> {
   try {
-    return await withWorktree(async (dir) => {
+    return await withWorktree(barePath, async (dir) => {
       await execGit(barePath, ["worktree", "add", "--detach", dir, `refs/heads/${base}`]);
       try {
         await execGit(dir, ["merge", "--no-commit", "--no-ff", `refs/heads/${head}`]);
@@ -152,4 +161,65 @@ function gitMergeMessage(err: unknown): string {
   const e = err as { message?: string; stderr?: string | Buffer };
   const stderr = e?.stderr ? (typeof e.stderr === "string" ? e.stderr : e.stderr.toString("utf8")) : "";
   return (stderr || e?.message || String(err)).trim();
+}
+
+// Removes the worktrees belonging to one project and prunes the stale entries
+// they leave in its bare repo. Called when the project is deleted: without it a
+// deleted project keeps a full checkout of its repository on the server volume.
+export async function removeProjectWorktrees(projectId: string): Promise<number> {
+  const prefix = `${WORKTREE_PREFIX}${projectId}-`;
+  let removed = 0;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(WORKTREES_ROOT);
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix)) continue;
+    await fs.rm(path.join(WORKTREES_ROOT, entry), { recursive: true, force: true }).catch(() => {});
+    removed += 1;
+  }
+  if (removed > 0) {
+    // The repo may already be gone (the delete removes it in the same request),
+    // in which case there is nothing left to prune.
+    await execGit(path.resolve(env.SIGIT_PROJECTS_ROOT, projectId), ["worktree", "prune"]).catch(() => {});
+    log.warn("merge", "removed pull request worktrees of a deleted project", { projectId, removed });
+  }
+  return removed;
+}
+
+// Removes worktrees left behind by a process that died mid-merge, together with
+// the registrations they left in their bare repos. Meant for startup, where no
+// merge can be in flight: anything still present then belongs to a request that
+// is gone. Directories from before this naming scheme (pr-<uuid>) are removed
+// too, but they cannot be attributed to a project, so their bare repo keeps a
+// stale registration until it is pruned by its next merge.
+export async function sweepWorktrees(): Promise<{ removedDirs: number; prunedRepos: number }> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(WORKTREES_ROOT);
+  } catch {
+    return { removedDirs: 0, prunedRepos: 0 };
+  }
+  let removedDirs = 0;
+  const projectsToPrune = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.startsWith(WORKTREE_PREFIX)) continue;
+    await fs.rm(path.join(WORKTREES_ROOT, entry), { recursive: true, force: true }).catch(() => {});
+    removedDirs += 1;
+    const attributed = entry.match(/^pr-([0-9a-fA-F-]{36})-/);
+    if (attributed) projectsToPrune.add(path.resolve(env.SIGIT_PROJECTS_ROOT, attributed[1]));
+  }
+  let prunedRepos = 0;
+  for (const repoPath of projectsToPrune) {
+    try {
+      await execGit(repoPath, ["worktree", "prune"]);
+      prunedRepos += 1;
+    } catch {
+      // the project may be gone as well: nothing to prune
+    }
+  }
+  if (removedDirs > 0) log.warn("merge", "reaped leftover pull request worktrees", { removedDirs, prunedRepos });
+  return { removedDirs, prunedRepos };
 }

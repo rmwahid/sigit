@@ -7,7 +7,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/config/db";
 import { projects } from "@/db/schema/projects";
 import { projectCollaborators, users } from "@/db/schema/auth";
-import { MAX_FILE_BROWSER_BYTES, RATE_LIMIT_ARCHIVE_MAX } from "@/constants/limits";
+import {
+  MAX_CONCURRENT_ARCHIVES,
+  MAX_FILE_BROWSER_BYTES,
+  RATE_LIMIT_ARCHIVE_MAX,
+  RATE_LIMIT_HISTORY_MAX,
+} from "@/constants/limits";
 import { ERROR_CODES } from "@/constants/errors";
 import { SESSION_COOKIE } from "@/constants/protocol";
 import {
@@ -22,6 +27,7 @@ import {
 } from "@/modules/projects/git";
 import { projectRepoPath } from "@/modules/projects/projects";
 import { createSession } from "@/modules/auth/auth";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import { browserRoutes } from "@/routes/browser";
 
 // Integration test: temp bare repos for the git plumbing helpers + DB rows
@@ -213,6 +219,46 @@ describe("browser routes access rules", () => {
     const other = await browserRoutes.request(`/${pub}/archive?format=zip`, {
       headers: { "x-forwarded-for": "198.51.100.78" },
     });
+    expect(other.status).toBe(200);
+  });
+
+  it("anonymous: a failed archive generation does not hold its slot", async () => {
+    const pub = await createProjectRow(`browser-archive-slot-${suffix}`, true);
+    await initRepo(projectRepoPath(pub));
+    await seedRepo(projectRepoPath(pub), { "hello.txt": "hi" });
+    const identity = { "x-forwarded-for": "198.51.100.79" };
+
+    // A ref that is a valid name but absent from the repo makes archive() throw.
+    // Releasing the slot on that path is what keeps the route usable: losing one
+    // per failure would wedge it after MAX_CONCURRENT_ARCHIVES failures.
+    for (let i = 0; i < MAX_CONCURRENT_ARCHIVES + 2; i++) {
+      const res = await browserRoutes.request(`/${pub}/archive?ref=ghost-${i}&format=zip`, { headers: identity });
+      expect(res.status).toBe(404);
+    }
+
+    const ok = await browserRoutes.request(`/${pub}/archive?format=zip`, { headers: identity });
+    expect(ok.status).toBe(200);
+    expect((await ok.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
+
+  it("anonymous: reads that spawn git are budgeted too", async () => {
+    const pub = await createProjectRow(`browser-read-budget-${suffix}`, true);
+    await initRepo(projectRepoPath(pub));
+    await seedRepo(projectRepoPath(pub), { "hello.txt": "hi" });
+    const identity = "198.51.100.80";
+
+    // Exhaust the read budget directly instead of spending 120 git processes on
+    // it. The rule name is repeated here on purpose: if the router stops applying
+    // this budget to /refs, the request below answers 200 and this fails.
+    const readRule = { name: "browser.read", max: RATE_LIMIT_HISTORY_MAX };
+    for (let i = 0; i <= RATE_LIMIT_HISTORY_MAX; i++) consumeRateLimit(readRule, identity);
+
+    const blocked = await browserRoutes.request(`/${pub}/refs`, { headers: { "x-forwarded-for": identity } });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBeTruthy();
+
+    // The budget is per identity, so another caller still reads normally.
+    const other = await browserRoutes.request(`/${pub}/refs`, { headers: { "x-forwarded-for": "198.51.100.81" } });
     expect(other.status).toBe(200);
   });
 
