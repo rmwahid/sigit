@@ -21,6 +21,8 @@ node_modules
 .mcp.json
 .vscode/
 .repowise/
+# Mimosa plugin state: per-session hook state, ledger and source snapshots.
+.mimosa/
 
 # SiGit runtime data
 data/

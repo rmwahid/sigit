@@ -3,6 +3,8 @@
 # an image layer (the deployment reads its values from the environment).
 .git
 .repowise
+# Local security-tool state (hook state, ledger, source snapshots).
+.mimosa
 node_modules
 **/node_modules
 backend/dist
